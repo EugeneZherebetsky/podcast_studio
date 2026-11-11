@@ -56,7 +56,7 @@ Legend: **Read** = sections to load · **Accept** = what must be true · **Verif
   - Do: script prompt for a single-narrator episode with intro, 3–5 chapters, recap, outro; word budget; `sourceIds` on content segments; review stage that removes or fixes ungrounded claims.
   - Verify: tests with a fake LLM; schema-valid output; a test where the fake returns an ungrounded segment and review flags it.
 
-- [ ] **T10 TTS providers: Azure and OpenAI**
+- [x] **T10 TTS providers: Azure and OpenAI**
   - Read: ARCHITECTURE §5 table and notes. Check current provider docs for voices, rate control, output formats, pricing.
   - Do: implementations, WAV normalisation, content-hash cache, concurrency limit, backoff, `voices(lang)`.
   - Verify: unit tests with mocked HTTP; cache hit avoids a second call; `pnpm smoke --only tts` writes one English and one Hungarian WAV.

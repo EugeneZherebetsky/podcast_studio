@@ -5,10 +5,12 @@ import { z } from "zod";
 import { FakeExtractor } from "../src/providers/extract/fake.ts";
 import { ReadabilityExtractor } from "../src/providers/extract/readability.ts";
 import {
+  AzureTtsProvider,
   createExtractor,
   createFakeProviders,
   createProviders,
   createTtsProvider,
+  OpenAiTtsProvider,
   selectProviderNames,
 } from "../src/providers/index.ts";
 import { FakeLlmProvider } from "../src/providers/llm/fake.ts";
@@ -73,11 +75,31 @@ test("createExtractor returns a ReadabilityExtractor instance", () => {
 });
 
 test("each unimplemented slot fails with 'not implemented yet' naming the selected provider", () => {
-  const cloud = parseConfig({});
   const local = parseConfig({ PROFILE: "local" });
+  const elevenlabs = parseConfig({ TTS_PROVIDER: "elevenlabs" });
 
-  expect(() => createTtsProvider(cloud)).toThrowError("not implemented yet: tts/azure");
   expect(() => createTtsProvider(local)).toThrowError("not implemented yet: tts/piper");
+  expect(() => createTtsProvider(elevenlabs)).toThrowError("not implemented yet: tts/elevenlabs");
+});
+
+test("createTtsProvider requires API keys for azure and openai", () => {
+  const cloud = parseConfig({});
+  expect(() => createTtsProvider(cloud)).toThrowError(
+    'Cannot use the "azure" TTS provider: AZURE_SPEECH_KEY is not set. Set it in .env.',
+  );
+
+  const openaiWithoutKey = parseConfig({ TTS_PROVIDER: "openai" });
+  expect(() => createTtsProvider(openaiWithoutKey)).toThrowError(
+    'Cannot use the "openai" TTS provider: OPENAI_API_KEY is not set. Set it in .env.',
+  );
+
+  const azure = createTtsProvider(parseConfig({ AZURE_SPEECH_KEY: "dummy-azure-key" }));
+  expect(azure).toBeInstanceOf(AzureTtsProvider);
+
+  const openai = createTtsProvider(
+    parseConfig({ TTS_PROVIDER: "openai", OPENAI_API_KEY: "dummy-openai-key" }),
+  );
+  expect(openai).toBeInstanceOf(OpenAiTtsProvider);
 });
 
 test("createProviders fails on the first unimplemented provider of the profile", () => {

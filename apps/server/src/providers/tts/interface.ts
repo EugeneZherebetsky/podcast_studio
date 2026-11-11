@@ -31,3 +31,9 @@ export interface TtsProvider {
   voices(lang: Lang): Promise<Voice[]>;
   synthesize(request: SynthesizeRequest): Promise<SynthesizeResult>;
 }
+
+/** Counts Unicode code points in text. */
+export function countChars(text: string): number {
+  return Array.from(text).length;
+}
+

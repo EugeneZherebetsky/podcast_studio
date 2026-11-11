@@ -6,6 +6,7 @@ import { loadConfig } from "../config.ts";
 import {
   createLlmProvider,
   createSearchProvider,
+  createTtsProvider,
   SearxngSearchProvider,
   selectProviderNames,
 } from "../providers/index.ts";
@@ -133,6 +134,57 @@ async function runSearchSmoke(): Promise<void> {
   }
 }
 
+async function runTtsSmoke(): Promise<void> {
+  const config = loadConfig();
+  console.log("=== TTS Provider Smoke Check ===");
+
+  const providerName = config.TTS_PROVIDER;
+  if (providerName === "azure") {
+    if (!config.AZURE_SPEECH_KEY) {
+      console.log(`[tts: ${providerName}] skipped: no API key in .env`);
+      return;
+    }
+  } else if (providerName === "openai") {
+    if (!config.OPENAI_API_KEY) {
+      console.log(`[tts: ${providerName}] skipped: no API key in .env`);
+      return;
+    }
+  } else {
+    console.log(`[tts: ${providerName}] skipped: provider not supported in smoke check`);
+    return;
+  }
+
+  try {
+    const provider = createTtsProvider(config);
+    const enVoice =
+      providerName === "azure"
+        ? config.TTS_VOICE_NATIVE_HOST || "en-US-JennyNeural"
+        : "alloy";
+    const huVoice =
+      providerName === "azure" ? config.TTS_VOICE_HU_HOST : "alloy";
+
+    console.log(`[tts: ${providerName}] synthesising English greeting using voice "${enVoice}"...`);
+    const enResult = await provider.synthesize({
+      text: "Hello! Welcome to Podcast Studio.",
+      lang: "en",
+      voice: enVoice,
+      rate: 1,
+    });
+    console.log(`[tts: ${providerName}] SUCCESS (en): ${enResult.wavPath} (${enResult.chars} chars)`);
+
+    console.log(`[tts: ${providerName}] synthesising Hungarian greeting using voice "${huVoice}"...`);
+    const huResult = await provider.synthesize({
+      text: "Szervusz! Üdvözöllek a Podcast Stúdióban.",
+      lang: "hu",
+      voice: huVoice,
+      rate: 1,
+    });
+    console.log(`[tts: ${providerName}] SUCCESS (hu): ${huResult.wavPath} (${huResult.chars} chars)`);
+  } catch (err) {
+    console.error(`[tts: ${providerName}] FAILED:`, (err as Error).message);
+  }
+}
+
 async function main(): Promise<void> {
   const { values } = parseArgs({
     args: process.argv.slice(2),
@@ -144,11 +196,7 @@ async function main(): Promise<void> {
 
   const only = values.only as string | undefined;
 
-  if (only && only !== "llm" && only !== "search") {
-    if (only === "tts") {
-      console.log("smoke --only tts: not implemented yet (T10)");
-      return;
-    }
+  if (only && only !== "llm" && only !== "search" && only !== "tts") {
     console.log(`smoke --only ${only}: unknown target`);
     return;
   }
@@ -159,6 +207,10 @@ async function main(): Promise<void> {
   if (!only || only === "search") {
     if (!only) console.log("");
     await runSearchSmoke();
+  }
+  if (!only || only === "tts") {
+    if (!only) console.log("");
+    await runTtsSmoke();
   }
 }
 

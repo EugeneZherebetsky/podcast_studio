@@ -40,3 +40,47 @@ export function sineTone(frequencyHz: number, sampleCount: number): Int16Array {
   }
   return samples;
 }
+
+/** Checks if a buffer represents a valid mono 24 kHz 16-bit PCM WAV. */
+export function isMono24k16BitPcmWav(buf: Buffer): boolean {
+  if (buf.length < WAV_HEADER_BYTES) return false;
+  if (buf.toString("ascii", 0, 4) !== "RIFF") return false;
+  if (buf.toString("ascii", 8, 12) !== "WAVE") return false;
+
+  let offset = 12;
+  let hasFmt = false;
+  let hasData = false;
+
+  while (offset + 8 <= buf.length) {
+    const chunkId = buf.toString("ascii", offset, offset + 4);
+    const chunkSize = buf.readUInt32LE(offset + 4);
+    offset += 8;
+
+    if (chunkId === "fmt ") {
+      if (chunkSize < 16 || offset + 16 > buf.length) return false;
+      const format = buf.readUInt16LE(offset);
+      const channels = buf.readUInt16LE(offset + 2);
+      const sampleRate = buf.readUInt32LE(offset + 4);
+      const bitsPerSample = buf.readUInt16LE(offset + 14);
+      if (
+        format !== 1 ||
+        channels !== WAV_CHANNELS ||
+        sampleRate !== WAV_SAMPLE_RATE ||
+        bitsPerSample !== WAV_BITS_PER_SAMPLE
+      ) {
+        return false;
+      }
+      hasFmt = true;
+    } else if (chunkId === "data") {
+      hasData = true;
+    }
+
+    offset += chunkSize;
+    if (chunkSize % 2 !== 0) {
+      offset += 1;
+    }
+  }
+
+  return hasFmt && hasData;
+}
+

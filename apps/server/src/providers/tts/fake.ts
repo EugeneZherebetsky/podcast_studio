@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Lang } from "shared";
-import type { SynthesizeRequest, SynthesizeResult, TtsProvider, Voice } from "./interface.ts";
+import { countChars, type SynthesizeRequest, type SynthesizeResult, type TtsProvider, type Voice } from "./interface.ts";
 import { encodeWav, sineTone, WAV_SAMPLE_RATE } from "./wav.ts";
 
 export interface FakeTtsOptions {
@@ -77,6 +77,4 @@ export class FakeTtsProvider implements TtsProvider {
   }
 }
 
-function countChars(text: string): number {
-  return Array.from(text).length;
-}
+

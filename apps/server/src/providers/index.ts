@@ -12,6 +12,8 @@ import type { SearchProvider } from "./search/interface.ts";
 import { BraveSearchProvider } from "./search/brave.ts";
 import { SearxngSearchProvider } from "./search/searxng.ts";
 import { TavilySearchProvider } from "./search/tavily.ts";
+import { AzureTtsProvider } from "./tts/azure.ts";
+import { OpenAiTtsProvider } from "./tts/openai.ts";
 import { FakeTtsProvider, type FakeTtsOptions } from "./tts/fake.ts";
 import type { TtsProvider } from "./tts/interface.ts";
 
@@ -24,6 +26,21 @@ export { BraveSearchProvider } from "./search/brave.ts";
 export { SearxngSearchProvider } from "./search/searxng.ts";
 export { TavilySearchProvider } from "./search/tavily.ts";
 export { canonicalizeUrl, deduplicateHits } from "./search/url.ts";
+export { AzureTtsProvider, type AzureTtsOptions, KNOWN_AZURE_VOICES } from "./tts/azure.ts";
+export { OpenAiTtsProvider, type OpenAiTtsOptions, OPENAI_VOICE_DEFINITIONS } from "./tts/openai.ts";
+export {
+  CachedTtsProvider,
+  ConcurrencyLimiter,
+  TtsCache,
+  TtsHttpError,
+  computeTtsCacheKey,
+  ensureMono24k16BitPcmWav,
+  isTransientError,
+  retryWithBackoff,
+  type RetryOptions,
+  type TtsCacheOptions,
+} from "./tts/cache.ts";
+export { isMono24k16BitPcmWav } from "./tts/wav.ts";
 
 export interface Providers {
   llm: LlmProvider;
@@ -106,11 +123,32 @@ export function createExtractor(config: AppConfig): Extractor {
 export function createTtsProvider(config: AppConfig): TtsProvider {
   const name = selectProviderNames(config).tts;
   switch (name) {
-    case "azure":
-    case "openai":
+    case "azure": {
+      if (!config.AZURE_SPEECH_KEY) {
+        throw new Error(
+          'Cannot use the "azure" TTS provider: AZURE_SPEECH_KEY is not set. Set it in .env.',
+        );
+      }
+      return new AzureTtsProvider({
+        subscriptionKey: config.AZURE_SPEECH_KEY,
+        region: config.AZURE_SPEECH_REGION,
+        dataDir: config.DATA_DIR,
+      });
+    }
+    case "openai": {
+      if (!config.OPENAI_API_KEY) {
+        throw new Error(
+          'Cannot use the "openai" TTS provider: OPENAI_API_KEY is not set. Set it in .env.',
+        );
+      }
+      return new OpenAiTtsProvider({
+        apiKey: config.OPENAI_API_KEY,
+        dataDir: config.DATA_DIR,
+      });
+    }
     case "elevenlabs":
     case "piper":
-      return notImplemented(`tts/${name}`); // T10 (piper: T26)
+      return notImplemented(`tts/${name}`); // piper: T26
   }
 }
 
