@@ -167,7 +167,7 @@ Notes for implementers:
 
 - Azure is the default because it has dedicated Hungarian neural voices, SSML rate control, and a monthly free character allowance; confirm the current allowance and voice list in its docs before relying on them. ElevenLabs supports Hungarian only on some models (Flash v2.5 at the time of writing): check before selecting a model.
 - Normalise every provider's output to mono 24 kHz 16-bit WAV with ffmpeg before caching.
-- This PC has 16 GB RAM and no discrete GPU. A local 4B model can draft an English script slowly; it is **not** adequate for graded Hungarian with correct morphology. The local profile refuses `graded`/`bilingual` modes unless `ALLOW_LOCAL_LEARNING=1`.
+- Assume the local profile runs on a CPU-only machine with a small model. Such a model can draft an English script slowly; it is **not** adequate for graded Hungarian with correct morphology. The local profile refuses `graded`/`bilingual` modes unless `ALLOW_LOCAL_LEARNING=1`.
 - The `Extractor` must refuse non-http(s) URLs and any host resolving to loopback, link-local or private ranges, and cap response size at 5 MB.
 
 ## 6. HTTP API (server, prefix `/api`)

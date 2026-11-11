@@ -1,23 +1,21 @@
 # Setup
 
-## Installed on this PC (verified 2026-11-11)
+## Required tools
 
-| Tool | Version | Location / note |
-|---|---|---|
-| Node.js | 22.23.1 | |
-| pnpm | 12.15.0 | |
-| git, gh | 2.53, 2.97 | |
-| ffmpeg / ffprobe | 8.1.2 | on PATH |
-| Docker | 29.6.2 | Docker Desktop must be running for SearXNG |
-| Ollama | 0.40.16 | only `qwen3.5:4b` pulled |
-| JDK | Temurin 17.0.21 | `C:\Users\ezher\scoop\apps\temurin17-jdk\current` (`JAVA_HOME` set) |
-| Android SDK | cmdline-tools, platform-tools 37.0.1 (adb), platform `android-36`, build-tools 36.0.0; licences accepted | `C:\Users\ezher\scoop\apps\android-clt\current` (`ANDROID_HOME` set) |
+| Tool | Needed for |
+|---|---|
+| Node.js 22, pnpm, git | everything |
+| ffmpeg / ffprobe on PATH | audio assembly |
+| JDK 17 (`JAVA_HOME` set) | Android build |
+| Android SDK: cmdline-tools, platform-tools (adb), platform `android-36`, build-tools 36.0.0, licences accepted (`ANDROID_HOME` set) | Android build |
+| Docker | SearXNG, local profile only |
+| Ollama | local profile only |
 
-JDK and Android SDK were installed with Scoop (`scoop install java/temurin17-jdk main/android-clt`), no admin rights needed. Open a **new** terminal to pick up `JAVA_HOME`, `ANDROID_HOME` and PATH. Gradle downloads the NDK and CMake on the first Android build (several GB, 15–30 minutes).
+On Windows, the JDK and Android SDK can be installed without admin rights using Scoop: `scoop bucket add java`, then `scoop install java/temurin17-jdk main/android-clt`, then `sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"`. Open a new terminal afterwards to pick up the environment variables. Gradle downloads the NDK and CMake on the first Android build (several GB).
 
-Android Studio is not installed and not required. There is no emulator: development uses the physical phone.
+Android Studio and an emulator are not required: development uses a physical phone.
 
-Not installed: Rust (only needed if a Tauri shell is ever chosen), Piper (installed by task T26), Tailscale (owner action below).
+The state of the owner's own machine (paths, versions, hardware) is recorded in `docs/LOCAL.md`, which is git-ignored.
 
 ## Owner actions
 
@@ -47,7 +45,7 @@ When the server first listens on the LAN (`HOST=0.0.0.0`), allow Node.js on **pr
 
 ## Local profile (task T26)
 
-- LLM: `ollama pull` a larger model if wanted. With 16 GB RAM and no GPU, expect models up to roughly 8B parameters at slow speed; fine for English drafts, not for graded Hungarian.
+- LLM: `ollama pull` the model named in `.env`. On a CPU-only machine expect small models at slow speed: fine for English drafts, not for graded Hungarian.
 - Search: `docker compose -f infra/docker-compose.searxng.yml up -d`.
 - TTS: Piper binary and voices are downloaded by `pnpm run piper:install`.
 

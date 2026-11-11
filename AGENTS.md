@@ -49,12 +49,14 @@ pnpm --filter mobile android # build + install dev build on the USB-connected ph
 - Anything that sends the user's data to a service not listed in `docs/ARCHITECTURE.md`.
 
 **Never**
-- Commit `.env`, API keys, generated audio, or `data/`.
+- Commit `.env`, API keys, generated audio, `data/`, or details of the owner's machine (user name, home-directory paths, hardware, installed-software inventory).
 - Put API keys in the mobile or web bundle. Only the server talks to LLM, search and TTS providers.
 - Hardcode a model id, voice id or provider in pipeline code: they come from config.
 - Delete or weaken a failing test to make a task pass.
 - Reproduce source articles verbatim in scripts beyond short attributed quotes.
 
-## Environment (this machine)
+## Environment
 
-Windows 11, 16 GB RAM, Intel Core Ultra 5 135U, integrated graphics (no CUDA). Node 22, pnpm 12, git, ffmpeg 8, Docker, Ollama (only `qwen3.5:4b`), JDK 17, Android SDK (platform 36, build-tools 36.0.0, adb). Details and paths: `docs/SETUP.md`. Shell is PowerShell or git-bash; write cross-platform npm scripts (no `rm -rf`, no `&&`-only assumptions: use node scripts or `shx`).
+Development happens on Windows; the shell is PowerShell or git-bash. Write cross-platform npm scripts (no `rm -rf`, no `&&`-only assumptions: use node scripts or `shx`). Required tools: Node 22, pnpm, git, ffmpeg/ffprobe, JDK 17 and the Android SDK (platform 36, build-tools 36.0.0, adb) for the mobile app; Docker and Ollama only for the local profile. The local profile must work on a CPU-only machine.
+
+Machine-specific details (install paths, exact versions, hardware) live in `docs/LOCAL.md`, which is git-ignored. Read it if it exists; never copy its contents into tracked files, commit messages or code comments.

@@ -13,3 +13,4 @@ apps/mobile/ios/
 *.apk
 *.keystore
 .DS_Store
+docs/LOCAL.md
