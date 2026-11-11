@@ -6,7 +6,6 @@ import { FakeExtractor } from "../src/providers/extract/fake.ts";
 import {
   createExtractor,
   createFakeProviders,
-  createLlmProvider,
   createProviders,
   createSearchProvider,
   createTtsProvider,
@@ -66,14 +65,11 @@ test("explicit provider names win over the profile defaults", () => {
   });
 });
 
-test("each slot fails with 'not implemented yet' naming the selected provider", () => {
+test("each non-LLM slot fails with 'not implemented yet' naming the selected provider", () => {
   const cloud = parseConfig({});
   const local = parseConfig({ PROFILE: "local" });
   const brave = parseConfig({ SEARCH_PROVIDER: "brave", LLM_PROVIDER: "google" });
 
-  expect(() => createLlmProvider(cloud)).toThrowError("not implemented yet: llm/anthropic");
-  expect(() => createLlmProvider(local)).toThrowError("not implemented yet: llm/ollama");
-  expect(() => createLlmProvider(brave)).toThrowError("not implemented yet: llm/google");
   expect(() => createSearchProvider(cloud)).toThrowError("not implemented yet: search/tavily");
   expect(() => createSearchProvider(local)).toThrowError("not implemented yet: search/searxng");
   expect(() => createSearchProvider(brave)).toThrowError("not implemented yet: search/brave");
@@ -83,11 +79,9 @@ test("each slot fails with 'not implemented yet' naming the selected provider", 
 });
 
 test("createProviders fails on the first unimplemented provider of the profile", () => {
-  expect(() => createProviders(parseConfig({}))).toThrowError(
-    /^not implemented yet: llm\/anthropic$/,
-  );
+  // LLM is implemented (T05). For local profile, LLM succeeds and search is the next slot.
   expect(() => createProviders(parseConfig({ PROFILE: "local" }))).toThrowError(
-    /^not implemented yet: llm\/ollama$/,
+    /^not implemented yet: search\/searxng$/,
   );
 });
 

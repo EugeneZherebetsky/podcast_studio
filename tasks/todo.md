@@ -32,7 +32,7 @@ Legend: **Read** = sections to load · **Accept** = what must be true · **Verif
   - Do: the four interfaces, deterministic fakes (fake TTS emits a sine WAV whose length is proportional to text length), a `createProviders(config)` factory.
   - Verify: unit tests use only fakes; factory selects by profile.
 
-- [ ] **T05 LLM provider (cloud + Ollama)**
+- [x] **T05 LLM provider (cloud + Ollama)**
   - Read: ARCHITECTURE §5, §3 "Prompt handling", "Cost guard". Check current AI SDK docs for structured output.
   - Do: `generateObject` over AI SDK with `main`/`fast` slots, schema validation, one retry on invalid output, usage recording.
   - Verify: unit tests with a mocked model; `pnpm smoke --only llm` returns a schema-valid object from the configured cloud model and from Ollama.

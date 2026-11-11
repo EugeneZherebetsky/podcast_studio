@@ -3,6 +3,7 @@
 import type { AppConfig, LlmProviderName, SearchProviderName, TtsProviderName } from "shared";
 import { FakeExtractor, type FakeExtractorOptions } from "./extract/fake.ts";
 import type { Extractor } from "./extract/interface.ts";
+import { createAiSdkLlmProvider } from "./llm/ai-sdk.ts";
 import { FakeLlmProvider, type FakeLlmOptions } from "./llm/fake.ts";
 import type { LlmProvider } from "./llm/interface.ts";
 import { FakeSearchProvider, type FakeSearchOptions } from "./search/fake.ts";
@@ -52,13 +53,7 @@ function notImplemented(provider: string): never {
 
 export function createLlmProvider(config: AppConfig): LlmProvider {
   const name = selectProviderNames(config).llm;
-  switch (name) {
-    case "anthropic":
-    case "openai":
-    case "google":
-    case "ollama":
-      return notImplemented(`llm/${name}`); // T05
-  }
+  return createAiSdkLlmProvider(config, name);
 }
 
 export function createSearchProvider(config: AppConfig): SearchProvider {

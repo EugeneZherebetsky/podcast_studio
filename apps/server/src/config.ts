@@ -50,3 +50,39 @@ function definedOnly(env: Record<string, string | undefined>): Record<string, st
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------------------
+// Prices (ARCHITECTURE §3 "Cost guard")
+// ---------------------------------------------------------------------------------------
+
+/** What one model costs, in USD per million tokens. */
+export interface LlmPrice {
+  inputUsdPerMTok: number;
+  outputUsdPerMTok: number;
+}
+
+/** Prices keyed by the exact model id used in `LLM_MODEL_MAIN` / `LLM_MODEL_FAST`. */
+export type LlmPriceTable = Readonly<Record<string, LlmPrice>>;
+
+/**
+ * EDIT ME. Add one line per cloud model id you put in `.env`, with the prices from the
+ * provider's current pricing page (do not trust remembered numbers). A model that is not
+ * listed here is recorded with cost 0 and a warning, so the monthly budget guard cannot
+ * see it. Local (Ollama) models are free and need no entry.
+ */
+export const LLM_PRICES: LlmPriceTable = {
+  // EXAMPLE ONLY: a made-up model id with made-up prices, to show the format.
+  "example-model-id": { inputUsdPerMTok: 1, outputUsdPerMTok: 2 },
+};
+
+/** Estimated cost of one call, or `undefined` when the model has no entry in the table. */
+export function computeLlmCostUsd(
+  prices: LlmPriceTable,
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+): number | undefined {
+  if (!Object.hasOwn(prices, model)) return undefined;
+  const price = prices[model]!;
+  return (inputTokens * price.inputUsdPerMTok + outputTokens * price.outputUsdPerMTok) / 1_000_000;
+}
