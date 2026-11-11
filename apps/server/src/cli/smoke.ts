@@ -3,7 +3,12 @@ import { parseArgs } from "node:util";
 import { parseConfig } from "shared";
 import { z } from "zod";
 import { loadConfig } from "../config.ts";
-import { createLlmProvider, selectProviderNames } from "../providers/index.ts";
+import {
+  createLlmProvider,
+  createSearchProvider,
+  SearxngSearchProvider,
+  selectProviderNames,
+} from "../providers/index.ts";
 import { createAiSdkLlmProvider, findLlmApiKey } from "../providers/llm/ai-sdk.ts";
 
 const TinySchema = z.object({
@@ -74,6 +79,60 @@ async function runLlmSmoke(): Promise<void> {
   }
 }
 
+async function runSearchSmoke(): Promise<void> {
+  const config = loadConfig();
+  console.log("=== Search Provider Smoke Check ===");
+
+  // 1. Configured search provider check
+  if (config.SEARCH_PROVIDER === "tavily") {
+    if (!config.TAVILY_API_KEY) {
+      console.log("[search: tavily] skipped: no API key set in .env");
+    } else {
+      try {
+        console.log('[search: tavily] searching for "podcast"...');
+        const provider = createSearchProvider(config);
+        const hits = await provider.search("podcast", { max: 3 });
+        console.log(`[search: tavily] SUCCESS: returned ${hits.length} hit(s):`);
+        for (const hit of hits) {
+          console.log(`  - ${hit.title} (${hit.url})`);
+        }
+      } catch (err) {
+        console.error("[search: tavily] FAILED:", (err as Error).message);
+      }
+    }
+  } else if (config.SEARCH_PROVIDER === "brave") {
+    if (!config.BRAVE_API_KEY) {
+      console.log("[search: brave] skipped: no API key set in .env");
+    } else {
+      try {
+        console.log('[search: brave] searching for "podcast"...');
+        const provider = createSearchProvider(config);
+        const hits = await provider.search("podcast", { max: 3 });
+        console.log(`[search: brave] SUCCESS: returned ${hits.length} hit(s):`);
+        for (const hit of hits) {
+          console.log(`  - ${hit.title} (${hit.url})`);
+        }
+      } catch (err) {
+        console.error("[search: brave] FAILED:", (err as Error).message);
+      }
+    }
+  }
+
+  // 2. SearXNG check (local profile or local container)
+  const searxngUrl = config.SEARXNG_URL || "http://localhost:8888";
+  console.log(`\n[search: searxng] checking local SearXNG at ${searxngUrl}...`);
+  try {
+    const searxng = new SearxngSearchProvider({ baseUrl: searxngUrl });
+    const hits = await searxng.search("podcast", { max: 3 });
+    console.log(`[search: searxng] SUCCESS: returned ${hits.length} hit(s):`);
+    for (const hit of hits) {
+      console.log(`  - ${hit.title} (${hit.url})`);
+    }
+  } catch (err) {
+    console.log("[search: searxng] unreachable/skipped:", (err as Error).message);
+  }
+}
+
 async function main(): Promise<void> {
   const { values } = parseArgs({
     args: process.argv.slice(2),
@@ -85,11 +144,7 @@ async function main(): Promise<void> {
 
   const only = values.only as string | undefined;
 
-  if (only && only !== "llm") {
-    if (only === "search") {
-      console.log("smoke --only search: not implemented yet (T06)");
-      return;
-    }
+  if (only && only !== "llm" && only !== "search") {
     if (only === "tts") {
       console.log("smoke --only tts: not implemented yet (T10)");
       return;
@@ -98,7 +153,13 @@ async function main(): Promise<void> {
     return;
   }
 
-  await runLlmSmoke();
+  if (!only || only === "llm") {
+    await runLlmSmoke();
+  }
+  if (!only || only === "search") {
+    if (!only) console.log("");
+    await runSearchSmoke();
+  }
 }
 
 main().catch((err) => {

@@ -1,0 +1,27 @@
+{
+  "query": "podcast",
+  "results": [
+    {
+      "title": "Podcasting - Wikipedia",
+      "url": "https://en.wikipedia.org/wiki/Podcasting?utm_source=test#History",
+      "content": "A podcast is an episodic series of spoken word digital audio files that a user can download to a personal device for easy listening.",
+      "score": 0.98,
+      "published_date": "2026-03-01T12:00:00.000Z"
+    },
+    {
+      "title": "Duplicate Podcasting Link",
+      "url": "https://en.wikipedia.org/wiki/Podcasting/",
+      "content": "A podcast is an episodic series...",
+      "score": 0.95,
+      "published_date": "2026-03-01T12:00:00.000Z"
+    },
+    {
+      "title": "The History of Podcasting",
+      "url": "https://example.com/history-of-podcasting?ref=twitter&utm_medium=social",
+      "content": "The medium began to gain traction in late 2004.",
+      "score": 0.88,
+      "published_date": "Sun, 15 Feb 2026 10:00:00 GMT"
+    }
+  ],
+  "response_time": "0.45"
+}

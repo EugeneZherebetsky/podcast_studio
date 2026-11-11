@@ -37,7 +37,7 @@ Legend: **Read** = sections to load · **Accept** = what must be true · **Verif
   - Do: `generateObject` over AI SDK with `main`/`fast` slots, schema validation, one retry on invalid output, usage recording.
   - Verify: unit tests with a mocked model; `pnpm smoke --only llm` returns a schema-valid object from the configured cloud model and from Ollama.
 
-- [ ] **T06 Search providers**
+- [x] **T06 Search providers**
   - Do: Tavily and Brave implementations; SearXNG implementation + `infra/docker-compose.searxng.yml` with JSON output enabled; URL canonicalisation and dedupe helper.
   - Verify: unit tests against recorded JSON fixtures; `pnpm smoke --only search`.
 

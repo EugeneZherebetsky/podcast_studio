@@ -8,6 +8,9 @@ import { FakeLlmProvider, type FakeLlmOptions } from "./llm/fake.ts";
 import type { LlmProvider } from "./llm/interface.ts";
 import { FakeSearchProvider, type FakeSearchOptions } from "./search/fake.ts";
 import type { SearchProvider } from "./search/interface.ts";
+import { BraveSearchProvider } from "./search/brave.ts";
+import { SearxngSearchProvider } from "./search/searxng.ts";
+import { TavilySearchProvider } from "./search/tavily.ts";
 import { FakeTtsProvider, type FakeTtsOptions } from "./tts/fake.ts";
 import type { TtsProvider } from "./tts/interface.ts";
 
@@ -15,6 +18,10 @@ export type * from "./extract/interface.ts";
 export type * from "./llm/interface.ts";
 export type * from "./search/interface.ts";
 export type * from "./tts/interface.ts";
+export { BraveSearchProvider } from "./search/brave.ts";
+export { SearxngSearchProvider } from "./search/searxng.ts";
+export { TavilySearchProvider } from "./search/tavily.ts";
+export { canonicalizeUrl, deduplicateHits } from "./search/url.ts";
 
 export interface Providers {
   llm: LlmProvider;
@@ -59,10 +66,30 @@ export function createLlmProvider(config: AppConfig): LlmProvider {
 export function createSearchProvider(config: AppConfig): SearchProvider {
   const name = selectProviderNames(config).search;
   switch (name) {
-    case "tavily":
-    case "brave":
-    case "searxng":
-      return notImplemented(`search/${name}`); // T06
+    case "tavily": {
+      if (!config.TAVILY_API_KEY) {
+        throw new Error(
+          'Cannot use the "tavily" search provider: TAVILY_API_KEY is not set. Set it in .env.',
+        );
+      }
+      return new TavilySearchProvider({ apiKey: config.TAVILY_API_KEY });
+    }
+    case "brave": {
+      if (!config.BRAVE_API_KEY) {
+        throw new Error(
+          'Cannot use the "brave" search provider: BRAVE_API_KEY is not set. Set it in .env.',
+        );
+      }
+      return new BraveSearchProvider({ apiKey: config.BRAVE_API_KEY });
+    }
+    case "searxng": {
+      if (!config.SEARXNG_URL) {
+        throw new Error(
+          'Cannot use the "searxng" search provider: SEARXNG_URL is not set. Set it in .env.',
+        );
+      }
+      return new SearxngSearchProvider({ baseUrl: config.SEARXNG_URL });
+    }
   }
 }
 

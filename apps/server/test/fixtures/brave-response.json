@@ -1,0 +1,27 @@
+{
+  "query": {
+    "original": "podcast"
+  },
+  "web": {
+    "results": [
+      {
+        "title": "Podcasting - Wikipedia",
+        "url": "https://en.wikipedia.org/wiki/Podcasting?fbclid=123",
+        "description": "A podcast is an episodic series of digital audio files that a user can download.",
+        "page_age": "2026-01-15T00:00:00Z"
+      },
+      {
+        "title": "Duplicate Brave Podcasting Link",
+        "url": "https://en.wikipedia.org/wiki/Podcasting/",
+        "description": "Duplicate description.",
+        "page_age": "2026-01-15T00:00:00Z"
+      },
+      {
+        "title": "How to Start a Podcast: Complete Guide",
+        "url": "https://example.org/guides/start-a-podcast?gclid=abc#step-1",
+        "description": "Learn how to record, edit, and publish your own podcast series.",
+        "page_age": "2026-02-10T08:00:00Z"
+      }
+    ]
+  }
+}
