@@ -27,7 +27,7 @@ Legend: **Read** = sections to load · **Accept** = what must be true · **Verif
 
 ## M1 — Walking skeleton: topic in, audio out (CLI only)
 
-- [ ] **T04 Provider interfaces and fakes**
+- [x] **T04 Provider interfaces and fakes**
   - Read: ARCHITECTURE §5
   - Do: the four interfaces, deterministic fakes (fake TTS emits a sine WAV whose length is proportional to text length), a `createProviders(config)` factory.
   - Verify: unit tests use only fakes; factory selects by profile.
