@@ -1,0 +1,2 @@
+This is a plain text file, not an HTML document.
+It has no markup, no DOM, and cannot be parsed as an article.

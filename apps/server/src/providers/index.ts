@@ -3,6 +3,7 @@
 import type { AppConfig, LlmProviderName, SearchProviderName, TtsProviderName } from "shared";
 import { FakeExtractor, type FakeExtractorOptions } from "./extract/fake.ts";
 import type { Extractor } from "./extract/interface.ts";
+import { ReadabilityExtractor } from "./extract/readability.ts";
 import { createAiSdkLlmProvider } from "./llm/ai-sdk.ts";
 import { FakeLlmProvider, type FakeLlmOptions } from "./llm/fake.ts";
 import type { LlmProvider } from "./llm/interface.ts";
@@ -18,6 +19,7 @@ export type * from "./extract/interface.ts";
 export type * from "./llm/interface.ts";
 export type * from "./search/interface.ts";
 export type * from "./tts/interface.ts";
+export { ReadabilityExtractor } from "./extract/readability.ts";
 export { BraveSearchProvider } from "./search/brave.ts";
 export { SearxngSearchProvider } from "./search/searxng.ts";
 export { TavilySearchProvider } from "./search/tavily.ts";
@@ -97,7 +99,7 @@ export function createExtractor(config: AppConfig): Extractor {
   const name = selectProviderNames(config).extractor;
   switch (name) {
     case "readability":
-      return notImplemented(`extract/${name}`); // T07
+      return new ReadabilityExtractor();
   }
 }
 

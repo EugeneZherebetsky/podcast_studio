@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import { parseConfig } from "shared";
 import { z } from "zod";
 import { FakeExtractor } from "../src/providers/extract/fake.ts";
+import { ReadabilityExtractor } from "../src/providers/extract/readability.ts";
 import {
   createExtractor,
   createFakeProviders,
@@ -64,19 +65,25 @@ test("explicit provider names win over the profile defaults", () => {
   });
 });
 
+test("createExtractor returns a ReadabilityExtractor instance", () => {
+  const cloud = parseConfig({});
+  const local = parseConfig({ PROFILE: "local" });
+  expect(createExtractor(cloud)).toBeInstanceOf(ReadabilityExtractor);
+  expect(createExtractor(local)).toBeInstanceOf(ReadabilityExtractor);
+});
+
 test("each unimplemented slot fails with 'not implemented yet' naming the selected provider", () => {
   const cloud = parseConfig({});
   const local = parseConfig({ PROFILE: "local" });
 
-  expect(() => createExtractor(cloud)).toThrowError("not implemented yet: extract/readability");
   expect(() => createTtsProvider(cloud)).toThrowError("not implemented yet: tts/azure");
   expect(() => createTtsProvider(local)).toThrowError("not implemented yet: tts/piper");
 });
 
 test("createProviders fails on the first unimplemented provider of the profile", () => {
-  // LLM (T05) and search (T06) are implemented. For local profile, extractor is the next slot.
+  // LLM (T05), search (T06), and extractor (T07) are implemented. For local profile, TTS is the next slot.
   expect(() => createProviders(parseConfig({ PROFILE: "local" }))).toThrowError(
-    /^not implemented yet: extract\/readability$/,
+    /^not implemented yet: tts\/piper$/,
   );
 });
 

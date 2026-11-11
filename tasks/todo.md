@@ -41,7 +41,7 @@ Legend: **Read** = sections to load · **Accept** = what must be true · **Verif
   - Do: Tavily and Brave implementations; SearXNG implementation + `infra/docker-compose.searxng.yml` with JSON output enabled; URL canonicalisation and dedupe helper.
   - Verify: unit tests against recorded JSON fixtures; `pnpm smoke --only search`.
 
-- [ ] **T07 Extractor**
+- [x] **T07 Extractor**
   - Read: ARCHITECTURE §5 last bullet
   - Do: fetch with timeout, size cap, private-address refusal, Readability extraction, 8k-char trim on paragraph boundaries.
   - Verify: tests on saved HTML fixtures (article, paywall stub, non-HTML); a test proving `http://127.0.0.1`, `http://169.254.169.254` and `file://` are refused.
