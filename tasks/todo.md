@@ -20,7 +20,7 @@ Legend: **Read** = sections to load · **Accept** = what must be true · **Verif
   - Accept: invalid fixtures are rejected with readable messages; `schemaVersion` is checked.
   - Verify: `pnpm --filter shared test` with valid and invalid fixtures for each schema.
 
-- [ ] **T03 Database and config**
+- [x] **T03 Database and config**
   - Read: ARCHITECTURE §4 "SQLite tables"
   - Do: Drizzle schema + migrations for all tables; `config.ts` loading `.env` through the shared schema; `data/` directory bootstrap.
   - Verify: test creates a temp DB, runs migrations, round-trips one row per table.

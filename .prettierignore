@@ -5,3 +5,4 @@ build
 data
 # design docs are hand-formatted
 *.md
+apps/server/src/db/migrations/

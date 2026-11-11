@@ -1,0 +1,52 @@
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { parseEnv } from "node:util";
+import { parseConfig, type AppConfig } from "shared";
+
+/** The repository root: where `.env` lives and what a relative DATA_DIR is resolved against. */
+export const REPO_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
+
+export interface LoadConfigOptions {
+  /** Directory holding `.env`; relative DATA_DIR values are resolved against it. */
+  rootDir?: string;
+  /** Environment variables; they win over `.env`. */
+  env?: Record<string, string | undefined>;
+}
+
+/**
+ * Loads `<rootDir>/.env` if present, overlays the real environment and parses the result
+ * with the shared schema. Throws one readable error naming every invalid variable.
+ * `DATA_DIR` comes back as an absolute path. Nothing is written to `process.env`.
+ */
+export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
+  const rootDir = path.resolve(options.rootDir ?? REPO_ROOT);
+  const env = options.env ?? process.env;
+  const envFile = path.join(rootDir, ".env");
+  const hasEnvFile = existsSync(envFile);
+  const fromFile = hasEnvFile ? parseEnv(readFileSync(envFile, "utf8")) : {};
+
+  let config: AppConfig;
+  try {
+    config = parseConfig({ ...fromFile, ...definedOnly(env) });
+  } catch (error) {
+    const source = hasEnvFile ? `environment and ${envFile}` : "environment";
+    const details = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      details.replace(/^Invalid configuration:/, `Invalid configuration (${source}):`),
+      {
+        cause: error,
+      },
+    );
+  }
+  return { ...config, DATA_DIR: path.resolve(rootDir, config.DATA_DIR) };
+}
+
+/** An unset or blank variable must not hide a value from `.env`. */
+function definedOnly(env: Record<string, string | undefined>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (value !== undefined && value.trim() !== "") out[key] = value;
+  }
+  return out;
+}

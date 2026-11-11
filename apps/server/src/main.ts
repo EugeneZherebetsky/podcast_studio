@@ -1,10 +1,24 @@
 import { APP_NAME } from "shared";
 import { buildApp } from "./app.ts";
+import { loadConfig } from "./config.ts";
+import { ensureDataDirs } from "./data-dir.ts";
+import { openDatabase } from "./db/index.ts";
 
-// Config loading through the shared schema arrives in T03.
-const host = process.env.HOST ?? "127.0.0.1";
-const port = Number(process.env.PORT ?? 4747);
+let config;
+try {
+  config = loadConfig();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+}
 
+const dataDirs = ensureDataDirs(config.DATA_DIR);
+const db = openDatabase(dataDirs.dbFile);
+
+// Routes that use the database arrive in T13.
 const app = buildApp();
-await app.listen({ host, port });
-console.log(`${APP_NAME} server listening on http://${host}:${port}`);
+app.addHook("onClose", () => {
+  db.$client.close();
+});
+await app.listen({ host: config.HOST, port: config.PORT });
+console.log(`${APP_NAME} server listening on http://${config.HOST}:${config.PORT}`);
