@@ -1,0 +1,15 @@
+node_modules/
+dist/
+build/
+.env
+.env.*
+!.env.example
+data/
+infra/piper/
+*.log
+.expo/
+apps/mobile/android/
+apps/mobile/ios/
+*.apk
+*.keystore
+.DS_Store
