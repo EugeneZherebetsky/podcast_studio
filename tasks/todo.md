@@ -8,7 +8,7 @@ Legend: **Read** = sections to load · **Accept** = what must be true · **Verif
 
 ## M0 — Foundation
 
-- [ ] **T01 Scaffold the monorepo**
+- [x] **T01 Scaffold the monorepo**
   - Read: AGENTS.md; ARCHITECTURE §2; SPEC "Tech stack"
   - Do: pnpm workspace with `packages/shared`, `apps/server`, `apps/web` (empty Vite React app); TypeScript strict; ESLint + Prettier; Vitest; root scripts `dev`, `test`, `lint`, `gen`, `smoke`; pin exact dependency versions (latest stable). Do not create `apps/mobile` yet.
   - Accept: scripts in AGENTS.md "Commands" exist (stubs allowed for `gen`, `smoke`); works from PowerShell and git-bash.

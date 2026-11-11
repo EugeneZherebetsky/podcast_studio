@@ -54,6 +54,8 @@ A single user wants to **listen instead of read**. They name a topic; the system
 
 Versions are the latest stable on npm as of 2026-11-11. Pin exact versions in T01.
 
+Tooling note (T01): `tsc` is TypeScript 7.0.2, installed under the alias `@typescript/native`. TypeScript 7.0 ships no programmatic API, so the `typescript` package name is aliased to `@typescript/typescript6` 6.0.2 for typescript-eslint, as recommended in the TypeScript 7.0 announcement. Remove both aliases once typescript-eslint supports TypeScript 7.
+
 ## Capability map
 
 | Module id | Responsibility | Depends on |
