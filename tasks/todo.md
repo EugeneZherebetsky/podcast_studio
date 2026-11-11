@@ -14,7 +14,7 @@ Legend: **Read** = sections to load · **Accept** = what must be true · **Verif
   - Accept: scripts in AGENTS.md "Commands" exist (stubs allowed for `gen`, `smoke`); works from PowerShell and git-bash.
   - Verify: `pnpm install && pnpm lint && pnpm test` exit 0 with one trivial test per workspace.
 
-- [ ] **T02 Shared contracts**
+- [x] **T02 Shared contracts**
   - Read: ARCHITECTURE §4, §6
   - Do: zod schemas and inferred types for `ScriptSegment`, `Token`, `Episode`, topic, job, API request/response bodies, and config (`.env` parsing with defaults for both profiles).
   - Accept: invalid fixtures are rejected with readable messages; `schemaVersion` is checked.
