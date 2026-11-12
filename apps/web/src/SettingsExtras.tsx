@@ -1,3 +1,14 @@
+export function PairingStatus() {
+  return (
+    <section aria-label="Device pairing">
+      <h2>Device pairing</h2>
+      <p>Phone pairing is not available yet. No pairing QR code can be safely offered with the current connection setup.</p>
+      <p>Localhost refers to the phone itself when used on a phone; it cannot reach this server there. The server listens on loopback by default.</p>
+      <p>Plain HTTP exposes pairing codes and device tokens to the network. HTTPS through a reverse proxy is not supported until its authentication boundary is designed.</p>
+    </section>
+  );
+}
+
 export function UsageTotal({ totalUsd }: { totalUsd: number | null }) {
   return (
     <section aria-label="Usage">

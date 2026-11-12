@@ -172,7 +172,7 @@ Notes for implementers:
 
 ## 6. HTTP API (server, prefix `/api`)
 
-All bodies are JSON validated by shared schemas. Requests from non-loopback addresses need `Authorization: Bearer <device token>`.
+All bodies are JSON validated by shared schemas. Requests from non-loopback addresses need `Authorization: Bearer <device token>`, except pairing completion with a valid one-use code.
 
 | Method and path | Purpose |
 |---|---|
@@ -196,7 +196,7 @@ All bodies are JSON validated by shared schemas. Requests from non-loopback addr
 - **Storage:** expo-sqlite for episodes index, playback positions, vocabulary and FSRS cards; audio and `episode.json` under the app document directory.
 - **Sync:** on app foreground, on pull-to-refresh, and after pairing. Steps: `GET /episodes?since`, download missing packages (verify sha256), push playback and vocabulary, pull vocabulary. Wi-Fi-only download is a setting, default on. If the server is unreachable, the app works from local data and shows a quiet "offline" badge.
 - **Player:** expo-audio with `shouldPlayInBackground`, lock-screen controls via `setActiveForLockScreen` (required on Android for sustained background playback), `playbackRate` with pitch correction. A position ticker (≈100 ms) drives transcript highlighting by binary search over `segments[].startMs`.
-- **Connectivity:** server URL and token come from the pairing QR. Recommended: Tailscale on PC and phone with `tailscale serve` giving an HTTPS URL that works away from home. Plain `http://192.168.x.x:4747` also works at home; the Android build must permit cleartext traffic for that case (configure through `expo-build-properties`).
+- **Connectivity (planned):** server URL and token come from pairing. Phone pairing is not yet available: the QR contains a loopback address, plain HTTP exposes credentials, and a reverse proxy must not bypass the authentication boundary described in §9. A reachable address, trusted encrypted transport, and mobile integration require design and verification before use.
 - **Build:** development build with `expo run:android` on a USB-connected phone (Expo Go is not sufficient for background audio). Release APK with Gradle `assembleRelease`, installed by `adb install`.
 
 ## 8. Desktop
@@ -205,7 +205,7 @@ All bodies are JSON validated by shared schemas. Requests from non-loopback addr
 
 ## 9. Security and privacy
 
-- Server binds `127.0.0.1` unless `HOST=0.0.0.0` is set; then every non-loopback request needs a device token (stored hashed), except pairing completion with a valid one-use code. Pairing codes expire after five minutes or ten failed attempts and are lost on restart. Remote requests carrying browser Origin or Fetch Metadata headers are rejected. Pairing currently returns the local request host in its QR payload, not a remotely reachable address; a user-facing pairing flow must supply a reachable server address. Direct plain HTTP exposes codes and tokens to the network: use a trusted encrypted transport. A reverse proxy must not present remote traffic as trusted loopback traffic; proxy deployment is not supported until its authentication boundary is designed.
+- Server binds `127.0.0.1` unless `HOST=0.0.0.0` is set; then every non-loopback request needs a device token (stored hashed), except pairing completion with a valid one-use code. Pairing codes expire after five minutes or ten failed attempts and are lost on restart. Remote requests carrying browser Origin or Fetch Metadata headers are rejected. Pairing currently returns the local request host in its QR payload, not a remotely reachable address; Settings does not offer a QR until a safe connection is designed. Direct plain HTTP exposes codes and tokens to the network. A reverse proxy must not present remote traffic as trusted loopback traffic; proxy deployment is not supported until its authentication boundary is designed.
 - Secrets only in `.env` on the PC. `.env`, `data/`, `infra/piper/` are git-ignored.
 - Logs redact `Authorization` headers and anything matching configured key values.
 - What leaves the machine in the cloud profile: search queries, topic text, extracted page text, scripts (to the LLM), script text (to TTS). The learner's vocabulary list is sent to the LLM only as lemmas.

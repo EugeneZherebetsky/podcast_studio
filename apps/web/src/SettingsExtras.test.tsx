@@ -1,6 +1,15 @@
 import { renderToString } from "react-dom/server";
 import { expect, test } from "vitest";
-import { UsageTotal, VoicePicker } from "./SettingsExtras.tsx";
+import { PairingStatus, UsageTotal, VoicePicker } from "./SettingsExtras.tsx";
+
+test("pairing status explains why a phone QR is unavailable without exposing a code", () => {
+  const html = renderToString(<PairingStatus />);
+  expect(html).toContain("Phone pairing is not available yet");
+  expect(html).toContain("Localhost refers to the phone itself");
+  expect(html).toContain("Plain HTTP exposes pairing codes and device tokens");
+  expect(html).toContain("reverse proxy is not supported");
+  expect(html).not.toContain("podcast-studio://pair");
+});
 
 test("usage displays the recorded UTC month total without rounding small costs to zero", () => {
   expect(renderToString(<UsageTotal totalUsd={0.0012} />)).toContain("0.0012");

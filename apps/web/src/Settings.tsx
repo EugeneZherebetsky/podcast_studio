@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { SettingsSchema, type Settings as SettingsValue } from "shared";
 import { api } from "./api.ts";
-import { UsageTotal } from "./SettingsExtras.tsx";
+import { PairingStatus, UsageTotal } from "./SettingsExtras.tsx";
 
 export function Settings() {
   const [value, setValue] = useState<SettingsValue | null>(null);
@@ -41,6 +41,7 @@ export function Settings() {
         <h1>Settings</h1>
         <p>Stored preferences are not yet connected to generation or budget enforcement.</p>
       </header>
+      <PairingStatus />
       {error && (
         <p role="alert" className="error">
           {error}
