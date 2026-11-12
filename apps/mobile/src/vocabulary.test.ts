@@ -38,11 +38,11 @@ test("reports local progress across reopening and respects the fake clock", asyn
   const store = await vocabularyStore(db);
   await store.save(word, now);
   await store.save({ ...word, token: { ...word.token, lemma: "kutya" } }, now);
-  expect(await store.progress(now)).toEqual({ due: 2, learning: 0, known: 0, reviewed: 0 });
+  expect(await store.progress(now)).toEqual({ due: 2, learning: 0, known: 0, reviewed: 0, streak: 0 });
   const [first] = await store.due(now);
   await store.rate(first.id, Rating.Easy, now);
   const reopened = await vocabularyStore(db);
-  expect(await reopened.progress(now)).toEqual({ due: 1, learning: 0, known: 1, reviewed: 1 });
+  expect(await reopened.progress(now)).toEqual({ due: 1, learning: 0, known: 1, reviewed: 1, streak: 1 });
   expect((await reopened.progress(new Date("2026-01-02T12:00:00.000Z"))).reviewed).toBe(0);
   raw.close();
 });

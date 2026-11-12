@@ -36,7 +36,7 @@ function SentenceAudio({ uri, startMs, endMs }: { uri: string; startMs: number; 
 
 export default function Review() {
   const [queue, setQueue] = useState<ReviewWord[]>([]);
-  const [progress, setProgress] = useState<{ due: number; learning: number; known: number; reviewed: number } | null>(null);
+  const [progress, setProgress] = useState<{ due: number; learning: number; known: number; reviewed: number; streak: number } | null>(null);
   const [audio, setAudio] = useState<Record<string, string>>({});
   const [audioError, setAudioError] = useState(false);
   const [audioLoading, setAudioLoading] = useState(true);
@@ -85,7 +85,7 @@ export default function Review() {
   return <SafeAreaView style={{ flex: 1, padding: 24, gap: 16 }}>
     <Text accessibilityRole="header" style={{ fontSize: 24 }}>Vocabulary review</Text>
     <Text>Stored only on this phone. Up to 10 new words per day.</Text>
-    {progress ? <Text>Due now: {progress.due} · Learning: {progress.learning} · Known (FSRS review): {progress.known} · Reviewed today: {progress.reviewed}</Text> : null}
+    {progress ? <Text>Due now: {progress.due} · Learning: {progress.learning} · Known (FSRS review): {progress.known} · Reviewed today: {progress.reviewed} · Review streak: {progress.streak} days (tracked from this update)</Text> : null}
     {audioError ? <Text accessibilityRole="alert">Could not load offline audio. You can still review text.</Text> : null}
     {error ? <Text accessibilityRole="alert">{error}</Text> : null}
     {loading ? <Text>Loading…</Text> : card ? <ScrollView>

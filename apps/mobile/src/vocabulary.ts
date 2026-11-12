@@ -20,6 +20,12 @@ export async function vocabularyStore(db: Database) {
     id INTEGER PRIMARY KEY NOT NULL, lemma TEXT NOT NULL UNIQUE, word TEXT NOT NULL,
     card TEXT NOT NULL, introduced_day TEXT
   )`);
+  await db.execAsync(`CREATE TABLE IF NOT EXISTS local_review_days (day TEXT PRIMARY KEY NOT NULL);
+    CREATE TRIGGER IF NOT EXISTS local_record_review_day AFTER UPDATE OF card ON local_vocabulary
+    BEGIN
+      INSERT OR IGNORE INTO local_review_days (day)
+      VALUES (date(json_extract(NEW.card, '$.last_review'), 'localtime'));
+    END`);
   const rows = () => db.getAllAsync<Row>("SELECT id, word, card, introduced_day FROM local_vocabulary ORDER BY id");
   return {
     async save(word: SavedWord, now = new Date()) {
@@ -34,7 +40,13 @@ export async function vocabularyStore(db: Database) {
     async progress(now = new Date()) {
       const all = await rows();
       const cards = all.map((row) => ({ card: JSON.parse(row.card) as Card }));
+      const days = new Set((await db.getAllAsync<{ day: string }>("SELECT day FROM local_review_days")).map((row) => row.day));
+      const cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+      if (!days.has(day(cursor))) cursor.setDate(cursor.getDate() - 1);
+      let streak = 0;
+      while (days.has(day(cursor))) { streak++; cursor.setDate(cursor.getDate() - 1); }
       return {
+        streak,
         due: selectDueCards(cards, now, 10, all.filter((row) => row.introduced_day === day(now)).length).length,
         learning: cards.filter(({ card }) => card.state === State.Learning || card.state === State.Relearning).length,
         known: cards.filter(({ card }) => card.state === State.Review).length,
