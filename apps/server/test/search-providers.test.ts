@@ -226,7 +226,7 @@ describe("SearxngSearchProvider", () => {
     const hits = await provider.search("podcast", { max: 5 });
 
     const parsedUrl = new URL(capturedUrl);
-    expect(parsedUrl.origin + parsedUrl.pathname).toBe("http://localhost:8888/search");
+    expect(parsedUrl.origin + parsedUrl.pathname).toBe("http://127.0.0.1:8888/search");
     expect(parsedUrl.searchParams.get("q")).toBe("podcast");
     expect(parsedUrl.searchParams.get("format")).toBe("json");
     expect(parsedUrl.searchParams.get("categories")).toBe("general");

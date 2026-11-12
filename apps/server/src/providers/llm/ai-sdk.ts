@@ -18,6 +18,7 @@ import {
 import { formatZodError, type AppConfig, type LlmProviderName } from "shared";
 import type { ZodType } from "zod";
 import { computeLlmCostUsd, LLM_PRICES, type LlmPriceTable } from "../../config.ts";
+import { localFetch, localServiceUrl } from "../local-url.ts";
 import type {
   GenerateObjectRequest,
   GenerateObjectResult,
@@ -266,6 +267,7 @@ export function createAiSdkLlmProvider(
   options: CreateAiSdkLlmProviderOptions = {},
 ): AiSdkLlmProvider {
   if (name === "ollama") {
+    const baseURL = localServiceUrl(config.OLLAMA_BASE_URL);
     const boundedOllama =
       options.env !== undefined
         ? options.env.OLLAMA_BOUNDED_OUTPUT === "1"
@@ -273,14 +275,14 @@ export function createAiSdkLlmProvider(
           process.env.OLLAMA_BOUNDED_OUTPUT === "1");
     if (
       boundedOllama &&
-      (!["localhost", "127.0.0.1", "[::1]"].includes(new URL(config.OLLAMA_BASE_URL).hostname) ||
-        [config.OLLAMA_MODEL_MAIN, config.OLLAMA_MODEL_FAST].some((id) => /:cloud$/i.test(id)))
+      [config.OLLAMA_MODEL_MAIN, config.OLLAMA_MODEL_FAST].some((id) => /:cloud$/i.test(id))
     ) {
       throw new Error("OLLAMA_BOUNDED_OUTPUT requires a loopback Ollama endpoint and local models");
     }
     const ollama = createOpenAICompatible({
       name: "ollama",
-      baseURL: config.OLLAMA_BASE_URL,
+      baseURL,
+      fetch: localFetch,
       // Sends the JSON schema as `response_format`, which Ollama enforces while decoding.
       supportsStructuredOutputs: true,
     });
@@ -293,7 +295,6 @@ export function createAiSdkLlmProvider(
       prices: "free",
       boundedOllama,
       localCacheIdentity:
-        ["localhost", "127.0.0.1", "[::1]"].includes(new URL(config.OLLAMA_BASE_URL).hostname) &&
         ![config.OLLAMA_MODEL_FAST, config.OLLAMA_MODEL_MAIN].some((id) => /:cloud$/i.test(id))
           ? createHash("sha256")
               .update(

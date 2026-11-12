@@ -50,7 +50,7 @@ test("real environment variables win over .env", () => {
 });
 
 test("bounded Ollama opt-in follows .env precedence through provider construction", () => {
-  writeEnv("PROFILE=local\nOLLAMA_BOUNDED_OUTPUT=1\nOLLAMA_BASE_URL=https://ollama.com/v1\n");
+  writeEnv("PROFILE=local\nOLLAMA_BOUNDED_OUTPUT=1\nOLLAMA_MODEL_MAIN=example:cloud\n");
   expect(() => createAiSdkLlmProvider(loadConfig({ rootDir: dir, env: {} }), "ollama")).toThrow(/loopback/);
   expect(() => createAiSdkLlmProvider(loadConfig({ rootDir: dir, env: { OLLAMA_BOUNDED_OUTPUT: "0" } }), "ollama")).not.toThrow();
 });

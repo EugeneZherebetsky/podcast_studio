@@ -1,4 +1,5 @@
 import type { SearchHit, SearchOptions, SearchProvider } from "./interface.ts";
+import { localServiceUrl } from "../local-url.ts";
 import { deduplicateHits, formatPublishedDate } from "./url.ts";
 
 export interface SearxngSearchOptions {
@@ -32,7 +33,7 @@ export class SearxngSearchProvider implements SearchProvider {
   private readonly fetchFn: typeof fetch;
 
   constructor(options: SearxngSearchOptions) {
-    this.baseUrl = options.baseUrl.replace(/\/+$/, "");
+    this.baseUrl = localServiceUrl(options.baseUrl).replace(/\/+$/, "");
     this.fetchFn = options.fetch ?? globalThis.fetch;
   }
 
@@ -49,6 +50,7 @@ export class SearxngSearchProvider implements SearchProvider {
 
     const response = await this.fetchFn(url.toString(), {
       method: "GET",
+      redirect: "error",
       headers: {
         Accept: "application/json",
       },
