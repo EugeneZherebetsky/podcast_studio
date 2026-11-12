@@ -1,4 +1,5 @@
 import { expect, test, vi } from "vitest";
+import { parseConfig } from "shared";
 import { buildApp } from "../src/app.ts";
 import { openDatabase } from "../src/db/index.ts";
 import { jobs } from "../src/db/schema.ts";
@@ -72,5 +73,27 @@ test("job control delegates to an injected runner", async () => {
   } finally {
     await app.close();
     db.$client.close();
+  }
+});
+
+
+test("local learning jobs and retries fail closed unless explicitly enabled", async () => {
+  for (const override of [false, true]) {
+    const db = openDatabase(":memory:");
+    const options = { title: "News", brief: "", mode: "graded", lang: "en", minutes: 8 } as const;
+    const job = { id: "job", topicId: null, status: "failed", currentStage: "plan", error: "failed", options, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" } as const;
+    db.insert(jobs).values(job).run();
+    const runner = { create: vi.fn().mockResolvedValue(job), retry: vi.fn().mockResolvedValue(job), cancel: vi.fn() };
+    const app = buildApp({ db, runner, config: parseConfig({ PROFILE: "local", ALLOW_LOCAL_LEARNING: override ? "1" : "0" }) });
+    try {
+      for (const mode of ["graded", "bilingual"]) {
+        const res = await app.inject({ method: "POST", url: "/api/jobs", payload: { ...options, mode } });
+        expect(res.statusCode).toBe(override ? 201 : 400);
+      }
+      expect((await app.inject({ method: "POST", url: "/api/jobs/job/retry", payload: {} })).statusCode).toBe(override ? 200 : 400);
+      expect(runner.create).toHaveBeenCalledTimes(override ? 2 : 0);
+      expect(runner.retry).toHaveBeenCalledTimes(override ? 1 : 0);
+      expect((await app.inject({ method: "POST", url: "/api/jobs", payload: { ...options, mode: "standard" } })).statusCode).toBe(201);
+    } finally { await app.close(); db.$client.close(); }
   }
 });

@@ -39,7 +39,7 @@ export function Settings() {
       <header className="page-heading">
         <p className="eyebrow">Preferences</p>
         <h1>Settings</h1>
-        <p>Stored preferences are not yet connected to generation or budget enforcement.</p>
+        <p>Profile is saved as a preference but does not switch providers yet. Set PROFILE in .env and restart to configure the server. Other preferences are not yet connected to generation or budget enforcement.</p>
       </header>
       <PairingStatus />
       {error && (

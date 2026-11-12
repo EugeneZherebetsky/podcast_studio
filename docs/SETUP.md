@@ -51,6 +51,8 @@ At login the launcher builds the web interface before starting the server; a bui
 
 ## Local profile (task T26)
 
+The Settings profile selector currently saves a preference only; it does not switch providers. Set `PROFILE=local` in `.env` and restart to configure the server. Until the job runner is integrated, the HTTP job endpoints conservatively reject graded and bilingual jobs and retries if either the startup profile or the saved preference is local. To explicitly accept the quality risk, set `ALLOW_LOCAL_LEARNING=1` in `.env` and restart. This guard does not cover direct runner or scheduler calls, which must enforce the same policy when implemented. Local search and article retrieval still use the network; a local profile is not an offline guarantee.
+
 - LLM: `ollama pull` the model named in `.env`. On a CPU-only machine expect small models at slow speed: fine for English drafts, not for graded Hungarian.
 - Search: `docker compose -f infra/docker-compose.searxng.yml up -d`.
 - TTS: the optional Piper provider expects Piper 1.8.0 in `PIPER_DIR/venv` and voice files in `PIPER_DIR/voices` (`PIPER_DIR` defaults to `infra/piper`). Install it in an isolated Python virtual environment with `python -m venv infra/piper/venv`, then use that environment's Python to run `-m pip install piper-tts==1.8.0`. Piper and its ONNX runtime dependencies include native code. The upstream maintained engine is [GPL-3.0-or-later](https://github.com/OHF-Voice/piper1-gpl/blob/v1.8.0/COPYING); review the license before installing or redistributing.

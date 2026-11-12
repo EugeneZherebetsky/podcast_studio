@@ -113,7 +113,7 @@ export function buildApp(options?: {
     return reply.header("cache-control", "no-cache").type("text/event-stream").send(stream);
   });
   registerEpisodeRoutes(app, db, options?.config?.DATA_DIR);
-  registerJobRoutes(app, db, options?.runner);
+  registerJobRoutes(app, db, options?.runner, options?.config);
   if (options?.config) registerSettingsRoutes(app, db, options.config);
 
   app.post("/api/sync/playback", async (request, reply) => {
