@@ -20,6 +20,7 @@
     "@mozilla/readability": "0.6.0",
     "ai": "7.0.169",
     "better-sqlite3": "13.0.3",
+    "cron-parser": "5.10.4",
     "drizzle-orm": "0.45.4",
     "fastify": "5.12.8",
     "linkedom": "0.18.15",
