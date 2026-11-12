@@ -46,7 +46,7 @@ Legend: **Read** = sections to load · **Accept** = what must be true · **Verif
   - Do: fetch with timeout, size cap, private-address refusal, Readability extraction, 8k-char trim on paragraph boundaries.
   - Verify: tests on saved HTML fixtures (article, paywall stub, non-HTML); a test proving `http://127.0.0.1`, `http://169.254.169.254` and `file://` are refused.
 
-- [ ] **T08 Stages plan, search, extract, notes**
+- [x] **T08 Stages plan, search, extract, notes**
   - Read: ARCHITECTURE §3 rows 1–4
   - Do: stage functions with artifacts and input hashing; prompts as markdown files; "≥ 3 usable sources" rule.
   - Verify: tests with fakes: artifacts are written, a second run is a no-op, a changed input re-runs only downstream stages.
