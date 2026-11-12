@@ -2,7 +2,14 @@
 // {{placeholders}}, one per stage or step. Each file has a "# System" and a "# User" part.
 import { readFileSync } from "node:fs";
 
-export const PROMPT_NAMES = ["plan", "notes-map", "notes-merge", "script", "review"] as const;
+export const PROMPT_NAMES = [
+  "plan",
+  "notes-map",
+  "notes-merge",
+  "script",
+  "review",
+  "graded-annotation",
+] as const;
 export type PromptName = (typeof PROMPT_NAMES)[number];
 
 export interface PromptTemplate {

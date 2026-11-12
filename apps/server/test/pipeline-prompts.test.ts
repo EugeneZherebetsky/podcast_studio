@@ -45,7 +45,14 @@ test("a template without both parts is an error", () => {
 });
 
 test("every prompt file loads and has a system and a user part", () => {
-  expect(PROMPT_NAMES).toEqual(["plan", "notes-map", "notes-merge", "script", "review"]);
+  expect(PROMPT_NAMES).toEqual([
+    "plan",
+    "notes-map",
+    "notes-merge",
+    "script",
+    "review",
+    "graded-annotation",
+  ]);
   for (const name of PROMPT_NAMES) {
     const template = loadPrompt(name);
     expect(template.system.length).toBeGreaterThan(20);
