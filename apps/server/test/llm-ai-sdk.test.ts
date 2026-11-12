@@ -1,5 +1,5 @@
 import { MockLanguageModelV4 } from "ai/test";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { parseConfig } from "shared";
 import { z } from "zod";
 import { computeLlmCostUsd, type LlmPriceTable } from "../src/config.ts";
@@ -210,6 +210,82 @@ describe("computeLlmCostUsd", () => {
 
   test("returns undefined for a model that is not in the table", () => {
     expect(computeLlmCostUsd(PRICES, "nope", 10, 10)).toBeUndefined();
+  });
+});
+
+describe("bounded Ollama opt-in", () => {
+  test("rejects non-loopback and cloud model configurations", () => {
+    const env = { OLLAMA_BOUNDED_OUTPUT: "1" };
+    for (const config of [
+      parseConfig({ PROFILE: "local", OLLAMA_BASE_URL: "https://ollama.com/v1" }),
+      parseConfig({ PROFILE: "local", OLLAMA_MODEL_MAIN: "example:cloud" }),
+    ]) {
+      expect(() => createAiSdkLlmProvider(config, "ollama", { env })).toThrow(/loopback/);
+    }
+  });
+
+  test("aborts an unresponsive request at its deadline without retry", async () => {
+    const nativeTimeout = AbortSignal.timeout;
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockImplementation(() => nativeTimeout(10));
+    const fetchMock = vi.fn(
+      (_url: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const provider = createAiSdkLlmProvider(parseConfig({ PROFILE: "local" }), "ollama", {
+        env: { OLLAMA_BOUNDED_OUTPUT: "1" },
+      });
+      await expect(provider.generateObject({ slot: "main", ...request })).rejects.toBeDefined();
+      expect(timeoutSpy).toHaveBeenCalledWith(180_000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      timeoutSpy.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+  test("sends bounded structured output and disables thinking, failing closed without retry", async () => {
+    const fetchMock = vi.fn(
+      async (url: string | URL | Request, init?: RequestInit) => {
+        void url;
+        void init;
+        return new Response(
+          JSON.stringify({
+            id: "test",
+            model: "tiny",
+            choices: [
+              {
+                index: 0,
+                finish_reason: "stop",
+                message: { role: "assistant", content: WRONG_SHAPE },
+              },
+            ],
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const provider = createAiSdkLlmProvider(parseConfig({ PROFILE: "local" }), "ollama", {
+        env: { OLLAMA_BOUNDED_OUTPUT: "1" },
+      });
+      await expect(provider.generateObject({ slot: "main", ...request })).rejects.toBeInstanceOf(
+        LlmOutputError,
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const init = fetchMock.mock.calls[0]![1] as RequestInit;
+      const body = JSON.parse(init.body as string);
+      expect(body.max_tokens).toBe(8192);
+      expect(body.reasoning_effort).toBe("none");
+      expect(body.response_format.type).toBe("json_schema");
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

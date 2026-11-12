@@ -2,6 +2,7 @@ import { copyFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { loadConfig, REPO_ROOT } from "../src/config.ts";
+import { createAiSdkLlmProvider } from "../src/providers/llm/ai-sdk.ts";
 import { makeTempDir, removeTempDir } from "./temp-dir.ts";
 
 let dir: string;
@@ -46,6 +47,12 @@ test("real environment variables win over .env", () => {
   const config = loadConfig({ rootDir: dir, env: { PORT: "6060" } });
   expect(config.PORT).toBe(6060);
   expect(config.HOST).toBe("0.0.0.0");
+});
+
+test("bounded Ollama opt-in follows .env precedence through provider construction", () => {
+  writeEnv("PROFILE=local\nOLLAMA_BOUNDED_OUTPUT=1\nOLLAMA_BASE_URL=https://ollama.com/v1\n");
+  expect(() => createAiSdkLlmProvider(loadConfig({ rootDir: dir, env: {} }), "ollama")).toThrow(/loopback/);
+  expect(() => createAiSdkLlmProvider(loadConfig({ rootDir: dir, env: { OLLAMA_BOUNDED_OUTPUT: "0" } }), "ollama")).not.toThrow();
 });
 
 test("DATA_DIR is resolved against the root directory, not the working directory", () => {

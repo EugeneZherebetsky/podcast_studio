@@ -41,6 +41,7 @@ export interface AiSdkLlmProviderOptions {
   prices: LlmPriceTable | "free";
   /** Receives the "no price for model" warning; defaults to `console.warn`. */
   warn?: (message: string) => void;
+  boundedOllama?: boolean;
 }
 
 /**
@@ -63,11 +64,13 @@ export class AiSdkLlmProvider implements LlmProvider {
   private readonly prices: LlmPriceTable | "free";
   private readonly warn: (message: string) => void;
   private readonly warnedModels = new Set<string>();
+  private readonly boundedOllama: boolean;
 
   constructor(options: AiSdkLlmProviderOptions) {
     this.providerName = options.provider;
     this.models = options.models;
     this.prices = options.prices;
+    this.boundedOllama = options.boundedOllama === true;
     this.warn = options.warn ?? ((message) => console.warn(message));
   }
 
@@ -83,7 +86,8 @@ export class AiSdkLlmProvider implements LlmProvider {
     let lastProblem = "";
     let lastError: unknown;
 
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const attempts = this.boundedOllama ? 1 : MAX_ATTEMPTS;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
         // No tools: stages pass untrusted source text in `prompt`.
         const result = await generateText({
@@ -91,6 +95,14 @@ export class AiSdkLlmProvider implements LlmProvider {
           instructions: request.system,
           prompt: request.prompt,
           output: Output.object({ schema: request.schema }),
+          ...(this.boundedOllama
+            ? {
+                maxOutputTokens: 8192,
+                maxRetries: 0,
+                abortSignal: AbortSignal.timeout(180_000),
+                providerOptions: { openaiCompatible: { reasoningEffort: "none" } },
+              }
+            : {}),
         });
         inputTokens += result.usage.inputTokens ?? 0;
         outputTokens += result.usage.outputTokens ?? 0;
@@ -114,7 +126,7 @@ export class AiSdkLlmProvider implements LlmProvider {
 
     throw new LlmOutputError(
       `LLM ${this.providerName}/${id} (slot "${request.slot}") did not return a valid object ` +
-        `after ${MAX_ATTEMPTS} attempts:\n${lastProblem}`,
+        `after ${attempts} ${attempts === 1 ? "attempt" : "attempts"}:\n${lastProblem}`,
       this.usage(id, inputTokens, outputTokens),
       { cause: lastError },
     );
@@ -215,6 +227,17 @@ export function createAiSdkLlmProvider(
   options: CreateAiSdkLlmProviderOptions = {},
 ): AiSdkLlmProvider {
   if (name === "ollama") {
+    const boundedOllama = options.env !== undefined
+      ? options.env.OLLAMA_BOUNDED_OUTPUT === "1"
+      : (config as AppConfig & { OLLAMA_BOUNDED_OUTPUT?: boolean }).OLLAMA_BOUNDED_OUTPUT ??
+        process.env.OLLAMA_BOUNDED_OUTPUT === "1";
+    if (
+      boundedOllama &&
+      (!["localhost", "127.0.0.1", "[::1]"].includes(new URL(config.OLLAMA_BASE_URL).hostname) ||
+        [config.OLLAMA_MODEL_MAIN, config.OLLAMA_MODEL_FAST].some((id) => /:cloud$/i.test(id)))
+    ) {
+      throw new Error("OLLAMA_BOUNDED_OUTPUT requires a loopback Ollama endpoint and local models");
+    }
     const ollama = createOpenAICompatible({
       name: "ollama",
       baseURL: config.OLLAMA_BASE_URL,
@@ -228,6 +251,7 @@ export function createAiSdkLlmProvider(
         fast: { id: config.OLLAMA_MODEL_FAST, model: ollama.chatModel(config.OLLAMA_MODEL_FAST) },
       },
       prices: "free",
+      boundedOllama,
       warn: options.warn,
     });
   }

@@ -19,16 +19,17 @@ export interface LoadConfigOptions {
  * with the shared schema. Throws one readable error naming every invalid variable.
  * `DATA_DIR` comes back as an absolute path. Nothing is written to `process.env`.
  */
-export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
+export function loadConfig(options: LoadConfigOptions = {}): AppConfig & { OLLAMA_BOUNDED_OUTPUT: boolean } {
   const rootDir = path.resolve(options.rootDir ?? REPO_ROOT);
   const env = options.env ?? process.env;
   const envFile = path.join(rootDir, ".env");
   const hasEnvFile = existsSync(envFile);
   const fromFile = hasEnvFile ? parseEnv(readFileSync(envFile, "utf8")) : {};
 
+  const merged = { ...fromFile, ...definedOnly(env) };
   let config: AppConfig;
   try {
-    config = parseConfig({ ...fromFile, ...definedOnly(env) });
+    config = parseConfig(merged);
   } catch (error) {
     const source = hasEnvFile ? `environment and ${envFile}` : "environment";
     const details = error instanceof Error ? error.message : String(error);
@@ -39,7 +40,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
       },
     );
   }
-  return { ...config, DATA_DIR: path.resolve(rootDir, config.DATA_DIR) };
+  return { ...config, DATA_DIR: path.resolve(rootDir, config.DATA_DIR), OLLAMA_BOUNDED_OUTPUT: merged.OLLAMA_BOUNDED_OUTPUT === "1" };
 }
 
 /** An unset or blank variable must not hide a value from `.env`. */
