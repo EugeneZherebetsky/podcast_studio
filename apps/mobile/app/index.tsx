@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, SafeAreaView, Text, View } from "react-native";
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
+import { useRouter } from "expo-router";
 import Storage from "expo-sqlite/kv-store";
 import { clampPosition, formatTime } from "../src/position";
 import { sampleEpisode } from "../src/sample";
@@ -11,6 +12,7 @@ const source = require("../assets/audio.m4a");
 const key = "sample-position-seconds";
 
 export default function Player() {
+  const router = useRouter();
   const player = useAudioPlayer(source, { updateInterval: 1000 });
   const status = useAudioPlayerStatus(player);
   const restored = useRef(false);
@@ -102,6 +104,7 @@ export default function Player() {
         <Button title="Forward 30s" onPress={() => seek(30)} disabled={!status.isLoaded} />
       </View>
       <Button title={`Speed ${rate}×`} onPress={changeRate} disabled={!status.isLoaded} />
+      <Button title="Library" onPress={() => router.navigate("/library")} />
     </SafeAreaView>
   );
 }
