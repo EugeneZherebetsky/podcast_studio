@@ -6,7 +6,7 @@ Status: **blocked; no Wi-Fi pairing or LAN listener is implemented or approved f
 
 The mobile workspace declares Expo 58.0.24, React Native 0.88.1 and expo-file-system 58.0.13. The [Expo SDK 58 fetch documentation](https://docs.expo.dev/versions/v58.0.0/sdk/expo/#expofetch-api) describes a standard Fetch API, installed as global `fetch` on Android. The [file-system documentation](https://docs.expo.dev/versions/v58.0.0/sdk/filesystem/) documents downloads but does not document a per-request certificate verification or runtime pin option. The declared mobile dependencies include no dedicated certificate-pinning module. We have not established an installed API that verifies a PC-specific runtime fingerprint during the TLS handshake, before a pairing code or bearer credential is transmitted. Absence from these APIs is not a claim that Android cannot implement it natively.
 
-[Android Network Security Configuration](https://developer.android.com/privacy-and-security/security-config#CertificatePinning) documents declarative XML public-key (SPKI SHA-256) pins and packaged custom trust anchors, not provisioning a different PC's pin at runtime. These pins are public-key hashes, not necessarily a full-certificate fingerprint. Trusting an arbitrary self-signed certificate, disabling certificate verification, using cleartext, or checking a fingerprint only after sending a secret is not an acceptable substitute. A separate native-module approval and security review may be needed; assess alternatives before choosing one.
+[Android Network Security Configuration](https://developer.android.com/privacy-and-security/security-config#CertificatePinning) documents declarative XML public-key (SPKI SHA-256) pins and packaged custom trust anchors, not provisioning a different PC's pin at runtime. These pins are public-key hashes, not necessarily a full-certificate fingerprint. Trusting an arbitrary self-signed certificate, disabling certificate verification, using cleartext, or checking a fingerprint only after sending a secret is not an acceptable substitute. The owner approved an Android native module and expo-secure-store; independent security review and device verification remain required.
 
 ## Existing exposure is not a transfer design
 
@@ -14,7 +14,7 @@ The desktop server defaults to loopback. Its existing legacy pairing and remote 
 
 ## Prerequisites for a reviewed implementation
 
-See the [transfer threat model](LOCAL-TRANSFER-THREAT-MODEL.md) for assets, abuse cases, native API references and remaining implementation gates.
+See the [transfer threat model](LOCAL-TRANSFER-THREAT-MODEL.md) for assets and abuse cases, and the [proposed protocol](LOCAL-TRANSFER-PROTOCOL.md) for the ceremony and remaining implementation gates.
 
 - Establish and verify PC identity on the phone **before** sending pairing codes or reusable credentials, including mismatched, substituted and rotated certificate cases. Specify how the initial fingerprint is authenticated out of band and how recovery works.
 - Use a separate, opt-in listener, off by default, not a proxy to the desktop API. Limit it to the explicitly reviewed pairing and episode-read/download operations; do not register job, settings, deletion, legacy sync or other desktop routes.
