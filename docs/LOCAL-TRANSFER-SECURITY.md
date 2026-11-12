@@ -14,6 +14,8 @@ The desktop server defaults to loopback. Its existing legacy pairing and remote 
 
 ## Prerequisites for a reviewed implementation
 
+See the [transfer threat model](LOCAL-TRANSFER-THREAT-MODEL.md) for assets, abuse cases, native API references and remaining implementation gates.
+
 - Establish and verify PC identity on the phone **before** sending pairing codes or reusable credentials, including mismatched, substituted and rotated certificate cases. Specify how the initial fingerprint is authenticated out of band and how recovery works.
 - Use a separate, opt-in listener, off by default, not a proxy to the desktop API. Limit it to the explicitly reviewed pairing and episode-read/download operations; do not register job, settings, deletion, legacy sync or other desktop routes.
 - Define explicit PC approval for each device, denial, expiry, revocation and key storage. Authorize each episode request, avoid logging credentials, and prevent redirects from carrying secrets elsewhere.
