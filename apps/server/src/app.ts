@@ -2,18 +2,20 @@ import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 import { PassThrough } from "node:stream";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import Fastify, { type FastifyInstance } from "fastify";
 import {
   CreateTopicRequestSchema,
   IdParamsSchema,
   UpdateTopicRequestSchema,
   ServerEventSchema,
+  SyncVocabRequestSchema,
+  SyncVocabResponseSchema,
   type AppConfig,
   type HealthResponse,
 } from "shared";
 import type { Db } from "./db/index.ts";
-import { topics } from "./db/schema.ts";
+import { topics, vocab } from "./db/schema.ts";
 import { registerEpisodeRoutes } from "./episode-routes.ts";
 import { registerJobRoutes, type JobRunner } from "./job-routes.ts";
 import { registerSettingsRoutes } from "./settings-routes.ts";
@@ -72,6 +74,30 @@ export function buildApp(options?: {
   registerEpisodeRoutes(app, db, options?.config?.DATA_DIR);
   registerJobRoutes(app, db, options?.runner);
   if (options?.config) registerSettingsRoutes(app, db, options.config);
+
+  app.post("/api/sync/vocab", async (request, reply) => {
+    const parsed = SyncVocabRequestSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "Invalid vocabulary sync" });
+    const sent = new Map<string, number>();
+    const key = (lemma: string, lang: string) => JSON.stringify([lemma, lang]);
+    const result = db.transaction((tx) => {
+      for (const card of parsed.data.cards) {
+        const id = key(card.lemma, card.lang);
+        sent.set(id, Math.max(sent.get(id) ?? -Infinity, Date.parse(card.updatedAt)));
+        const existing = tx.select().from(vocab).where(and(eq(vocab.lemma, card.lemma), eq(vocab.lang, card.lang))).get();
+        if (!existing || Date.parse(card.updatedAt) > Date.parse(existing.updatedAt)) {
+          tx.insert(vocab).values(card).onConflictDoUpdate({
+            target: [vocab.lemma, vocab.lang],
+            set: card,
+          }).run();
+        }
+      }
+      return tx.select().from(vocab).all().filter((row) =>
+        Date.parse(row.updatedAt) > (sent.get(key(row.lemma, row.lang)) ?? -Infinity),
+      );
+    });
+    return SyncVocabResponseSchema.parse({ cards: result });
+  });
 
   app.get("/api/topics", async () => ({ topics: db.select().from(topics).all() }));
   app.post("/api/topics", async (request, reply) => {
