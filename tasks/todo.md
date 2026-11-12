@@ -61,7 +61,7 @@ Legend: **Read** = sections to load · **Accept** = what must be true · **Verif
   - Do: implementations, WAV normalisation, content-hash cache, concurrency limit, backoff, `voices(lang)`.
   - Verify: unit tests with mocked HTTP; cache hit avoids a second call; `pnpm smoke --only tts` writes one English and one Hungarian WAV.
 
-- [ ] **T11 Audio assembly with exact timings**
+- [x] **T11 Audio assembly with exact timings**
   - Read: ARCHITECTURE §3 rows 7–8
   - Do: PCM concat with silences, sample-count timings, loudness normalisation, AAC encode, chapters.
   - Accept: SC2.
