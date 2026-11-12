@@ -1,11 +1,16 @@
 import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
+import { createRequire } from "node:module";
+import { PassThrough } from "node:stream";
 import { eq } from "drizzle-orm";
 import Fastify, { type FastifyInstance } from "fastify";
 import {
   CreateTopicRequestSchema,
   IdParamsSchema,
   UpdateTopicRequestSchema,
+  ServerEventSchema,
   type AppConfig,
+  type HealthResponse,
 } from "shared";
 import type { Db } from "./db/index.ts";
 import { topics } from "./db/schema.ts";
@@ -13,10 +18,14 @@ import { registerEpisodeRoutes } from "./episode-routes.ts";
 import { registerJobRoutes, type JobRunner } from "./job-routes.ts";
 import { registerSettingsRoutes } from "./settings-routes.ts";
 
+const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
+
 export function buildApp(options?: {
   db: Db;
   runner?: JobRunner;
   config?: AppConfig;
+  events?: EventEmitter;
+  providerHealth?: () => Promise<HealthResponse["providers"]>;
 }): FastifyInstance {
   const app = Fastify({ logger: false });
   // Pairing and token verification arrive in T17: fail closed until then.
@@ -28,7 +37,27 @@ export function buildApp(options?: {
   });
   const db = options?.db;
   if (!db) return app;
-  registerEpisodeRoutes(app, db);
+  app.get("/api/health", async (_request, reply) => {
+    if (!options?.config || !options.providerHealth)
+      return reply.code(503).send({ error: "Provider health checks unavailable" });
+    return { version, profile: options.config.PROFILE, providers: await options.providerHealth() };
+  });
+  const events = options?.events ?? new EventEmitter();
+  app.get("/api/events", async (_request, reply) => {
+    const stream = new PassThrough();
+    const listener = (event: unknown) => {
+      const parsed = ServerEventSchema.safeParse(event);
+      if (parsed.success) stream.write(`data: ${JSON.stringify(parsed.data)}\n\n`);
+    };
+    events.on("event", listener);
+    reply.raw.on("close", () => {
+      events.off("event", listener);
+      stream.destroy();
+    });
+    stream.write(": connected\n\n");
+    return reply.header("cache-control", "no-cache").type("text/event-stream").send(stream);
+  });
+  registerEpisodeRoutes(app, db, options?.config?.DATA_DIR);
   registerJobRoutes(app, db, options?.runner);
   if (options?.config) registerSettingsRoutes(app, db, options.config);
 
