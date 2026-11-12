@@ -17,6 +17,7 @@ import { topics } from "./db/schema.ts";
 import { registerEpisodeRoutes } from "./episode-routes.ts";
 import { registerJobRoutes, type JobRunner } from "./job-routes.ts";
 import { registerSettingsRoutes } from "./settings-routes.ts";
+import { registerWebAssets } from "./web-static.ts";
 
 const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
 
@@ -26,8 +27,10 @@ export function buildApp(options?: {
   config?: AppConfig;
   events?: EventEmitter;
   providerHealth?: () => Promise<HealthResponse["providers"]>;
+  webRoot?: string;
 }): FastifyInstance {
   const app = Fastify({ logger: false });
+  if (options?.webRoot) registerWebAssets(app, options.webRoot);
   // Pairing and token verification arrive in T17: fail closed until then.
   app.addHook("onRequest", async (request, reply) => {
     const ip = request.ip;

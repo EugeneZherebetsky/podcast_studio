@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { APP_NAME } from "shared";
 import { buildApp } from "./app.ts";
 import { loadConfig } from "./config.ts";
@@ -15,7 +16,11 @@ try {
 const dataDirs = ensureDataDirs(config.DATA_DIR);
 const db = openDatabase(dataDirs.dbFile);
 
-const app = buildApp({ db, config });
+const app = buildApp({
+  db,
+  config,
+  webRoot: fileURLToPath(new URL("../../web/dist", import.meta.url)),
+});
 app.addHook("onClose", () => {
   db.$client.close();
 });

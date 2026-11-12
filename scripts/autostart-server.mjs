@@ -1,8 +1,21 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
+const web = path.join(root, "apps/web");
+const build = spawnSync(
+  process.execPath,
+  [path.join(web, "node_modules/vite/bin/vite.js"), "build"],
+  {
+    cwd: web,
+    stdio: "inherit",
+  },
+);
+if (build.error || build.status !== 0) {
+  console.error(`Web build failed: ${build.error?.message ?? build.status}`);
+  process.exit(1);
+}
 const child = spawn(
   process.execPath,
   [
