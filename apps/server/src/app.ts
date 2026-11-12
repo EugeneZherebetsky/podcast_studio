@@ -34,6 +34,15 @@ export function buildApp(options?: {
     if (ip !== "::1" && !ip.startsWith("127.") && !ip.startsWith("::ffff:127.")) {
       return reply.code(401).send({ error: "Remote access is not available" });
     }
+    const host = request.headers.host ?? "";
+    const origin = request.headers.origin;
+    if (
+      !/^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d{1,5})?$/i.test(host) ||
+      (origin !== undefined && origin !== `http://${host}`) ||
+      request.headers["sec-fetch-site"] === "cross-site"
+    ) {
+      return reply.code(403).send({ error: "Untrusted request origin" });
+    }
   });
   const db = options?.db;
   if (!db) return app;

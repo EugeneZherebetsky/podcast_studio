@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { readFile, realpath, rm, stat } from "node:fs/promises";
+import { lstat, readFile, realpath, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { eq, gt } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -17,12 +17,20 @@ export function registerEpisodeRoutes(app: FastifyInstance, db: Db, dataDir?: st
     const expected = path.join(root, episode.id);
     if (path.resolve(episode.path) !== expected)
       return reply.code(500).send({ error: "Episode package path is unsafe" });
+    let exists: boolean;
     try {
-      const actualRoot = await realpath(root);
-      const actual = await realpath(expected);
-      if (actual !== path.join(actualRoot, episode.id))
-        return reply.code(500).send({ error: "Episode package path is unsafe" });
-      await rm(expected, { recursive: true });
+      exists = await lstat(expected).then(() => true, (error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return false;
+        throw error;
+      });
+      if (exists) {
+        const actualRoot = await realpath(root);
+        const actual = await realpath(expected);
+        if (actualRoot !== path.join(await realpath(dataDir), "episodes") ||
+          actual !== path.join(actualRoot, episode.id))
+          return reply.code(500).send({ error: "Episode package path is unsafe" });
+        await rm(expected, { recursive: true });
+      }
     } catch {
       return reply.code(500).send({ error: "Episode package could not be removed" });
     }
