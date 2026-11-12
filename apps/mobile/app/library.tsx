@@ -61,6 +61,7 @@ export default function Library() {
       <Text>{sampleEpisode.title} • bundled • available offline</Text>
       {error ? <Text accessibilityRole="alert">Could not read saved position.</Text> : null}
       {position !== null && !error ? <Text>Saved position: {formatTime(position)}</Text> : null}
+      <Button title="Review vocabulary" onPress={() => router.push("/review")} />
       <Button title="Open sample player" onPress={() => router.navigate("/")} />
       {offlineError ? <Text accessibilityRole="alert">Could not verify the offline library.</Text> : null}
       {offline.map((episode, index) => (

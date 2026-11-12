@@ -3,11 +3,13 @@ import { Button, Modal, Pressable, ScrollView, Text, View } from "react-native";
 import Storage from "expo-sqlite/kv-store";
 import type { EpisodeSegment, Token } from "shared";
 import { segmentAt, tokenParts } from "./transcript";
+import { localVocabulary } from "./local-vocabulary";
 
 type TranslationMode = "tap" | "always" | "never";
 const settingKey = "transcript-translation-mode-v1";
 
-export function Transcript({ segments, positionMs, onSeek, onLoop }: {
+export function Transcript({ episodeId, segments, positionMs, onSeek, onLoop }: {
+  episodeId: string;
   segments: EpisodeSegment[];
   positionMs: number;
   onSeek: (seconds: number) => void;
@@ -21,7 +23,9 @@ export function Transcript({ segments, positionMs, onSeek, onLoop }: {
   });
   const [settingError, setSettingError] = useState(false);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
-  const [selected, setSelected] = useState<Token | null>(null);
+  const [selected, setSelected] = useState<{ token: Token; segment: EpisodeSegment } | null>(null);
+  const [saveMessage, setSaveMessage] = useState("");
+  const [saving, setSaving] = useState(false);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const positions = useRef<Record<number, number>>({});
   const active = segmentAt(segments, positionMs);
@@ -60,7 +64,7 @@ export function Transcript({ segments, positionMs, onSeek, onLoop }: {
           }} style={{ fontSize: 18, lineHeight: 30, fontWeight: active === index ? "bold" : "normal" }}>
           {tokenParts(segment.text, segment.tokens ?? []).map((part, partIndex) => part.token
             ? <Text key={partIndex} accessibilityRole="button" accessibilityLabel={`Word ${part.text}, show details`}
-                onPress={(event) => { event.stopPropagation(); setSelected(part.token ?? null); }} style={{ textDecorationLine: "underline" }}>{part.text}</Text>
+                onPress={(event) => { event.stopPropagation(); if (part.token) { setSaveMessage(""); setSelected({ token: part.token, segment }); } }} style={{ textDecorationLine: "underline" }}>{part.text}</Text>
             : <Text key={partIndex}>{part.text}</Text>)}
         </Text>
         <Button title={`Loop sentence ${index + 1}`} onPress={() => onLoop(index)} disabled={segment.endMs <= segment.startMs} />
@@ -73,14 +77,24 @@ export function Transcript({ segments, positionMs, onSeek, onLoop }: {
       <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "#0008" }}>
         <View accessibilityViewIsModal style={{ backgroundColor: "white", padding: 24, maxHeight: "80%", gap: 8 }}>
           <ScrollView>
-            <Text accessibilityRole="header" style={{ fontSize: 22 }}>{selected?.surface}</Text>
-            <Text>Lemma: {selected?.lemma}</Text>
-            <Text>Part of speech: {selected?.pos}</Text>
-            <Text>Meaning: {selected?.gloss || "Not provided"}</Text>
+            <Text accessibilityRole="header" style={{ fontSize: 22 }}>{selected?.token.surface}</Text>
+            <Text>Lemma: {selected?.token.lemma}</Text>
+            <Text>Part of speech: {selected?.token.pos}</Text>
+            <Text>Meaning: {selected?.token.gloss || "Not provided"}</Text>
             <Text accessibilityRole="header">Morphemes</Text>
-            {selected?.morphemes?.length ? selected.morphemes.map((morpheme, index) =>
+            {selected?.token.morphemes?.length ? selected.token.morphemes.map((morpheme, index) =>
               <Text key={index}>{morpheme.form}: {morpheme.meaning}</Text>) : <Text>Not provided</Text>}
-            <Text>Saving words and reporting errors are not available yet.</Text>
+            <Button title="Save word" disabled={saving || !selected} onPress={async () => {
+              if (!selected || saving) return;
+              setSaving(true);
+              try {
+                await (await localVocabulary()).save({ token: selected.token, sentence: selected.segment.text, translation: selected.segment.translation, episodeId, startMs: selected.segment.startMs, endMs: selected.segment.endMs });
+                setSaveMessage("Saved on this phone.");
+              } catch { setSaveMessage("Could not save word."); }
+              finally { setSaving(false); }
+            }} />
+            {saveMessage ? <Text accessibilityLiveRegion="polite">{saveMessage}</Text> : null}
+            <Text>Reporting errors is not available yet.</Text>
           </ScrollView>
           <Button title="Close word details" onPress={() => setSelected(null)} />
         </View>

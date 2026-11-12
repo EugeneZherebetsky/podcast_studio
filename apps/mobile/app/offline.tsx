@@ -95,7 +95,7 @@ function OfflinePlayer({ episode, audioUri }: { episode: Episode; audioUri: stri
         <Button title={`Plays: ${drill.repeats}×`} onPress={() => dispatch({ type: "repeats", count: drill.repeats === 3 ? 1 : drill.repeats === 1 ? 2 : 3 })} />
       </View>
     </View> : null}
-    {positionReady && status.isLoaded ? <Transcript segments={episode.segments} positionMs={status.currentTime * 1000}
+    {positionReady && status.isLoaded ? <Transcript episodeId={episode.id} segments={episode.segments} positionMs={status.currentTime * 1000}
       onLoop={(index) => dispatch({ type: "loop", index })}
       onSeek={(seconds) => {
         if (drillRef.current.mode !== "off") dispatch({ type: "select", index: episode.segments.findIndex((s) => s.startMs === seconds * 1000) });
