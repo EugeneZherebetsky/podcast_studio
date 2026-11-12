@@ -7,6 +7,7 @@ import { listOfflineEpisodes } from "../src/offline-files";
 import { clampPosition, formatTime } from "../src/position";
 import Storage from "expo-sqlite/kv-store";
 import { offlinePlayback } from "../src/offline-playback";
+import { Transcript } from "../src/TranscriptView";
 
 function OfflinePlayer({ episode, audioUri }: { episode: Episode; audioUri: string }) {
   const player = useAudioPlayer({ uri: audioUri }, { updateInterval: 1000 });
@@ -53,6 +54,8 @@ function OfflinePlayer({ episode, audioUri }: { episode: Episode; audioUri: stri
       if (status.playing) player.pause();
       else { player.setActiveForLockScreen(true, { title: episode.title, artist: episode.generation.voice }); player.play(); }
     }} />
+    {positionReady && status.isLoaded ? <Transcript segments={episode.segments} positionMs={status.currentTime * 1000}
+      onSeek={(seconds) => { player.seekTo(clampPosition(seconds, status.duration)).catch(() => setError("Could not seek.")); }} /> : null}
   </SafeAreaView>;
 }
 
