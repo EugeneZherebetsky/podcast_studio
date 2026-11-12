@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { SettingsSchema, type Settings as SettingsValue } from "shared";
 import { api } from "./api.ts";
+import { UsageTotal } from "./SettingsExtras.tsx";
 
 export function Settings() {
   const [value, setValue] = useState<SettingsValue | null>(null);
@@ -126,7 +127,7 @@ export function Settings() {
               />
             </label>
           ))}
-          <p>Usage totals are not available yet.</p>
+          <UsageTotal totalUsd={null} />
           <button className="primary" disabled={busy}>
             {busy ? "Saving…" : "Save settings"}
           </button>
