@@ -14,7 +14,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "gen": "pnpm --filter server run gen",
-    "smoke": "pnpm --filter server run smoke"
+    "smoke": "pnpm --filter server run smoke",
+    "autostart:install": "node scripts/autostart.mjs install",
+    "autostart:remove": "node scripts/autostart.mjs remove"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

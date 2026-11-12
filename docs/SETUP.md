@@ -43,6 +43,12 @@ Install Tailscale on the PC and the phone and sign in to the same account. Then 
 
 When the server first listens on the LAN (`HOST=0.0.0.0`), allow Node.js on **private** networks only.
 
+## Windows login autostart
+
+After installing dependencies, `pnpm autostart:install` registers a Windows Task Scheduler login task for this checkout and current user; it does not start the server immediately or overwrite an existing task. `pnpm autostart:remove` removes it only if its action still matches this checkout and the current Node executable. If Node or the checkout moves, inspect the old task in Task Scheduler before removing it manually. Neither command deletes application data. The server requires its usual configuration and dependencies at login.
+
+The task currently starts the API server only. The server does not yet serve the web build; use `pnpm dev` for the web UI. Browser installation and the login task still require manual verification.
+
 ## Local profile (task T26)
 
 - LLM: `ollama pull` the model named in `.env`. On a CPU-only machine expect small models at slow speed: fine for English drafts, not for graded Hungarian.
