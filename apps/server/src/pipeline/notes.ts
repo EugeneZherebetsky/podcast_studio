@@ -175,6 +175,7 @@ export async function runNotesStage(
         slot: "fast",
         system,
         prompt,
+        ...(deps.llm.localCacheIdentity ? { localTimeoutMs: 900_000 } : {}),
         schema: outlineResponseSchemaFor(sources.map((source) => source.id)),
       });
       console.info(`[notes] merge completed in ${Date.now() - mergeStarted}ms`);

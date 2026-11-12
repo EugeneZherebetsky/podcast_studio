@@ -529,6 +529,7 @@ test("local notes resume completed maps and invalidate changed source and model"
       request: import("../src/providers/llm/interface.ts").GenerateObjectRequest<T>,
     ) {
       const id = /<source id="(s\d+)">/.exec(request.prompt)?.[1] ?? "merge";
+      expect(request.localTimeoutMs).toBe(id === "merge" ? 900_000 : undefined);
       calls.push(id);
       active++;
       peak = Math.max(peak, active);

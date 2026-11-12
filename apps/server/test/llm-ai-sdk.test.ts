@@ -246,6 +246,50 @@ describe("bounded Ollama opt-in", () => {
       vi.unstubAllGlobals();
     }
   });
+  test("honours the longer bounded local merge deadline without retries", async () => {
+    const nativeTimeout = AbortSignal.timeout;
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockImplementation(() => nativeTimeout(10));
+    const fetchMock = vi.fn((_url: string | URL | Request, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const provider = createAiSdkLlmProvider(parseConfig({ PROFILE: "local" }), "ollama", {
+        env: { OLLAMA_BOUNDED_OUTPUT: "1" },
+      });
+      await expect(provider.generateObject({ slot: "fast", ...request, localTimeoutMs: 900_000 })).rejects.toBeDefined();
+      expect(timeoutSpy).toHaveBeenCalledWith(900_000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      timeoutSpy.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+  test("streams long local structured responses and validates them", async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      void url;
+      void init;
+      return new Response(
+        'data: {"id":"x","model":"tiny","choices":[{"index":0,"delta":{"content":"{\\"city\\":\\"Paris\\",\\"population\\":10}"},"finish_reason":null}]}\n\n' +
+          'data: {"id":"x","model":"tiny","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}\n\n' +
+          'data: [DONE]\n\n',
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const provider = createAiSdkLlmProvider(parseConfig({ PROFILE: "local" }), "ollama", {
+        env: { OLLAMA_BOUNDED_OUTPUT: "1" },
+      });
+      const result = await provider.generateObject({ slot: "fast", ...request, localTimeoutMs: 900_000 });
+      expect(result.object).toEqual({ city: "Paris", population: 10 });
+      expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string).stream).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   test("sends bounded structured output and disables thinking, failing closed without retry", async () => {
     const fetchMock = vi.fn(
       async (url: string | URL | Request, init?: RequestInit) => {

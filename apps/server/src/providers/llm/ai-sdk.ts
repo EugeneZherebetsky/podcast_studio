@@ -12,6 +12,7 @@ import {
   NoObjectGeneratedError,
   NoOutputGeneratedError,
   Output,
+  streamText,
   type LanguageModel,
 } from "ai";
 import { formatZodError, type AppConfig, type LlmProviderName } from "shared";
@@ -93,6 +94,22 @@ export class AiSdkLlmProvider implements LlmProvider {
     const attempts = this.boundedOllama ? 1 : MAX_ATTEMPTS;
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
+        if (this.boundedOllama && request.localTimeoutMs !== undefined) {
+          // Streaming avoids the fetch implementation's shorter response-headers deadline.
+          const result = streamText({
+            model,
+            instructions: request.system,
+            prompt: request.prompt,
+            output: Output.object({ schema: request.schema }),
+            maxOutputTokens: 8192,
+            maxRetries: 0,
+            abortSignal: AbortSignal.timeout(request.localTimeoutMs),
+            providerOptions: { openaiCompatible: { reasoningEffort: "none" } },
+          });
+          const object = await result.output;
+          const usage = await result.usage;
+          return { object: object as T, usage: this.usage(id, usage.inputTokens ?? 0, usage.outputTokens ?? 0) };
+        }
         // No tools: stages pass untrusted source text in `prompt`.
         const result = await generateText({
           model,
@@ -103,7 +120,7 @@ export class AiSdkLlmProvider implements LlmProvider {
             ? {
                 maxOutputTokens: 8192,
                 maxRetries: 0,
-                abortSignal: AbortSignal.timeout(180_000),
+                abortSignal: AbortSignal.timeout(request.localTimeoutMs ?? 180_000),
                 providerOptions: { openaiCompatible: { reasoningEffort: "none" } },
               }
             : {}),
