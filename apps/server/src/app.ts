@@ -12,13 +12,14 @@ import {
   IdParamsSchema,
   UpdateTopicRequestSchema,
   ServerEventSchema,
+  SyncPlaybackRequestSchema,
   SyncVocabRequestSchema,
   SyncVocabResponseSchema,
   type AppConfig,
   type HealthResponse,
 } from "shared";
 import type { Db } from "./db/index.ts";
-import { devices, topics, vocab } from "./db/schema.ts";
+import { devices, episodes, playback, topics, vocab } from "./db/schema.ts";
 import { registerEpisodeRoutes } from "./episode-routes.ts";
 import { registerJobRoutes, type JobRunner } from "./job-routes.ts";
 import { registerSettingsRoutes } from "./settings-routes.ts";
@@ -39,6 +40,10 @@ export function buildApp(options?: {
   const db = options?.db;
   let pairing: { code: string; expires: number; attempts: number } | undefined;
   const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+  const deviceFor = (authorization: string | undefined) => {
+    const match = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(authorization ?? "");
+    return match && db?.select().from(devices).where(eq(devices.tokenHash, hash(match[1]!))).get();
+  };
   app.addHook("onRequest", async (request, reply) => {
     const ip = request.ip;
     const loopback = ip === "::1" || ip.startsWith("127.") || ip.startsWith("::ffff:127.");
@@ -46,8 +51,7 @@ export function buildApp(options?: {
       if (request.headers.origin !== undefined || request.headers["sec-fetch-site"] !== undefined)
         return reply.code(403).send({ error: "Untrusted request origin" });
       if (request.method === "POST" && request.routeOptions.url === "/api/pair/complete") return;
-      const match = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(request.headers.authorization ?? "");
-      const device = match && db?.select().from(devices).where(eq(devices.tokenHash, hash(match[1]!))).get();
+      const device = deviceFor(request.headers.authorization);
       if (!device) return reply.code(401).send({ error: "Remote access is not available" });
       db!.update(devices).set({ lastSeenAt: new Date().toISOString() }).where(eq(devices.id, device.id)).run();
       return;
@@ -111,6 +115,29 @@ export function buildApp(options?: {
   registerEpisodeRoutes(app, db, options?.config?.DATA_DIR);
   registerJobRoutes(app, db, options?.runner);
   if (options?.config) registerSettingsRoutes(app, db, options.config);
+
+  app.post("/api/sync/playback", async (request, reply) => {
+    const device = deviceFor(request.headers.authorization);
+    if (!device) return reply.code(401).send({ error: "Device authentication required" });
+    const parsed = SyncPlaybackRequestSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "Invalid playback sync" });
+    const missing = parsed.data.positions.some((position) =>
+      !db.select({ id: episodes.id }).from(episodes).where(eq(episodes.id, position.episodeId)).get(),
+    );
+    if (missing) return reply.code(400).send({ error: "Unknown episode" });
+    db.transaction((tx) => {
+      for (const position of parsed.data.positions) {
+        const existing = tx.select().from(playback).where(and(eq(playback.episodeId, position.episodeId), eq(playback.deviceId, device.id))).get();
+        if (!existing || Date.parse(position.updatedAt) > Date.parse(existing.updatedAt)) {
+          tx.insert(playback).values({ ...position, deviceId: device.id }).onConflictDoUpdate({
+            target: [playback.episodeId, playback.deviceId],
+            set: position,
+          }).run();
+        }
+      }
+    });
+    return { ok: true };
+  });
 
   app.post("/api/sync/vocab", async (request, reply) => {
     const parsed = SyncVocabRequestSchema.safeParse(request.body);
