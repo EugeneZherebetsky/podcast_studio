@@ -2,7 +2,9 @@
 
 The bundled sample is the LibriVox recording of “The Mouth,” chapter 3 of *The Voice and Public Speaking* by John Poole Sandlands, read by Meliora Dockery. [Catalog and recording](https://librivox.org/the-voice-and-public-speaking-by-john-poole-sandlands/). LibriVox identifies its recordings as public domain in the United States; check local law where applicable. The original MP3 was converted to AAC for the bundled episode package. The metadata contains no transcript segments; its creation date is a fixture placeholder.
 
-The library displays the bundled sample's locally saved position. Playback checkpoints use the existing Expo SQLite key-value store; the sample's local playback queue is deliberately separate from the future server sync queue because the fixture is not a server episode. Pairing, downloads and remote sync are not implemented. Storage or restore errors are shown without preventing sample playback, and a failed restore does not overwrite the saved checkpoint.
+The library displays the bundled sample's locally saved position. Playback checkpoints use the existing Expo SQLite key-value store; the sample's local playback queue is deliberately separate from the future server sync queue because the fixture is not a server episode. Pairing, remote downloads and remote sync are not implemented. Storage or restore errors are shown without preventing sample playback, and a failed restore does not overwrite the saved checkpoint.
+
+A preliminary offline package store accepts audio through an injected transport, verifies its byte count and SHA-256 before publishing the package in the document directory, and shows verified packages in Library. No transport is connected until secure pairing is implemented, so the app cannot currently download episodes. The preliminary offline player has play/pause and background controls but does not yet persist playback position. Wi-Fi-only policy, automatic sync and the complete SQLite episode index remain unfinished. The filesystem adapter tests use isolated local fixtures, not a server.
 
 ## Android development build
 
