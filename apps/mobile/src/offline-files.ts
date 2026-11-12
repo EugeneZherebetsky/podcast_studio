@@ -26,7 +26,7 @@ export async function storeOfflineEpisode(input: unknown, transfer: (destination
   directory.create({ idempotent: true, intermediates: true });
   const name = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const staging = new Directory(directory, `staging-${name}`);
-  const completed = new Directory(directory, `episode-${name}`);
+  const completed = new Directory(directory, `published-${name}`);
   staging.create();
   const audio = new File(staging, "audio.m4a");
   let moved = false;
@@ -40,6 +40,11 @@ export async function storeOfflineEpisode(input: unknown, transfer: (destination
       await new File(staging, "episode.json").write(JSON.stringify(episode));
       await staging.move(completed);
       moved = true;
+      const publishedAudio = new File(completed, "audio.m4a");
+      if (!publishedAudio.exists || publishedAudio.size !== episode.audio.bytes || await publishedAudio.digest("SHA-256") !== episode.audio.sha256) {
+        throw new Error("Published audio failed verification");
+      }
+      await new File(completed, "commit.json").write(JSON.stringify({ committed: true }));
     },
     discard() {
       if (!moved && staging.exists) staging.delete();
@@ -52,13 +57,19 @@ export async function listOfflineEpisodes(): Promise<{ episode: Episode; audioUr
   if (!directory.exists) return [];
   const result: { episode: Episode; audioUri: string }[] = [];
   for (const item of directory.list()) {
-    if (!(item instanceof Directory) || !item.name.startsWith("episode-")) continue;
-    const episode = EpisodeSchema.parse(await new File(item, "episode.json").json());
-    const audio = new File(item, "audio.m4a");
-    if (!audio.exists || audio.size !== episode.audio.bytes || await audio.digest("SHA-256") !== episode.audio.sha256) {
-      throw new Error("Stored episode audio failed verification");
+    if (!(item instanceof Directory) || (!item.name.startsWith("episode-") && !item.name.startsWith("published-"))) continue;
+    try {
+      if (item.name.startsWith("published-")) {
+        const marker = new File(item, "commit.json");
+        if (!marker.exists || (await marker.json() as { committed?: unknown }).committed !== true) continue;
+      }
+      const episode = EpisodeSchema.parse(await new File(item, "episode.json").json());
+      const audio = new File(item, "audio.m4a");
+      if (!audio.exists || audio.size !== episode.audio.bytes || await audio.digest("SHA-256") !== episode.audio.sha256) continue;
+      result.push({ episode, audioUri: audio.uri });
+    } catch {
+      // Preserve and ignore incomplete or corrupt directories, including legacy imports.
     }
-    result.push({ episode, audioUri: audio.uri });
   }
   return result;
 }

@@ -5,6 +5,8 @@ import { join, basename } from "node:path";
 import { tmpdir } from "node:os";
 import { sampleEpisode } from "./sample";
 
+const fault = vi.hoisted(() => ({ partialMove: false }));
+
 vi.mock("expo-file-system", () => {
   class Directory {
     uri: string;
@@ -14,7 +16,16 @@ vi.mock("expo-file-system", () => {
     create(options?: { idempotent?: boolean; intermediates?: boolean }) { mkdirSync(this.uri, { recursive: !!options?.idempotent || !!options?.intermediates }); }
     delete() { rmSync(this.uri, { recursive: true }); }
     list() { return readdirSync(this.uri).map((name) => new Directory(this, name)); }
-    async move(to: Directory) { if (to.exists) throw new Error("exists"); renameSync(this.uri, to.uri); }
+    async move(to: Directory) {
+      if (to.exists) throw new Error("exists");
+      if (fault.partialMove) {
+        mkdirSync(to.uri);
+        writeFileSync(join(to.uri, "episode.json"), readFileSync(join(this.uri, "episode.json")));
+        writeFileSync(join(to.uri, "audio.m4a"), readFileSync(join(this.uri, "audio.m4a")).subarray(0, 2));
+        throw new Error("move interrupted");
+      }
+      renameSync(this.uri, to.uri);
+    }
   }
   class File {
     uri: string;
@@ -58,6 +69,35 @@ describe("offline filesystem adapter", () => {
     await expect(importUsbEpisode({ json: async () => second }, { copy: async (destination) => destination.write("corrupt") })).rejects.toThrow("verification");
     expect((await listOfflineEpisodes()).map((row) => row.episode.id)).toEqual([episode.id]);
     expect(readdirSync(join(String(Paths.document), "offline-episodes-v1"))).toHaveLength(1);
+  });
+  it("ignores an interrupted partial publication while preserving the existing library", async () => {
+    await storeOfflineEpisode(episode, async (file) => { await file.write(audio); });
+    const partial = join(String(Paths.document), "offline-episodes-v1", "episode-interrupted");
+    mkdirSync(partial);
+    writeFileSync(join(partial, "episode.json"), JSON.stringify({ ...episode, id: "second" }));
+    writeFileSync(join(partial, "audio.m4a"), audio.subarray(0, 2));
+    expect((await listOfflineEpisodes()).map((row) => row.episode.id)).toEqual([episode.id]);
+    expect(existsSync(partial)).toBe(true);
+  });
+  it("does not expose a fully copied destination before its commit marker", async () => {
+    const partial = join(String(Paths.document), "offline-episodes-v1", "published-interrupted");
+    mkdirSync(partial, { recursive: true });
+    writeFileSync(join(partial, "episode.json"), JSON.stringify(episode));
+    writeFileSync(join(partial, "audio.m4a"), audio);
+    expect(await listOfflineEpisodes()).toEqual([]);
+    writeFileSync(join(partial, "commit.json"), '{"committed":');
+    expect(await listOfflineEpisodes()).toEqual([]);
+  });
+  it("keeps partial copy/delete publication invisible and permits retry", async () => {
+    await storeOfflineEpisode(episode, async (file) => { await file.write(audio); });
+    const second = { ...episode, id: "second" };
+    fault.partialMove = true;
+    try {
+      await expect(importUsbEpisode({ json: async () => second }, { copy: async (file) => file.write(audio) })).rejects.toThrow("move interrupted");
+    } finally { fault.partialMove = false; }
+    expect((await listOfflineEpisodes()).map((row) => row.episode.id)).toEqual([episode.id]);
+    await importUsbEpisode({ json: async () => second }, { copy: async (file) => file.write(audio) });
+    expect((await listOfflineEpisodes()).map((row) => row.episode.id).sort()).toEqual([episode.id, "second"].sort());
   });
   it("stores a verified package and reads it back", async () => {
     await storeOfflineEpisode(episode, async (file) => { await file.write(audio); });
