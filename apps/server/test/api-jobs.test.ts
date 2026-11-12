@@ -1,0 +1,76 @@
+import { expect, test, vi } from "vitest";
+import { buildApp } from "../src/app.ts";
+import { openDatabase } from "../src/db/index.ts";
+import { jobs } from "../src/db/schema.ts";
+
+test("existing jobs are readable but job creation fails closed without a runner", async () => {
+  const db = openDatabase(":memory:");
+  const app = buildApp({ db });
+  try {
+    const job = {
+      id: "job",
+      topicId: null,
+      status: "failed",
+      currentStage: "plan",
+      error: "failed",
+      options: { title: "News", brief: "", mode: "standard", lang: "en", minutes: 8 },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    } as const;
+    db.insert(jobs).values(job).run();
+    expect((await app.inject({ url: "/api/jobs" })).json().jobs).toEqual([job]);
+    expect((await app.inject({ url: "/api/jobs/job" })).json().stages).toEqual([]);
+    expect(
+      (await app.inject({ method: "POST", url: "/api/jobs", payload: job.options })).statusCode,
+    ).toBe(503);
+    expect((await app.inject({ method: "POST", url: "/api/jobs", payload: {} })).statusCode).toBe(
+      400,
+    );
+  } finally {
+    await app.close();
+    db.$client.close();
+  }
+});
+
+test("job control delegates to an injected runner", async () => {
+  const db = openDatabase(":memory:");
+  const job = {
+    id: "job",
+    topicId: null,
+    status: "failed",
+    currentStage: "plan",
+    error: "failed",
+    options: { title: "News", brief: "", mode: "standard", lang: "en", minutes: 8 },
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  } as const;
+  db.insert(jobs).values(job).run();
+  const runner = {
+    create: vi.fn().mockResolvedValue(job),
+    retry: vi.fn().mockResolvedValue(job),
+    cancel: vi.fn().mockResolvedValue(job),
+  };
+  const app = buildApp({ db, runner });
+  try {
+    expect(
+      (await app.inject({ method: "POST", url: "/api/jobs", payload: job.options })).statusCode,
+    ).toBe(201);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/jobs/job/retry",
+          payload: { fromStage: "script" },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect((await app.inject({ method: "POST", url: "/api/jobs/job/cancel" })).statusCode).toBe(
+      200,
+    );
+    expect(runner.retry).toHaveBeenCalledWith("job", { fromStage: "script" });
+    expect(runner.cancel).toHaveBeenCalledWith("job");
+  } finally {
+    await app.close();
+    db.$client.close();
+  }
+});

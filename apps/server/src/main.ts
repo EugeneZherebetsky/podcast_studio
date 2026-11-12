@@ -15,8 +15,7 @@ try {
 const dataDirs = ensureDataDirs(config.DATA_DIR);
 const db = openDatabase(dataDirs.dbFile);
 
-// Routes that use the database arrive in T13.
-const app = buildApp();
+const app = buildApp({ db, config });
 app.addHook("onClose", () => {
   db.$client.close();
 });
