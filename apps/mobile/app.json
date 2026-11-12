@@ -7,6 +7,7 @@
     "android": { "package": "app.podcaststudio.mobile" },
     "plugins": [
       "expo-router",
+      "./plugins/with-android-object-path.cjs",
       ["expo-audio", { "enableBackgroundPlayback": true, "recordAudioAndroid": false }]
     ]
   }
