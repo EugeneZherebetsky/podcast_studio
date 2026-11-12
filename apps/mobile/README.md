@@ -2,6 +2,8 @@
 
 The bundled sample is the LibriVox recording of “The Mouth,” chapter 3 of *The Voice and Public Speaking* by John Poole Sandlands, read by Meliora Dockery. [Catalog and recording](https://librivox.org/the-voice-and-public-speaking-by-john-poole-sandlands/). LibriVox identifies its recordings as public domain in the United States; check local law where applicable. The original MP3 was converted to AAC for the bundled episode package. The metadata contains no transcript segments; its creation date is a fixture placeholder.
 
+The library displays the bundled sample's locally saved position. Playback checkpoints use the existing Expo SQLite key-value store; the sample's local playback queue is deliberately separate from the future server sync queue because the fixture is not a server episode. Pairing, downloads and remote sync are not implemented. Storage or restore errors are shown without preventing sample playback, and a failed restore does not overwrite the saved checkpoint.
+
 ## Android development build
 
 On Windows, native CMake/Ninja builds can exceed path limits. The successful workaround used a **fresh, short-path checkout**, a hoisted pnpm install, and a short Gradle user home. Use a separate checkout rather than switching the linker in an existing install. Set `PNPM_CONFIG_NODE_LINKER=hoisted` in the build shell for every pnpm command (including later runs, to prevent an automatic reinstall with the default linker). From that checkout's root:

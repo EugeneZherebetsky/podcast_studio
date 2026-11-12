@@ -5,17 +5,19 @@ import { useRouter } from "expo-router";
 import Storage from "expo-sqlite/kv-store";
 import { clampPosition, formatTime } from "../src/position";
 import { sampleEpisode } from "../src/sample";
+import { samplePlayback } from "../src/sample-playback";
 
 // Metro requires a static require for bundled media.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const source = require("../assets/audio.m4a");
-const key = "sample-position-seconds";
+const playback = samplePlayback(Storage, sampleEpisode.id);
 
 export default function Player() {
   const router = useRouter();
   const player = useAudioPlayer(source, { updateInterval: 1000 });
   const status = useAudioPlayerStatus(player);
   const restored = useRef(false);
+  const canSave = useRef(true);
   const lastSaved = useRef(-1);
   const target = useRef(0);
   const [ready, setReady] = useState(false);
@@ -37,29 +39,35 @@ export default function Player() {
     if (!status.isLoaded || restored.current || status.duration <= 0) return;
     restored.current = true;
     try {
-      const saved = Number(Storage.getItemSync(key) ?? 0);
+      const saved = playback.position();
       target.current = clampPosition(saved, status.duration);
       player
         .seekTo(target.current)
         .then(() => setPositionReady(true))
-        .catch(() => setError("Could not restore position."));
+        .catch(() => {
+          canSave.current = false;
+          setError("Could not restore position.");
+          setPositionReady(true);
+        });
     } catch {
+      canSave.current = false;
       setError("Could not read saved position.");
+      setPositionReady(true);
     }
   }, [player, status.isLoaded, status.duration]);
 
   useEffect(() => {
-    if (!positionReady || !status.isLoaded) return;
+    if (!positionReady || !status.isLoaded || !canSave.current) return;
     if (lastSaved.current === -1 && Math.abs(status.currentTime - target.current) > 1) return;
     const second = Math.floor(status.currentTime);
-    if (second === lastSaved.current || (status.playing && second % 5 !== 0)) return;
+    if (!status.didJustFinish && (second === lastSaved.current || (status.playing && second % 5 !== 0))) return;
     try {
-      Storage.setItemSync(key, String(status.didJustFinish ? 0 : status.currentTime));
+      playback.record(clampPosition(status.currentTime, status.duration), status.didJustFinish);
       lastSaved.current = second;
     } catch {
       setError("Could not save position.");
     }
-  }, [positionReady, status.currentTime, status.playing, status.isLoaded, status.didJustFinish]);
+  }, [positionReady, status.currentTime, status.duration, status.playing, status.isLoaded, status.didJustFinish]);
 
   const seek = (seconds: number) => {
     player
