@@ -21,11 +21,12 @@
 │        data/cache/tts/        ├─ TtsProvider    → Azure | OpenAI | ElevenLabs | Piper
 │                               └─ ffmpeg / ffprobe                            │
 └───────────────▲──────────────────────────────────────────────────────────────┘
-                │ HTTPS via Tailscale, or HTTP on home Wi-Fi; bearer token
+                │ Planned: private authenticated home Wi-Fi download, PC → phone
+                │ Alternative: manual USB package copy and import
 ┌───────────────┴──────────── Android phone ───────────────────────────────────┐
 │  apps/mobile (Expo)                                                          │
-│   sync ── library (expo-sqlite + files) ── player (expo-audio, background)   │
-│   learning: synced transcript, sentence drill, vocabulary, FSRS review       │
+│   import/download ── library (local files + SQLite) ── background player    │
+│   learning: timed transcript, sentence drill, local vocabulary and FSRS    │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -33,6 +34,7 @@ Principles:
 
 - **The server does all the thinking.** The phone never calls an LLM, search or TTS provider. Everything a learner needs offline (translations, word glosses, timings) is computed at generation time and shipped inside `episode.json`.
 - **An episode is a self-contained package:** one audio file plus one JSON file. Any client that can read both can play it.
+- **Transfer is one-way.** Playback and vocabulary progress stay on the phone; PC generation may use its configured cloud providers.
 - **Providers are swappable by config.** Pipeline code depends on interfaces only.
 
 ## 2. Repository layout
@@ -70,7 +72,7 @@ A **job** produces one episode. It is a sequence of stages; each stage reads the
 | 2 | `search` | queries → `candidates.json` (url, title, snippet, date) | Deduplicate by canonical URL; drop URLs already used by this topic; prefer recent for recurring topics |
 | 3 | `extract` | top N=8–12 URLs → `sources.json` (id, url, title, site, publishedAt, text ≤ 8k chars) | Parallel fetch, 10 s timeout, Readability; skip failures; require ≥ 3 usable sources or fail with a clear message |
 | 4 | `notes` | each source → fact bullets tagged with source id; then merged outline → `notes.json` | Map step can use the cheap model; conflicting facts are kept with both sources noted |
-| 5 | `script` | outline + notes + mode + level + learner vocabulary → `script.json` (see §4 `ScriptSegment`) | Structured output validated by zod. Word budget = minutes × 140 (English) or minutes × 90 (graded Hungarian) |
+| 5 | `script` | outline + notes + mode + level + optional PC-provided vocabulary → `script.json` (see §4 `ScriptSegment`) | Structured output validated by zod. Word budget = minutes × 140 (English) or minutes × 90 (graded Hungarian) |
 | 6 | `review` | script + notes → corrected `script.json` + `review.json` | Checks every factual claim maps to a note; for Hungarian also a proofreading and level pass (see LEARNING-MODE.md §5). Skippable with `--no-review` |
 | 7 | `tts` | each segment → one WAV file (mono, 24 kHz, 16-bit PCM) in `data/cache/tts/<sha256(provider,voice,rate,lang,text)>.wav` | Concurrency 3; retry with backoff; cache means edits re-synthesise only changed segments |
 | 8 | `assemble` | WAVs + pauses → `audio.m4a` (AAC, mono, 64 kbps) + timings | Concatenate **PCM**, insert silence per `pauseAfterMs`, loudness-normalise to −16 LUFS, encode once. `startMs`/`endMs` are computed from sample counts before encoding |
@@ -140,6 +142,8 @@ interface Episode {
 
 ### SQLite tables (server)
 
+Historical/planned tables below include existing progress-related records; retain them and existing code, but do not use them for automatic phone progress synchronization. Any schema changes require prior owner approval.
+
 `topics` (id, title, brief, mode, lang, level, minutes, schedule cron, enabled, lastRunAt) · `jobs` (id, topicId, status, currentStage, error, options JSON, timestamps) · `job_stages` (jobId, stage, status, inputHash, startedAt, finishedAt, error) · `episodes` (id, topicId, title, summary, mode, lang, durationMs, createdAt, path) · `used_sources` (topicId, canonicalUrl, episodeId) · `devices` (id, name, tokenHash, createdAt, lastSeenAt) · `vocab` (lemma, lang, gloss, state, dueAt, updatedAt, raw FSRS card JSON) · `playback` (episodeId, deviceId, positionMs, finished, updatedAt) · `usage` (ts, provider, kind, units, costUsd, jobId) · `settings` (key, value).
 
 ## 5. Provider interfaces
@@ -172,7 +176,7 @@ Notes for implementers:
 
 ## 6. HTTP API (server, prefix `/api`)
 
-All bodies are JSON validated by shared schemas. Requests from non-loopback addresses need `Authorization: Bearer <device token>`, except pairing completion with a valid one-use code.
+This table records existing and planned API surface, not authorization to expose it on the LAN. JSON bodies use shared schemas. Existing pairing and progress routes are historical implementation, not an approved phone sync design; retain code and data pending a separate decision. A future LAN transfer surface must be limited to authenticated episode listing/download, not the whole desktop API.
 
 | Method and path | Purpose |
 |---|---|
@@ -185,30 +189,30 @@ All bodies are JSON validated by shared schemas. Requests from non-loopback addr
 | `GET /episodes/:id/audio` | audio with HTTP Range support |
 | `DELETE /episodes/:id` | remove |
 | `POST /pair/start` (loopback only) → `{qr}` ; `POST /pair/complete` `{code, deviceName}` → `{token}` | device pairing |
-| `POST /sync/playback` | batch upsert of positions, last write wins on `updatedAt` |
-| `POST /sync/vocab` | batch upsert of vocabulary cards, last write wins per lemma; response returns the server's newer rows |
+| `POST /sync/playback` | Existing legacy endpoint; not used for phone progress |
+| `POST /sync/vocab` | Existing legacy endpoint; not used for phone vocabulary |
 | `GET/PUT /settings` | profile, voices, native language, level, budget; never returns secrets |
 | `GET /feed.xml?token=` | optional RSS feed of episodes for third-party podcast apps |
 
 ## 7. Mobile app
 
-- **Screens:** Library (downloaded and available), Player (controls + transcript), Topics (list, request episode), Review (vocabulary), Settings (pairing, storage, level).
+- **Screens:** Library (downloaded and locally available), Player (controls + transcript), Review (vocabulary), Settings (device acceptance, storage, level), and explicit USB import.
 - **Storage:** expo-sqlite for episodes index, playback positions, vocabulary and FSRS cards; audio and `episode.json` under the app document directory.
-- **Sync:** on app foreground, on pull-to-refresh, and after pairing. Steps: `GET /episodes?since`, download missing packages (verify sha256), push playback and vocabulary, pull vocabulary. Wi-Fi-only download is a setting, default on. If the server is unreachable, the app works from local data and shows a quiet "offline" badge.
+- **Transfer (planned):** an explicitly PC-accepted phone downloads finished packages only over authenticated, encrypted home Wi-Fi; no playback or vocabulary upload. Independently, the user copies a package over USB and selects it for import. Validate shared episode schema, safe paths, audio byte count and SHA-256; stage first and atomically publish only verified packages, preserving existing library and progress on failure. A digest alone does not authenticate a package. USB imports rely on the user trusting its source. Duplicate and replacement behavior needs explicit design before implementation.
 - **Player:** expo-audio with `shouldPlayInBackground`, lock-screen controls via `setActiveForLockScreen` (required on Android for sustained background playback), `playbackRate` with pitch correction. A position ticker (≈100 ms) drives transcript highlighting by binary search over `segments[].startMs`. The T18 scaffold plays a bundled LibriVox episode package without transcript segments; transcript highlighting remains to be implemented.
-- **Connectivity (planned):** server URL and token come from pairing. Phone pairing is not yet available: the QR contains a loopback address, plain HTTP exposes credentials, and a reverse proxy must not bypass the authentication boundary described in §9. A reachable address, trusted encrypted transport, and mobile integration require design and verification before use.
+- **Connectivity (planned):** no functional phone pairing is claimed. Design local discovery, explicit PC-side acceptance, encrypted transport and server identity verification, authorization scope, expiry/revocation, and recovery before enabling LAN access. No public internet exposure or remote access. A trusted certificate/key or equivalent authenticated channel must be established without sending reusable credentials in plaintext.
 - **Build:** development build with `expo run:android` on a USB-connected phone (Expo Go is not sufficient for background audio). Release APK with Gradle `assembleRelease`, installed by `adb install`.
 
 ## 8. Desktop
 
-`apps/web` is served by the server at `http://localhost:4747` and has a web manifest so Edge/Chrome can install it as a windowed app. A scheduled task (`pnpm run autostart:install`) starts the server at login. Pages: New episode, Topics, Library + player with transcript, Jobs (live progress, retry), Settings (profile, voices with preview, pairing QR, usage and cost).
+`apps/web` is served by the server at `http://localhost:4747` and has a web manifest so Edge/Chrome can install it as a windowed app. A scheduled task (`pnpm run autostart:install`) starts the server at login. Pages: New episode, Topics, Library + player with transcript, Jobs (live progress, retry), Settings (profile, voices with preview, future device acceptance, usage and cost).
 
 ## 9. Security and privacy
 
-- Server binds `127.0.0.1` unless `HOST=0.0.0.0` is set; then every non-loopback request needs a device token (stored hashed), except pairing completion with a valid one-use code. Pairing codes expire after five minutes or ten failed attempts and are lost on restart. Remote requests carrying browser Origin or Fetch Metadata headers are rejected. Pairing currently returns the local request host in its QR payload, not a remotely reachable address; Settings does not offer a QR until a safe connection is designed. Direct plain HTTP exposes codes and tokens to the network. A reverse proxy must not present remote traffic as trusted loopback traffic; proxy deployment is not supported until its authentication boundary is designed.
+- Current server defaults to loopback; a non-loopback default requires prior owner approval. Existing non-loopback auth and pairing code are not a completed safe phone transfer: the QR uses a loopback address, and plaintext HTTP exposes codes and tokens. A reverse proxy must not bypass the loopback trust boundary. The planned opt-in LAN-only transfer requires explicit PC-side acceptance per device, encrypted authenticated transport, scoped read-only authorization and revocation; test rejection of unauthorized devices and non-LAN/public access. No router port forwarding or public exposure. Exact mechanism remains open for review.
 - Secrets only in `.env` on the PC. `.env`, `data/`, `infra/piper/` are git-ignored.
 - Logs redact `Authorization` headers and anything matching configured key values.
-- What leaves the machine in the cloud profile: search queries, topic text, extracted page text, scripts (to the LLM), script text (to TTS). The learner's vocabulary list is sent to the LLM only as lemmas.
+- What leaves the machine in the cloud profile: search queries, topic text, extracted page text, scripts (to the LLM), script text (to TTS). Phone vocabulary is not sent to the server or providers; any future explicit PC-side input must be separately approved.
 - Scripts summarise and attribute; sources are listed in every episode.
 
 ## 10. Risks

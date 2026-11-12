@@ -59,13 +59,7 @@ Sentence-audio replay in review requires the episode to still be downloaded; if 
 
 ## 4. Adaptive loop
 
-1. Phone syncs vocabulary to the server (`POST /sync/vocab`): lemma, state (new/learning/review), due date.
-2. When generating a Hungarian episode, the `script` stage receives:
-   - `due`: up to 15 lemmas due for review within 3 days → the model must reuse as many as fit naturally (target ≥ 60 %).
-   - `known`: lemmas in review state with long intervals → free to use.
-   - `newBudget`: number of new target words (default 8).
-3. The episode's `targetVocabulary` lists new words; the app offers "Save all target words" at the end of the episode.
-4. Level adjusts only by explicit user setting. Do not auto-promote.
+Phone vocabulary and FSRS progress remain local and are never automatically uploaded. Consequently automatic adaptation to phone due/known words is deferred; no cross-device recovery after reinstall is promised. A future manual PC-side vocabulary input or explicit backup needs a separate owner decision. The episode can still list `targetVocabulary`, and the app can offer "Save all target words". Level adjusts only by explicit user setting; do not auto-promote.
 
 ## 5. Quality controls for generated Hungarian
 
@@ -74,7 +68,7 @@ LLM Hungarian can be wrong, especially morphology explanations. Controls, in ord
 1. Learning modes always use `LLM_MODEL_MAIN`.
 2. `review` stage runs a dedicated proofreading prompt: correct grammar, vowel harmony, definite/indefinite conjugation, word order; then a level prompt: flag sentences above the target level and rewrite them.
 3. Structural validation: tokens reconstruct the text; every `isTarget` lemma appears ≥ 3 times; sentence length limits hold. Violations trigger one automatic regeneration of the offending batch.
-4. "Report error" in the word sheet marks a token; reported tokens are excluded from saving and are sent to the server for the owner to inspect.
+4. "Report error" in the word sheet marks a token; reported tokens are excluded from saving and retained locally for the owner to inspect; they are not automatically sent to the server.
 5. Tell the learner honestly in the app's About screen that explanations are machine-generated and may contain mistakes.
 
 A deterministic morphological analyser (for example a Hungarian hunspell dictionary or emMorph) for cross-checking lemmas is a possible later improvement; it is not in scope for the first version.
