@@ -64,11 +64,11 @@ test("job control delegates to an injected runner", async () => {
           payload: { fromStage: "script" },
         })
       ).statusCode,
-    ).toBe(200);
+    ).toBe(409);
     expect((await app.inject({ method: "POST", url: "/api/jobs/job/cancel" })).statusCode).toBe(
       200,
     );
-    expect(runner.retry).toHaveBeenCalledWith("job", { fromStage: "script" });
+    expect(runner.retry).not.toHaveBeenCalled();
     expect(runner.cancel).toHaveBeenCalledWith("job");
   } finally {
     await app.close();
@@ -90,9 +90,9 @@ test("local learning jobs and retries fail closed unless explicitly enabled", as
         const res = await app.inject({ method: "POST", url: "/api/jobs", payload: { ...options, mode } });
         expect(res.statusCode).toBe(override ? 201 : 400);
       }
-      expect((await app.inject({ method: "POST", url: "/api/jobs/job/retry", payload: {} })).statusCode).toBe(override ? 200 : 400);
+      expect((await app.inject({ method: "POST", url: "/api/jobs/job/retry", payload: {} })).statusCode).toBe(409);
       expect(runner.create).toHaveBeenCalledTimes(override ? 2 : 0);
-      expect(runner.retry).toHaveBeenCalledTimes(override ? 1 : 0);
+      expect(runner.retry).not.toHaveBeenCalled();
       expect((await app.inject({ method: "POST", url: "/api/jobs", payload: { ...options, mode: "standard" } })).statusCode).toBe(201);
     } finally { await app.close(); db.$client.close(); }
   }

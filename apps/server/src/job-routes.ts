@@ -49,9 +49,7 @@ export function registerJobRoutes(app: FastifyInstance, db: Db, runner?: JobRunn
     if (!body.success) return reply.code(400).send({ error: body.error.message });
     const job = db.select().from(jobs).where(eq(jobs.id, request.params.id)).get();
     if (!job) return reply.code(404).send({ error: "Job not found" });
-    if (learningBlocked(job.options.mode)) return reply.code(400).send({ error: "Local learning modes require ALLOW_LOCAL_LEARNING=1" });
-    if (!runner) return reply.code(503).send({ error: "Job runner unavailable" });
-    return runner.retry(request.params.id, body.data);
+    return reply.code(409).send({ error: "Retry is disabled until job recovery is safe" });
   });
   app.post<{ Params: { id: string } }>("/api/jobs/:id/cancel", async (request, reply) => {
     if (!db.select().from(jobs).where(eq(jobs.id, request.params.id)).get())

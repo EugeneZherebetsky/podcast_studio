@@ -6,7 +6,6 @@ export function Jobs() {
   const [jobs, setJobs] = useState<JobDetail[] | null>(null);
   const [error, setError] = useState("");
   const [connection, setConnection] = useState(false);
-  const [retrying, setRetrying] = useState("");
   const sequence = useRef(0);
   const load = useCallback(async () => {
     const request = ++sequence.current;
@@ -41,18 +40,6 @@ export function Jobs() {
       close();
     };
   }, [load]);
-  async function retry(id: string) {
-    setRetrying(id);
-    setError("");
-    try {
-      await api.retryJob(id);
-      await load();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not retry job");
-    } finally {
-      setRetrying("");
-    }
-  }
   return (
     <section>
       <header className="page-heading">
@@ -110,9 +97,7 @@ export function Jobs() {
                 <p>No stage updates yet.</p>
               )}
               {job.status === "failed" && (
-                <button disabled={!!retrying} onClick={() => void retry(job.id)}>
-                  {retrying === job.id ? "Retrying…" : "Retry job"}
-                </button>
+                <p>Retry is disabled until job recovery is safe.</p>
               )}
             </article>
           ))}
