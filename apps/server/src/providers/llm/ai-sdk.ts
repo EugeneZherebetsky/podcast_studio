@@ -2,6 +2,7 @@
 // `output: Output.object({ schema })`: the SDK sends the JSON schema to the model, parses
 // the reply and validates it with the zod schema, rejecting with NoObjectGeneratedError
 // when the reply is not JSON or does not match.
+import { createHash } from "node:crypto";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogle } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -42,6 +43,7 @@ export interface AiSdkLlmProviderOptions {
   /** Receives the "no price for model" warning; defaults to `console.warn`. */
   warn?: (message: string) => void;
   boundedOllama?: boolean;
+  localCacheIdentity?: string;
 }
 
 /**
@@ -60,6 +62,7 @@ export class LlmOutputError extends Error {
 
 export class AiSdkLlmProvider implements LlmProvider {
   readonly providerName: string;
+  readonly localCacheIdentity?: string;
   private readonly models: Record<LlmSlot, SlotModel>;
   private readonly prices: LlmPriceTable | "free";
   private readonly warn: (message: string) => void;
@@ -68,6 +71,7 @@ export class AiSdkLlmProvider implements LlmProvider {
 
   constructor(options: AiSdkLlmProviderOptions) {
     this.providerName = options.provider;
+    this.localCacheIdentity = options.localCacheIdentity;
     this.models = options.models;
     this.prices = options.prices;
     this.boundedOllama = options.boundedOllama === true;
@@ -227,10 +231,11 @@ export function createAiSdkLlmProvider(
   options: CreateAiSdkLlmProviderOptions = {},
 ): AiSdkLlmProvider {
   if (name === "ollama") {
-    const boundedOllama = options.env !== undefined
-      ? options.env.OLLAMA_BOUNDED_OUTPUT === "1"
-      : (config as AppConfig & { OLLAMA_BOUNDED_OUTPUT?: boolean }).OLLAMA_BOUNDED_OUTPUT ??
-        process.env.OLLAMA_BOUNDED_OUTPUT === "1";
+    const boundedOllama =
+      options.env !== undefined
+        ? options.env.OLLAMA_BOUNDED_OUTPUT === "1"
+        : ((config as AppConfig & { OLLAMA_BOUNDED_OUTPUT?: boolean }).OLLAMA_BOUNDED_OUTPUT ??
+          process.env.OLLAMA_BOUNDED_OUTPUT === "1");
     if (
       boundedOllama &&
       (!["localhost", "127.0.0.1", "[::1]"].includes(new URL(config.OLLAMA_BASE_URL).hostname) ||
@@ -252,6 +257,20 @@ export function createAiSdkLlmProvider(
       },
       prices: "free",
       boundedOllama,
+      localCacheIdentity:
+        ["localhost", "127.0.0.1", "[::1]"].includes(new URL(config.OLLAMA_BASE_URL).hostname) &&
+        !/:cloud$/i.test(config.OLLAMA_MODEL_FAST)
+          ? createHash("sha256")
+              .update(
+                JSON.stringify({
+                  endpoint: config.OLLAMA_BASE_URL,
+                  model: config.OLLAMA_MODEL_FAST,
+                  boundedOllama,
+                  version: 1,
+                }),
+              )
+              .digest("hex")
+          : undefined,
       warn: options.warn,
     });
   }

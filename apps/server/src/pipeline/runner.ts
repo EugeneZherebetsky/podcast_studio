@@ -177,7 +177,15 @@ export async function generateJob(
   ).artifact;
   const notes = (
     await stage("notes", () =>
-      runNotesStage({ workDir, llm: providers.llm }, { title: job.options.title, plan, sources }),
+      runNotesStage(
+        {
+          workDir,
+          llm: providers.llm,
+          shouldContinue: () =>
+            db.select().from(jobs).where(eq(jobs.id, id)).get()?.status === "running",
+        },
+        { title: job.options.title, plan, sources },
+      ),
     )
   ).artifact;
   const script = (

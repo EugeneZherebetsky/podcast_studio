@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { artifactPaths } from "../src/pipeline/artifacts.ts";
@@ -514,6 +514,71 @@ function runNotes(sources: Sources = SOURCES) {
     { title: "Urban bees", plan: PLAN, sources },
   );
 }
+
+test("local notes resume completed maps and invalidate changed source and model", async () => {
+  let fail = true;
+  let model = "local-a";
+  let active = 0;
+  let peak = 0;
+  const calls: string[] = [];
+  const llm = {
+    get localCacheIdentity() {
+      return model;
+    },
+    async generateObject<T>(
+      request: import("../src/providers/llm/interface.ts").GenerateObjectRequest<T>,
+    ) {
+      const id = /<source id="(s\d+)">/.exec(request.prompt)?.[1] ?? "merge";
+      calls.push(id);
+      active++;
+      peak = Math.max(peak, active);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        if (id === "s2" && fail) {
+          fail = false;
+          throw new Error("timeout");
+        }
+        return await providers.llm.generateObject(request);
+      } finally {
+        active--;
+      }
+    },
+  };
+  const run = (sources = SOURCES) =>
+    runNotesStage({ workDir, llm }, { title: "Urban bees", plan: PLAN, sources, concurrency: 3 });
+  await expect(run()).rejects.toThrow("timeout");
+  expect(calls).toEqual(["s1", "s2"]);
+  const cache = path.join(workDir, "notes-map");
+  const entry = readdirSync(cache)[0]!;
+  writeFileSync(path.join(cache, entry), "bad json");
+  await expect(run()).resolves.toBeDefined();
+  expect(calls).toEqual(["s1", "s2", "s1", "s2", "s3", "merge"]);
+  // A second failed attempt with a valid first map exercises actual reuse.
+  const otherDir = workDir;
+  workDir = path.join(dir, "jobs", "job-2");
+  calls.length = 0;
+  fail = true;
+  await expect(run()).rejects.toThrow("timeout");
+  const result = await run();
+  workDir = otherDir;
+  expect(calls).toEqual(["s1", "s2", "s2", "s3", "merge"]);
+  expect(result.artifact.facts.map((f) => f.sourceId)).toEqual([
+    "s1",
+    "s1",
+    "s2",
+    "s2",
+    "s3",
+    "s3",
+  ]);
+  expect(peak).toBe(1);
+  const changed = structuredClone(SOURCES);
+  changed.sources[1]!.text += " changed";
+  await run(changed);
+  expect(calls.slice(-2)).toEqual(["s2", "merge"]);
+  model = "local-b";
+  await run(changed);
+  expect(calls.slice(-4)).toEqual(["s1", "s2", "s3", "merge"]);
+});
 
 test("notes makes one fast call per source, then one merge call", async () => {
   const { artifact } = await runNotes();

@@ -30,5 +30,7 @@ export interface GenerateObjectResult<T> {
 
 /** Structured generation only, with no tools: stages pass untrusted source text in `prompt`. */
 export interface LlmProvider {
+  /** Stable, secret-free identity for free local map caching; absent disables it. */
+  readonly localCacheIdentity?: string;
   generateObject<T>(request: GenerateObjectRequest<T>): Promise<GenerateObjectResult<T>>;
 }
