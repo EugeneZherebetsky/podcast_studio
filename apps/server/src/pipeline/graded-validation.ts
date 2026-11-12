@@ -15,7 +15,7 @@ export function validateGradedSegments(
     if (!segment.translation?.trim() || tokens.some((t) => !t.gloss.trim() || !t.morphemes?.length))
       errors.push(`${segment.id}: missing translation or token annotation`);
     for (const [index, token] of tokens.entries()) {
-      const separator = rest.match(/^[\s\p{P}\p{S}]*/u)?.[0] ?? "";
+      const separator = rest.match(/^[\s\p{P}]*/u)?.[0] ?? "";
       rest = rest.slice(separator.length);
       if (
         (index > 0 && !separator) ||
@@ -30,7 +30,7 @@ export function validateGradedSegments(
       counts.set(lemma, (counts.get(lemma) ?? 0) + 1);
       if (token.isTarget) targets.add(lemma);
     }
-    if (!tokens.length || !/^[\s\p{P}\p{S}]*$/u.test(rest))
+    if (!tokens.length || !/^[\s\p{P}]*$/u.test(rest))
       errors.push(`${segment.id}: tokens do not reconstruct text`);
     const words = segment.text.match(/[\p{L}\p{M}\p{N}]+/gu) ?? [];
     if (words.length > limit) errors.push(`${segment.id}: exceeds ${limit} words`);

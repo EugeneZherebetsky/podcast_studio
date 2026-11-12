@@ -25,6 +25,9 @@ test("validates exact token coverage allowing only punctuation and whitespace be
     validateGradedSegments([segment("Ház, ház!", [token("Ház"), token("ház")])], "A1"),
   ).toEqual([]);
   expect(
+    validateGradedSegments([segment("Ház + ház", [token("Ház"), token("ház")])], "A1"),
+  ).toContainEqual(expect.stringContaining("reconstruct"));
+  expect(
     validateGradedSegments([segment("Ház és ház!", [token("Ház"), token("ház")])], "A1"),
   ).toContainEqual(expect.stringContaining("reconstruct"));
   expect(validateGradedSegments([segment("Ház!", [token("ház")])], "A1")).toContainEqual(

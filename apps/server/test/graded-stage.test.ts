@@ -1,6 +1,28 @@
 import { afterEach, expect, test } from "vitest";
 import { runGradedGeneration } from "../src/pipeline/graded-stage.ts";
+import { hashInputs } from "../src/pipeline/artifacts.ts";
+import { loadPrompt } from "../src/pipeline/prompts.ts";
 import { FakeLlmProvider } from "../src/providers/llm/fake.ts";
+import { LlmOutputError } from "../src/providers/llm/ai-sdk.ts";
+import type {
+  GenerateObjectRequest,
+  GenerateObjectResult,
+} from "../src/providers/llm/interface.ts";
+
+// Match the real provider's one retry for invalid structured output.
+class RetryingFake extends FakeLlmProvider {
+  override async generateObject<T>(
+    request: GenerateObjectRequest<T>,
+  ): Promise<GenerateObjectResult<T>> {
+    try {
+      return await super.generateObject(request);
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes("does not match the schema"))
+        throw error;
+      return super.generateObject(request);
+    }
+  }
+}
 import { makeTempDir, removeTempDir } from "./temp-dir.ts";
 
 const dir = makeTempDir();
@@ -75,11 +97,49 @@ test("generates, reviews, annotates, validates and resumes without calls", async
   const llm = new FakeLlmProvider({ responses: [draft, { segments }, { segments }, annotation] });
   const result = await runGradedGeneration({ workDir: dir, llm }, input);
   expect(result.review.artifact.script.segments[2]?.tokens?.[0]?.isTarget).toBe(true);
+  expect(result.script.artifact.segments[2]?.tokens).toBeUndefined();
+  expect(result.script.artifact.segments[2]?.translation).toBeUndefined();
+  expect(result.script.inputHash).toBe(
+    hashInputs({ input, version: 1, prompt: loadPrompt("graded-script") }),
+  );
+  expect(result.review.inputHash).toBe(
+    hashInputs({
+      input,
+      script: result.script.artifact,
+      version: 1,
+      annotationPrompt: loadPrompt("graded-annotation"),
+      proofreadingPrompt: loadPrompt("graded-proofread"),
+      levelPrompt: loadPrompt("graded-level-review"),
+    }),
+  );
   expect(llm.calls).toHaveLength(4);
   expect(llm.calls.every((call) => call.slot === "main")).toBe(true);
   expect(llm.calls[0]?.prompt).toContain("&lt;/source>");
   expect((await runGradedGeneration({ workDir: dir, llm }, input)).review.skipped).toBe(true);
   expect(llm.calls).toHaveLength(4);
+});
+
+test("prompt changes invalidate only affected stages", async () => {
+  const llm = new FakeLlmProvider({ responses: [draft, { segments }, { segments }, annotation] });
+  await runGradedGeneration({ workDir: dir, llm }, input);
+  const reviewTemplate = loadPrompt("graded-proofread");
+  const scriptTemplate = loadPrompt("graded-script");
+  const reviewSystem = reviewTemplate.system;
+  const scriptSystem = scriptTemplate.system;
+  try {
+    reviewTemplate.system += " Updated.";
+    llm.enqueue({ segments }, { segments }, annotation);
+    const reviewChange = await runGradedGeneration({ workDir: dir, llm }, input);
+    expect(reviewChange.script.skipped).toBe(true);
+    expect(reviewChange.review.skipped).toBe(false);
+    scriptTemplate.system += " Updated.";
+    llm.enqueue(draft);
+    const scriptChange = await runGradedGeneration({ workDir: dir, llm }, input);
+    expect(scriptChange.script.skipped).toBe(false);
+  } finally {
+    reviewTemplate.system = reviewSystem;
+    scriptTemplate.system = scriptSystem;
+  }
 });
 
 test("retries invalid annotation and rejects insufficient target frequency before regenerating review", async () => {
@@ -89,7 +149,7 @@ test("retries invalid annotation and rejects insufficient target frequency befor
       tokens: a.tokens.map((t) => (t.lemma === "kert" ? { ...t, lemma: "más" } : t)),
     })),
   };
-  const llm = new FakeLlmProvider({
+  const llm = new RetryingFake({
     responses: [
       draft,
       { segments },
@@ -103,11 +163,34 @@ test("retries invalid annotation and rejects insufficient target frequency befor
   });
   const result = await runGradedGeneration({ workDir: dir, llm }, input);
   expect(result.review.artifact.script.segments[2]?.tokens?.[1]?.lemma).toBe("kert");
+  expect(result.script.artifact.segments[2]?.tokens).toBeUndefined();
+  expect(llm.calls[5]?.prompt).not.toContain('"tokens"');
+  expect(result.review.usage).toHaveLength(6);
   expect(llm.calls).toHaveLength(8);
 });
 
-test("rejects too few target words and retries generation", async () => {
+test("does not retry provider-exhausted validation failures", async () => {
+  const failure = new LlmOutputError("exhausted", {
+    provider: "fake",
+    model: "fake",
+    inputTokens: 10,
+    outputTokens: 10,
+    costUsd: 0,
+  });
   const llm = new FakeLlmProvider({
+    responses: [
+      () => {
+        throw failure;
+      },
+      draft,
+    ],
+  });
+  await expect(runGradedGeneration({ workDir: dir, llm }, input)).rejects.toBe(failure);
+  expect(llm.calls).toHaveLength(1);
+});
+
+test("rejects too few target words and retries generation", async () => {
+  const llm = new RetryingFake({
     responses: [
       { ...draft, targetVocabulary: targets.slice(0, 5) },
       draft,

@@ -9,6 +9,9 @@ export const PROMPT_NAMES = [
   "script",
   "review",
   "graded-annotation",
+  "graded-script",
+  "graded-proofread",
+  "graded-level-review",
 ] as const;
 export type PromptName = (typeof PROMPT_NAMES)[number];
 
