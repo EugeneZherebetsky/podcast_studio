@@ -4,6 +4,21 @@ import { saveOfflineEpisode } from "./offline-store";
 
 const root = () => new Directory(Paths.document, "offline-episodes-v1");
 
+let importing = false;
+export async function importUsbEpisode(metadata: Pick<File, "json">, source: { copy(destination: File): Promise<void> }) {
+  if (importing) throw new Error("An import is already in progress");
+  importing = true;
+  try {
+    const episode = EpisodeSchema.parse(await metadata.json());
+    if ((await listOfflineEpisodes()).some((row) => row.episode.id === episode.id)) {
+      throw new Error("Episode already exists; replacements are not supported");
+    }
+    return await storeOfflineEpisode(episode, async (destination) => source.copy(destination));
+  } finally {
+    importing = false;
+  }
+}
+
 // The caller supplies a trusted transport; pairing/credential handling is not implemented yet.
 export async function storeOfflineEpisode(input: unknown, transfer: (destination: File) => Promise<void>) {
   const validated = EpisodeSchema.parse(input);

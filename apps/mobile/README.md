@@ -4,7 +4,9 @@ The bundled sample is the LibriVox recording of “The Mouth,” chapter 3 of *T
 
 The library displays the bundled sample's locally saved position. Playback checkpoints use the existing Expo SQLite key-value store; the sample's local playback queue is deliberately separate from the future server sync queue because the fixture is not a server episode. Pairing, remote downloads and remote sync are not implemented. Storage or restore errors are shown without preventing sample playback, and a failed restore does not overwrite the saved checkpoint.
 
-A preliminary offline package store accepts audio through an injected transport, verifies its byte count and SHA-256 before publishing the package in the document directory, and shows verified packages in Library. No transport is connected until secure pairing is implemented, so the app cannot currently download episodes. The preliminary offline player has play/pause and background controls but does not yet persist playback position. Wi-Fi-only policy, automatic sync and the complete SQLite episode index remain unfinished. The filesystem adapter tests use isolated local fixtures, not a server.
+USB import is available in Library: copy an existing package to the phone, then select its `episode.json` and `audio.m4a` in the system picker. Select packages from a trusted source: the SHA-256 check detects corruption, not malicious replacement. The app validates the shared schema, stages the audio, checks its byte count and digest, and publishes only the verified package. Existing episode IDs are rejected, not replaced, to preserve local data; remove or replacement behavior is not implemented. The picker and offline playback still need physical-device verification.
+
+The preliminary offline player has play/pause and background controls but does not yet persist imported episode playback position. Secure Wi-Fi download and the complete SQLite episode index remain unfinished; no progress upload is connected to USB import. The filesystem adapter tests use isolated local fixtures, not a server.
 
 ## Android development build
 

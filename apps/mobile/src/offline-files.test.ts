@@ -29,13 +29,36 @@ vi.mock("expo-file-system", () => {
 });
 
 import { Paths } from "expo-file-system";
-import { listOfflineEpisodes, storeOfflineEpisode } from "./offline-files";
+import { importUsbEpisode, listOfflineEpisodes, storeOfflineEpisode } from "./offline-files";
 
 afterEach(() => { rmSync(join(String(Paths.document), "offline-episodes-v1"), { recursive: true, force: true }); });
 
 describe("offline filesystem adapter", () => {
   const audio = Buffer.from("fixture audio");
   const episode = { ...sampleEpisode, audio: { ...sampleEpisode.audio, bytes: audio.length, sha256: createHash("sha256").update(audio).digest("hex") } };
+  it("imports a selected package and refuses a duplicate without replacing it", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const metadata = { json: async () => episode };
+    const source = { copy: async (destination: { write(data: Uint8Array): Promise<void> }) => destination.write(audio) };
+    await importUsbEpisode(metadata, source);
+    await expect(importUsbEpisode(metadata, source)).rejects.toThrow("already exists");
+    expect(await listOfflineEpisodes()).toHaveLength(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+  it("rejects invalid or interrupted packages without affecting the library", async () => {
+    const source = { copy: async (destination: { write(data: Uint8Array): Promise<void> }) => destination.write(audio) };
+    await importUsbEpisode({ json: async () => episode }, source);
+    const second = { ...episode, id: "second" };
+    await expect(importUsbEpisode({ json: async () => { throw new Error("invalid JSON"); } }, source)).rejects.toThrow("invalid JSON");
+    await expect(importUsbEpisode({ json: async () => ({ ...second, audio: { ...second.audio, file: "../audio.m4a" } }) }, source)).rejects.toThrow();
+    await expect(importUsbEpisode({ json: async () => ({ ...second, schemaVersion: 2 }) }, source)).rejects.toThrow();
+    await expect(importUsbEpisode({ json: async () => second }, { copy: async () => { throw new Error("interrupted"); } })).rejects.toThrow("interrupted");
+    await expect(importUsbEpisode({ json: async () => second }, { copy: async () => {} })).rejects.toThrow("missing");
+    await expect(importUsbEpisode({ json: async () => second }, { copy: async (destination) => destination.write("corrupt") })).rejects.toThrow("verification");
+    expect((await listOfflineEpisodes()).map((row) => row.episode.id)).toEqual([episode.id]);
+    expect(readdirSync(join(String(Paths.document), "offline-episodes-v1"))).toHaveLength(1);
+  });
   it("stores a verified package and reads it back", async () => {
     await storeOfflineEpisode(episode, async (file) => { await file.write(audio); });
     const rows = await listOfflineEpisodes();
