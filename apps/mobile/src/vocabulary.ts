@@ -31,6 +31,16 @@ export async function vocabularyStore(db: Database) {
       const parsed = all.map((row) => ({ ...JSON.parse(row.word) as SavedWord, id: row.id, card: JSON.parse(row.card) as Card }));
       return selectDueCards(parsed, now, limit, introduced);
     },
+    async progress(now = new Date()) {
+      const all = await rows();
+      const cards = all.map((row) => ({ card: JSON.parse(row.card) as Card }));
+      return {
+        due: selectDueCards(cards, now, 10, all.filter((row) => row.introduced_day === day(now)).length).length,
+        learning: cards.filter(({ card }) => card.state === State.Learning || card.state === State.Relearning).length,
+        known: cards.filter(({ card }) => card.state === State.Review).length,
+        reviewed: cards.filter(({ card }) => card.last_review && day(new Date(card.last_review)) === day(now)).length,
+      };
+    },
     async rate(id: number, rating: Grade, now = new Date()) {
       const row = (await rows()).find((item) => item.id === id);
       if (!row) throw new Error("Card not found");

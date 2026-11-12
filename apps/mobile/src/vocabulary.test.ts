@@ -27,3 +27,22 @@ test("saves without overwriting progress and enforces daily introductions across
   expect(queue.some((row) => row.card.reps === 0)).toBe(true);
   raw.close();
 });
+
+test("reports local progress across reopening and respects the fake clock", async () => {
+  const raw = new DatabaseSync(":memory:");
+  const db = {
+    execAsync: async (sql: string) => { raw.exec(sql); },
+    runAsync: async (sql: string, ...params: (string | number | null)[]) => { raw.prepare(sql).run(...params); },
+    getAllAsync: async <T>(sql: string, ...params: (string | number | null)[]) => raw.prepare(sql).all(...params) as T[],
+  };
+  const store = await vocabularyStore(db);
+  await store.save(word, now);
+  await store.save({ ...word, token: { ...word.token, lemma: "kutya" } }, now);
+  expect(await store.progress(now)).toEqual({ due: 2, learning: 0, known: 0, reviewed: 0 });
+  const [first] = await store.due(now);
+  await store.rate(first.id, Rating.Easy, now);
+  const reopened = await vocabularyStore(db);
+  expect(await reopened.progress(now)).toEqual({ due: 1, learning: 0, known: 1, reviewed: 1 });
+  expect((await reopened.progress(new Date("2026-01-02T12:00:00.000Z"))).reviewed).toBe(0);
+  raw.close();
+});

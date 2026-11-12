@@ -36,27 +36,37 @@ function SentenceAudio({ uri, startMs, endMs }: { uri: string; startMs: number; 
 
 export default function Review() {
   const [queue, setQueue] = useState<ReviewWord[]>([]);
+  const [progress, setProgress] = useState<{ due: number; learning: number; known: number; reviewed: number } | null>(null);
   const [audio, setAudio] = useState<Record<string, string>>({});
+  const [audioError, setAudioError] = useState(false);
+  const [audioLoading, setAudioLoading] = useState(true);
   const [revealed, setRevealed] = useState(false);
   const [busy, setBusy] = useState(false);
   const ratingInFlight = useRef(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const refresh = useCallback(async () => {
-    const cards = await (await localVocabulary()).due();
+    const store = await localVocabulary();
+    const [cards, counts] = await Promise.all([store.due(), store.progress()]);
     setQueue(cards);
+    setProgress(counts);
     setRevealed(false);
   }, []);
   useFocusEffect(useCallback(() => {
     let active = true;
     setLoading(true);
-    Promise.all([localVocabulary().then((store) => store.due()), listOfflineEpisodes()]).then(([cards, episodes]) => {
+    localVocabulary().then(async (store) => Promise.all([store.due(), store.progress()])).then(([cards, counts]) => {
       if (!active) return;
       setQueue(cards);
-      setAudio(Object.fromEntries(episodes.map((item) => [item.episode.id, item.audioUri])));
+      setProgress(counts);
       setRevealed(false); setError("");
-    }).catch(() => { if (active) setError("Could not load local review cards or offline audio."); })
+    }).catch(() => { if (active) setError("Could not load local review cards."); })
       .finally(() => { if (active) setLoading(false); });
+    setAudio({});
+    setAudioLoading(true);
+    listOfflineEpisodes().then((episodes) => {
+      if (active) { setAudio(Object.fromEntries(episodes.map((item) => [item.episode.id, item.audioUri]))); setAudioError(false); }
+    }).catch(() => { if (active) setAudioError(true); }).finally(() => { if (active) setAudioLoading(false); });
     return () => { active = false; };
   }, []));
   const card = queue[0];
@@ -75,10 +85,12 @@ export default function Review() {
   return <SafeAreaView style={{ flex: 1, padding: 24, gap: 16 }}>
     <Text accessibilityRole="header" style={{ fontSize: 24 }}>Vocabulary review</Text>
     <Text>Stored only on this phone. Up to 10 new words per day.</Text>
+    {progress ? <Text>Due now: {progress.due} · Learning: {progress.learning} · Known (FSRS review): {progress.known} · Reviewed today: {progress.reviewed}</Text> : null}
+    {audioError ? <Text accessibilityRole="alert">Could not load offline audio. You can still review text.</Text> : null}
     {error ? <Text accessibilityRole="alert">{error}</Text> : null}
     {loading ? <Text>Loading…</Text> : card ? <ScrollView>
       <Text accessibilityRole="header" style={{ fontSize: 22 }}>{card.token.lemma}</Text>
-      {audio[card.episodeId] ? <SentenceAudio key={card.id} uri={audio[card.episodeId]} startMs={card.startMs} endMs={card.endMs} /> : <Text>Original audio is not downloaded.</Text>}
+      {audioLoading ? <Text>Checking offline audio…</Text> : audio[card.episodeId] ? <SentenceAudio key={card.id} uri={audio[card.episodeId]} startMs={card.startMs} endMs={card.endMs} /> : !audioError ? <Text>Original audio is unavailable on this phone.</Text> : null}
       {!revealed ? <Button title="Show answer" onPress={() => setRevealed(true)} /> : <View style={{ gap: 8 }}>
         <Text>Meaning: {card.token.gloss}</Text>
         <Text>{card.sentence}</Text>
