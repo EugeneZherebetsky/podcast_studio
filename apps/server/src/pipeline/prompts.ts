@@ -7,6 +7,7 @@ export const PROMPT_NAMES = [
   "notes-map",
   "notes-merge",
   "script",
+  "local-script",
   "review",
   "graded-annotation",
   "graded-script",

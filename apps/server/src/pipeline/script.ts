@@ -1,8 +1,8 @@
 import { ScriptSegmentSchema, type Lang } from "shared";
 import { z } from "zod";
-import type { LlmProvider } from "../providers/llm/interface.ts";
+import type { LlmProvider, Usage } from "../providers/llm/interface.ts";
 import { runCachedStage, type StageResult } from "./artifacts.ts";
-import { escapeSourceText, loadPrompt, renderPrompt } from "./prompts.ts";
+import { escapeSourceText, loadPrompt, renderPrompt, type PromptTemplate } from "./prompts.ts";
 import type { Notes, Plan, Sources } from "./schemas.ts";
 
 const SegmentResponseSchema = ScriptSegmentSchema.omit({ id: true }).extend({
@@ -99,18 +99,119 @@ export function assignIds<T extends z.infer<typeof SegmentResponseSchema>>(segme
     id: `seg-${String(i + 1).padStart(4, "0")}`,
   }));
 }
+async function runLocalScript(deps: ScriptDeps, input: ScriptInput, template: PromptTemplate) {
+  const text = z.string().trim().min(1);
+  const ids = new Set(input.sources.sources.map((source) => source.id));
+  const usage: Usage[] = [];
+  const segments: z.infer<typeof SegmentResponseSchema>[] = [];
+  const chapters: { title: string; segmentIndex: number }[] = [];
+  let title = "";
+  let summary = "";
+  const target = input.plan.targetWordCount;
+  for (let i = 0; i < 3; i++) {
+    const budget = Math.floor(target / 3) + (i < target % 3 ? 1 : 0);
+    const schema = z
+      .object({
+        title: text,
+        summary: text,
+        ...(i === 0 ? { intro: text } : {}),
+        content: z.array(z.object({ text, sourceIds: z.array(text).min(1) })).min(1),
+        ...(i === 2 ? { recap: text, outro: text } : {}),
+      })
+      .superRefine((part, ctx) => {
+        const spoken = [
+          part.intro,
+          ...part.content.map((s) => s.text),
+          part.recap,
+          part.outro,
+        ].filter((s): s is string => typeof s === "string");
+        const words = spoken.reduce((n, s) => n + s.trim().split(/\s+/u).length, 0);
+        if (words < budget * 0.8 || words > budget * 1.2)
+          ctx.addIssue({
+            code: "custom",
+            message: `Word count ${words} must be within 20% of ${budget}`,
+          });
+        part.content.forEach((segment, index) =>
+          segment.sourceIds.forEach((id) => {
+            if (!ids.has(id))
+              ctx.addIssue({
+                code: "custom",
+                path: ["content", index, "sourceIds"],
+                message: `Unknown source id ${id}`,
+              });
+          }),
+        );
+      });
+    const { system, prompt } = renderPrompt(
+      template,
+      {
+        lang: input.lang,
+        part: String(i + 1),
+        budget: String(budget),
+        boundary:
+          i === 0
+            ? "Include an intro before content."
+            : i === 2
+              ? "Include a recap and outro after content."
+              : "Only write chapter content.",
+        notes: escapeSourceText(JSON.stringify({ plan: input.plan, notes: input.notes })),
+      },
+      "local-script",
+    );
+    const result = await deps.llm.generateObject({
+      slot: "main",
+      system,
+      prompt,
+      schema,
+      localTimeoutMs: 900_000,
+    });
+    usage.push(result.usage);
+    const part = result.object;
+    if (i === 0) {
+      title = part.title;
+      summary = part.summary;
+    }
+    const segment = (kind: "intro" | "recap" | "outro", value: string) => ({
+      kind,
+      speaker: "host" as const,
+      lang: input.lang,
+      text: value,
+    });
+    if (typeof part.intro === "string") segments.push(segment("intro", part.intro));
+    chapters.push({ title: part.title, segmentIndex: segments.length });
+    segments.push(
+      ...part.content.map((item) => ({
+        ...item,
+        kind: "content" as const,
+        speaker: "host" as const,
+        lang: input.lang,
+      })),
+    );
+    if (typeof part.recap === "string") segments.push(segment("recap", part.recap));
+    if (typeof part.outro === "string") segments.push(segment("outro", part.outro));
+  }
+  const object = responseSchemaFor(input).parse({ title, summary, chapters, segments });
+  return { artifact: { ...object, segments: assignIds(object.segments) }, usage };
+}
+
 export async function runScriptStage(
   deps: ScriptDeps,
   input: ScriptInput,
 ): Promise<StageResult<Script>> {
   if (input.mode !== "standard") throw new Error("Script stage supports standard mode only");
   const template = loadPrompt("script");
+  const localTemplate = deps.llm.localCacheIdentity ? loadPrompt("local-script") : undefined;
   return runCachedStage({
     workDir: deps.workDir,
     stage: "script",
-    inputs: { ...input, template },
+    inputs: {
+      ...input,
+      template,
+      ...(localTemplate ? { localTemplate, localModel: deps.llm.localCacheIdentity } : {}),
+    },
     schema: ScriptSchema,
     run: async () => {
+      if (localTemplate) return runLocalScript(deps, input, localTemplate);
       const { system, prompt } = renderPrompt(
         template,
         {

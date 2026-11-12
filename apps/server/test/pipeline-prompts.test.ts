@@ -50,6 +50,7 @@ test("every prompt file loads and has a system and a user part", () => {
     "notes-map",
     "notes-merge",
     "script",
+    "local-script",
     "review",
     "graded-annotation",
     "graded-script",

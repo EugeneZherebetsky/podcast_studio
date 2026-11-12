@@ -49,49 +49,132 @@ const draft = {
   ],
 };
 
-test("local script retries an invalid first chapter with validation feedback", async () => {
-  const bad = structuredClone(draft);
-  bad.chapters[0]!.segmentIndex = 0;
-  const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-    void url;
-    void init;
-    const content = JSON.stringify(fetchMock.mock.calls.length === 1 ? bad : draft);
-    const chunk = { id: "x", model: "tiny", choices: [{ index: 0, delta: { content }, finish_reason: null }] };
-    const end = { id: "x", model: "tiny", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] };
-    return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify(end)}\n\ndata: [DONE]\n\n`, {
-      headers: { "content-type": "text/event-stream" },
-    });
+class LocalFake extends FakeLlmProvider {
+  readonly localCacheIdentity = "local";
+}
+
+const localParts = [
+  {
+    title: "One",
+    summary: "Bees",
+    intro: "Welcome to the bees.",
+    content: [{ text: "Bees fly all around.", sourceIds: ["s1"] }],
+  },
+  {
+    title: "Two",
+    summary: "Bees",
+    content: [
+      { text: "Bees fly all around.", sourceIds: ["s1"] },
+      { text: "Bees fly all around.", sourceIds: ["s1"] },
+    ],
+  },
+  {
+    title: "Three",
+    summary: "Bees",
+    content: [{ text: "Bees fly.", sourceIds: ["s1"] }],
+    recap: "Bees can fly.",
+    outro: "Thanks for listening.",
+  },
+];
+
+test("local script computes indices, validates budget and caches", async () => {
+  const llm = new LocalFake({ responses: localParts });
+  const input = {
+    plan: { ...plan, targetWordCount: 24 },
+    notes,
+    sources,
+    lang: "en" as const,
+    mode: "standard" as const,
+  };
+  const result = await runScriptStage({ workDir: dir, llm }, input);
+  expect(result.artifact.chapters.map((c) => c.segmentIndex)).toEqual([1, 2, 4]);
+  expect(responseSchemaFor(input).safeParse(result.artifact).success).toBe(true);
+  expect(result.usage).toHaveLength(3);
+  expect((await runScriptStage({ workDir: dir, llm }, input)).skipped).toBe(true);
+  expect(llm.calls).toHaveLength(3);
+});
+
+test.each([
+  { ...localParts[0], intro: "Hi", content: [{ text: "Short", sourceIds: ["s1"] }] },
+  { ...localParts[0], content: [{ text: "Bees fly around.", sourceIds: ["s99"] }] },
+])("local part rejects invalid length or citations", async (bad) => {
+  const llm = new LocalFake({ responses: [bad] });
+  await expect(
+    runScriptStage(
+      { workDir: dir, llm },
+      {
+        plan: { ...plan, targetWordCount: 24 },
+        notes,
+        sources,
+        lang: "en",
+        mode: "standard",
+      },
+    ),
+  ).rejects.toThrow();
+});
+
+test("local provider retries a short chapter with feedback", async () => {
+  const bad = { ...localParts[0], intro: "Hi", content: [{ text: "Short", sourceIds: ["s1"] }] };
+  const answers = [bad, ...localParts];
+  const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => {
+    void _url;
+    void _init;
+    const content = JSON.stringify(answers[fetchMock.mock.calls.length - 1]);
+    const chunk = {
+      id: "x",
+      model: "tiny",
+      choices: [{ index: 0, delta: { content }, finish_reason: null }],
+    };
+    const end = {
+      id: "x",
+      model: "tiny",
+      choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+    };
+    return new Response(
+      `data: ${JSON.stringify(chunk)}
+
+data: ${JSON.stringify(end)}
+
+data: [DONE]
+
+`,
+      { headers: { "content-type": "text/event-stream" } },
+    );
   });
   vi.stubGlobal("fetch", fetchMock);
   try {
     const llm = createAiSdkLlmProvider(parseConfig({ PROFILE: "local" }), "ollama", {
       env: { OLLAMA_BOUNDED_OUTPUT: "1" },
     });
-    const result = await runScriptStage({ workDir: dir, llm }, {
-      plan, notes, sources, lang: "en", mode: "standard",
-    });
-    expect(result.artifact.chapters[0]?.segmentIndex).toBe(1);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const retry = JSON.parse(fetchMock.mock.calls[1]![1]!.body as string);
-    expect(JSON.stringify(retry.messages)).toContain("Chapter must start at a later content segment");
-    expect(JSON.stringify(retry.messages)).toContain("First chapter must start at first content segment");
-    expect(retry.max_tokens).toBe(8192);
+    await runScriptStage(
+      { workDir: dir, llm },
+      { plan: { ...plan, targetWordCount: 24 }, notes, sources, lang: "en", mode: "standard" },
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(
+      JSON.stringify(JSON.parse(fetchMock.mock.calls[1]![1]!.body as string).messages),
+    ).toContain("Word count");
   } finally {
     vi.unstubAllGlobals();
   }
 });
 
 test("local script and review request bounded streaming deadlines", async () => {
-  class LocalFake extends FakeLlmProvider {
-    readonly localCacheIdentity = "local";
-  }
-  const llm = new LocalFake({ responses: [draft, { segments: draft.segments, findings: [] }] });
-  const script = (await runScriptStage(
+  const llm = new LocalFake({ responses: localParts });
+  const script = (
+    await runScriptStage(
+      { workDir: dir, llm },
+      { plan: { ...plan, targetWordCount: 24 }, notes, sources, lang: "en", mode: "standard" },
+    )
+  ).artifact;
+  llm.enqueue({ segments: script.segments, findings: [] });
+  await runReviewStage(
     { workDir: dir, llm },
-    { plan, notes, sources, lang: "en", mode: "standard" },
-  )).artifact;
-  await runReviewStage({ workDir: dir, llm }, { script, notes, sources, plan });
-  expect(llm.calls.map((call) => call.localTimeoutMs)).toEqual([900_000, 900_000]);
+    { script, notes, sources, plan: { ...plan, targetWordCount: 24 } },
+  );
+  expect(llm.calls.map((call) => call.localTimeoutMs)).toEqual([
+    900_000, 900_000, 900_000, 900_000,
+  ]);
 });
 
 test("script assigns valid segment ids and caches the artifact", async () => {
