@@ -15,6 +15,8 @@ export const ARTIFACT_FILES = {
   search: "candidates.json",
   extract: "sources.json",
   notes: "notes.json",
+  script: "script.json",
+  review: "review.json",
 } as const satisfies Partial<Record<StageName, string>>;
 
 export type CachedStageName = keyof typeof ARTIFACT_FILES;

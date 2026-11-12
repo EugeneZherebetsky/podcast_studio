@@ -51,7 +51,7 @@ Legend: **Read** = sections to load · **Accept** = what must be true · **Verif
   - Do: stage functions with artifacts and input hashing; prompts as markdown files; "≥ 3 usable sources" rule.
   - Verify: tests with fakes: artifacts are written, a second run is a no-op, a changed input re-runs only downstream stages.
 
-- [ ] **T09 Stage script (standard mode) and review**
+- [x] **T09 Stage script (standard mode) and review**
   - Read: ARCHITECTURE §3 rows 5–6, §4
   - Do: script prompt for a single-narrator episode with intro, 3–5 chapters, recap, outro; word budget; `sourceIds` on content segments; review stage that removes or fixes ungrounded claims.
   - Verify: tests with a fake LLM; schema-valid output; a test where the fake returns an ungrounded segment and review flags it.
