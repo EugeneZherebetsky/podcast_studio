@@ -57,6 +57,8 @@ export function cancelJob(db: Db, id: string): void {
     if (!job) throw new Error("Job not found");
     if (job.status === "succeeded" || job.status === "failed")
       throw new Error(`Cannot cancel ${job.status} job`);
+    if (job.status === "running" && job.currentStage === "publish")
+      throw new Error("Cannot cancel job during publish");
     tx.update(jobs)
       .set({ status: "cancelled", updatedAt: new Date().toISOString() })
       .where(eq(jobs.id, id))

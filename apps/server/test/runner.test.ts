@@ -4,7 +4,7 @@ import { FakeLlmProvider } from "../src/providers/llm/fake.ts";
 import { makeTempDir, removeTempDir } from "./temp-dir.ts";
 import { eq } from "drizzle-orm";
 import { openDatabase } from "../src/db/index.ts";
-import { jobs, jobStages, usage } from "../src/db/schema.ts";
+import { episodes, jobs, jobStages, usage } from "../src/db/schema.ts";
 import { cancelJob, createJob, runJobStage, startJob } from "../src/pipeline/runner.ts";
 
 const db = openDatabase(":memory:");
@@ -100,11 +100,76 @@ test("records a failed stage and leaves the job resumable", async () => {
   expect(getJob(job.id).status).toBe("running");
 });
 
+test("publication rejects cancellation and does not report a visible episode as cancelled", async () => {
+  const job = createJob(db, options, 20);
+  startJob(db, job.id, 20);
+  let finish!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const running = runJobStage(db, job.id, "publish", async () => {
+    await waiting;
+    db.insert(episodes)
+      .values({
+        id: job.id,
+        topicId: null,
+        title: "Bees",
+        summary: "",
+        mode: "standard",
+        lang: "en",
+        durationMs: 1,
+        createdAt: job.createdAt,
+        path: "fake",
+      })
+      .run();
+    return { artifact: { id: job.id }, skipped: false, inputHash: "abc", usage: [] };
+  });
+  expect(() => cancelJob(db, job.id)).toThrow(/cannot cancel.*publish/i);
+  finish();
+  await expect(running).resolves.toMatchObject({ artifact: { id: job.id } });
+  expect(getJob(job.id).status).toBe("running");
+  expect(stage(job.id, "publish").status).toBe("done");
+  expect(db.select().from(episodes).where(eq(episodes.id, job.id)).get()).toBeDefined();
+  expect(() => cancelJob(db, job.id)).toThrow(/cannot cancel.*publish/i);
+});
+
+test("cancellation before publication prevents the callback", async () => {
+  const job = createJob(db, options, 20);
+  startJob(db, job.id, 20);
+  cancelJob(db, job.id);
+  let called = false;
+  await expect(
+    runJobStage(db, job.id, "publish", async () => {
+      called = true;
+      return { artifact: {}, skipped: false, inputHash: "abc", usage: [] };
+    }),
+  ).rejects.toThrow(/cancel/i);
+  expect(called).toBe(false);
+  expect(stage(job.id, "publish").status).toBe("pending");
+  expect(getJob(job.id).status).toBe("cancelled");
+  expect(db.select().from(episodes).where(eq(episodes.id, job.id)).get()).toBeUndefined();
+});
+
+test("publication callback errors still fail the job", async () => {
+  const job = createJob(db, options, 20);
+  startJob(db, job.id, 20);
+  await expect(
+    runJobStage(db, job.id, "publish", async () => {
+      expect(() => cancelJob(db, job.id)).toThrow(/cannot cancel.*publish/i);
+      throw new Error("publish failed");
+    }),
+  ).rejects.toThrow("publish failed");
+  expect(getJob(job.id)).toMatchObject({ status: "failed", error: "publish failed" });
+  expect(stage(job.id, "publish")).toMatchObject({ status: "failed", error: "publish failed" });
+});
+
 test("cancellation during a stage does not report its successful completion", async () => {
   const job = createJob(db, options, 20);
   startJob(db, job.id, 20);
   let finish!: () => void;
-  const waiting = new Promise<void>((resolve) => { finish = resolve; });
+  const waiting = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
   const running = runJobStage(db, job.id, "plan", async () => {
     await waiting;
     return { artifact: {}, skipped: false, inputHash: "abc", usage: [] };
