@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "Podcast Studio",
+    "slug": "podcast-studio",
+    "scheme": "podcaststudio",
+    "platforms": ["android"],
+    "android": { "package": "app.podcaststudio.mobile" },
+    "plugins": [
+      "expo-router",
+      ["expo-audio", { "enableBackgroundPlayback": true, "recordAudioAndroid": false }]
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+# Mobile sample player (T18, work in progress)
+
+The bundled sample is the LibriVox recording of “The Mouth,” chapter 3 of *The Voice and Public Speaking* by John Poole Sandlands, read by Meliora Dockery. [Catalog and recording](https://librivox.org/the-voice-and-public-speaking-by-john-poole-sandlands/). LibriVox identifies its recordings as public domain in the United States; check local law where applicable. This standalone MP3 is a player fixture, not yet a Podcast Studio episode package.
+
+Install the Android SDK and JDK as described in `docs/SETUP.md`; [Expo SDK 58](https://docs.expo.dev/versions/latest/) also specifies compile SDK 37. Connect and authorize the phone, then run `pnpm --filter mobile android`. The development build requires its development server; for a fully offline test use a build with the JavaScript bundle and assets embedded. Background playback, notification controls and force-stop restoration must be verified on a physical device before T18 is complete. Position checkpoints are attempted every five seconds during playback, subject to Android's background execution behavior.
+
+Expo references: [audio background playback](https://docs.expo.dev/versions/latest/sdk/audio/#playing-audio-in-the-background), [Router installation](https://docs.expo.dev/router/installation/), [development builds](https://docs.expo.dev/develop/development-builds/introduction/), [SQLite](https://docs.expo.dev/versions/latest/sdk/sqlite/).
