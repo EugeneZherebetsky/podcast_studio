@@ -87,6 +87,7 @@ export async function runReviewStage(
         slot: "main",
         system,
         prompt,
+        ...(deps.llm.localCacheIdentity ? { localTimeoutMs: 900_000 } : {}),
         schema: responseSchema,
       });
       return {

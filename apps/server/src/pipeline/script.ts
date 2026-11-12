@@ -124,6 +124,7 @@ export async function runScriptStage(
         slot: "main",
         system,
         prompt,
+        ...(deps.llm.localCacheIdentity ? { localTimeoutMs: 900_000 } : {}),
         schema: responseSchemaFor(input),
       });
       return { artifact: { ...object, segments: assignIds(object.segments) }, usage: [usage] };

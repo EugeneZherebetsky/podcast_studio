@@ -47,6 +47,19 @@ const draft = {
   ],
 };
 
+test("local script and review request bounded streaming deadlines", async () => {
+  class LocalFake extends FakeLlmProvider {
+    readonly localCacheIdentity = "local";
+  }
+  const llm = new LocalFake({ responses: [draft, { segments: draft.segments, findings: [] }] });
+  const script = (await runScriptStage(
+    { workDir: dir, llm },
+    { plan, notes, sources, lang: "en", mode: "standard" },
+  )).artifact;
+  await runReviewStage({ workDir: dir, llm }, { script, notes, sources, plan });
+  expect(llm.calls.map((call) => call.localTimeoutMs)).toEqual([900_000, 900_000]);
+});
+
 test("script assigns valid segment ids and caches the artifact", async () => {
   const llm = new FakeLlmProvider({ responses: [draft] });
   const input = { plan, notes, sources, lang: "en", mode: "standard" as const };

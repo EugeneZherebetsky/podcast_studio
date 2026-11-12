@@ -285,7 +285,56 @@ describe("bounded Ollama opt-in", () => {
       });
       const result = await provider.generateObject({ slot: "fast", ...request, localTimeoutMs: 900_000 });
       expect(result.object).toEqual({ city: "Paris", population: 10 });
-      expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string).stream).toBe(true);
+      const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string);
+      expect(body.stream).toBe(true);
+      expect(body.max_tokens).toBe(8192);
+      expect(body.reasoning_effort).toBe("none");
+      expect(body.response_format.type).toBe("json_schema");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+  test("aborts a stalled streaming body at the deadline without retry", async () => {
+    const nativeTimeout = AbortSignal.timeout;
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockImplementation(() => nativeTimeout(20));
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = new ReadableStream({
+        start(controller) {
+          init?.signal?.addEventListener("abort", () => controller.error(init.signal?.reason));
+        },
+      });
+      return new Response(body, { headers: { "content-type": "text/event-stream" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const provider = createAiSdkLlmProvider(parseConfig({ PROFILE: "local" }), "ollama", {
+        env: { OLLAMA_BOUNDED_OUTPUT: "1" },
+      });
+      await expect(provider.generateObject({ slot: "main", ...request, localTimeoutMs: 900_000 })).rejects.toBeDefined();
+      expect(timeoutSpy).toHaveBeenCalledWith(900_000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      timeoutSpy.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+  test("rejects a streamed schema refinement failure without retry", async () => {
+    const fetchMock = vi.fn(async () => new Response(
+      'data: {"id":"x","model":"tiny","choices":[{"index":0,"delta":{"content":"{\\"city\\":\\"Paris\\",\\"population\\":10}"},"finish_reason":null}]}\n\n' +
+      'data: {"id":"x","model":"tiny","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+      { status: 200, headers: { "content-type": "text/event-stream" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const provider = createAiSdkLlmProvider(parseConfig({ PROFILE: "local" }), "ollama", {
+        env: { OLLAMA_BOUNDED_OUTPUT: "1" },
+      });
+      await expect(provider.generateObject({
+        slot: "main", ...request, localTimeoutMs: 900_000,
+        schema: CitySchema.refine((value) => value.population > 100),
+      })).rejects.toBeDefined();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     } finally {
       vi.unstubAllGlobals();
     }
