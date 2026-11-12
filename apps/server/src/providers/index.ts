@@ -1,5 +1,8 @@
 // The one place that decides which implementation serves each provider slot. Pipeline
 // code receives a `Providers` object and never names a provider itself.
+import path from "node:path";
+import { REPO_ROOT } from "../config.ts";
+import { PiperTtsProvider } from "./tts/piper.ts";
 import type { AppConfig, LlmProviderName, SearchProviderName, TtsProviderName } from "shared";
 import { FakeExtractor, type FakeExtractorOptions } from "./extract/fake.ts";
 import type { Extractor } from "./extract/interface.ts";
@@ -27,7 +30,11 @@ export { SearxngSearchProvider } from "./search/searxng.ts";
 export { TavilySearchProvider } from "./search/tavily.ts";
 export { canonicalizeUrl, deduplicateHits } from "./search/url.ts";
 export { AzureTtsProvider, type AzureTtsOptions, KNOWN_AZURE_VOICES } from "./tts/azure.ts";
-export { OpenAiTtsProvider, type OpenAiTtsOptions, OPENAI_VOICE_DEFINITIONS } from "./tts/openai.ts";
+export {
+  OpenAiTtsProvider,
+  type OpenAiTtsOptions,
+  OPENAI_VOICE_DEFINITIONS,
+} from "./tts/openai.ts";
 export {
   CachedTtsProvider,
   ConcurrencyLimiter,
@@ -146,9 +153,17 @@ export function createTtsProvider(config: AppConfig): TtsProvider {
         dataDir: config.DATA_DIR,
       });
     }
+    case "piper": {
+      const dir = path.resolve(REPO_ROOT, config.PIPER_DIR);
+      const executable = process.platform === "win32" ? "Scripts/piper.exe" : "bin/piper";
+      return new PiperTtsProvider({
+        executable: path.join(dir, "venv", executable),
+        voicesDir: path.join(dir, "voices"),
+        dataDir: config.DATA_DIR,
+      });
+    }
     case "elevenlabs":
-    case "piper":
-      return notImplemented(`tts/${name}`); // piper: T26
+      return notImplemented(`tts/${name}`);
   }
 }
 

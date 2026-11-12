@@ -75,10 +75,7 @@ test("createExtractor returns a ReadabilityExtractor instance", () => {
 });
 
 test("each unimplemented slot fails with 'not implemented yet' naming the selected provider", () => {
-  const local = parseConfig({ PROFILE: "local" });
   const elevenlabs = parseConfig({ TTS_PROVIDER: "elevenlabs" });
-
-  expect(() => createTtsProvider(local)).toThrowError("not implemented yet: tts/piper");
   expect(() => createTtsProvider(elevenlabs)).toThrowError("not implemented yet: tts/elevenlabs");
 });
 
@@ -102,10 +99,9 @@ test("createTtsProvider requires API keys for azure and openai", () => {
   expect(openai).toBeInstanceOf(OpenAiTtsProvider);
 });
 
-test("createProviders fails on the first unimplemented provider of the profile", () => {
-  // LLM (T05), search (T06), and extractor (T07) are implemented. For local profile, TTS is the next slot.
-  expect(() => createProviders(parseConfig({ PROFILE: "local" }))).toThrowError(
-    /^not implemented yet: tts\/piper$/,
+test("createProviders selects Piper for the local profile", () => {
+  expect(createProviders(parseConfig({ PROFILE: "local" })).tts.constructor.name).toBe(
+    "PiperTtsProvider",
   );
 });
 
