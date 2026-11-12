@@ -273,11 +273,10 @@ export function createAiSdkLlmProvider(
         ? options.env.OLLAMA_BOUNDED_OUTPUT === "1"
         : ((config as AppConfig & { OLLAMA_BOUNDED_OUTPUT?: boolean }).OLLAMA_BOUNDED_OUTPUT ??
           process.env.OLLAMA_BOUNDED_OUTPUT === "1");
-    if (
-      boundedOllama &&
-      [config.OLLAMA_MODEL_MAIN, config.OLLAMA_MODEL_FAST].some((id) => /:cloud$/i.test(id))
-    ) {
-      throw new Error("OLLAMA_BOUNDED_OUTPUT requires a loopback Ollama endpoint and local models");
+    // Name checks cannot identify cloud-backed aliases; disable cloud on the Ollama server too.
+    // https://docs.ollama.com/faq#how-do-i-disable-ollama-cloud-features
+    if ([config.OLLAMA_MODEL_MAIN, config.OLLAMA_MODEL_FAST].some((id) => /(?:^|[/:._-])cloud(?:$|[/:._-])/i.test(id))) {
+      throw new Error("Ollama requires a loopback endpoint and local models; cloud model names are not allowed");
     }
     const ollama = createOpenAICompatible({
       name: "ollama",
@@ -294,20 +293,17 @@ export function createAiSdkLlmProvider(
       },
       prices: "free",
       boundedOllama,
-      localCacheIdentity:
-        ![config.OLLAMA_MODEL_FAST, config.OLLAMA_MODEL_MAIN].some((id) => /:cloud$/i.test(id))
-          ? createHash("sha256")
-              .update(
-                JSON.stringify({
-                  endpoint: config.OLLAMA_BASE_URL,
-                  model: config.OLLAMA_MODEL_FAST,
-                  mainModel: config.OLLAMA_MODEL_MAIN,
-                  boundedOllama,
-                  version: 1,
-                }),
-              )
-              .digest("hex")
-          : undefined,
+      localCacheIdentity: createHash("sha256")
+        .update(
+          JSON.stringify({
+            endpoint: config.OLLAMA_BASE_URL,
+            model: config.OLLAMA_MODEL_FAST,
+            mainModel: config.OLLAMA_MODEL_MAIN,
+            boundedOllama,
+            version: 1,
+          }),
+        )
+        .digest("hex"),
       warn: options.warn,
     });
   }

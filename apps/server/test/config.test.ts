@@ -1,6 +1,6 @@
 import { copyFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { loadConfig, REPO_ROOT } from "../src/config.ts";
 import { createAiSdkLlmProvider } from "../src/providers/llm/ai-sdk.ts";
 import { makeTempDir, removeTempDir } from "./temp-dir.ts";
@@ -49,10 +49,30 @@ test("real environment variables win over .env", () => {
   expect(config.HOST).toBe("0.0.0.0");
 });
 
-test("bounded Ollama opt-in follows .env precedence through provider construction", () => {
-  writeEnv("PROFILE=local\nOLLAMA_BOUNDED_OUTPUT=1\nOLLAMA_MODEL_MAIN=example:cloud\n");
-  expect(() => createAiSdkLlmProvider(loadConfig({ rootDir: dir, env: {} }), "ollama")).toThrow(/loopback/);
-  expect(() => createAiSdkLlmProvider(loadConfig({ rootDir: dir, env: { OLLAMA_BOUNDED_OUTPUT: "0" } }), "ollama")).not.toThrow();
+test("local Ollama rejects cloud model names regardless of bounded output", () => {
+  const fetchSpy = vi.spyOn(globalThis, "fetch");
+  try {
+    for (const variable of ["OLLAMA_MODEL_MAIN", "OLLAMA_MODEL_FAST"]) {
+      for (const model of ["example:cloud", "gpt-oss:120b-cloud", "example:Cloud", "example-cloud:latest"]) {
+        writeEnv(`PROFILE=local\n${variable}=${model}\n`);
+        for (const bounded of ["0", "1"]) {
+          const config = loadConfig({ rootDir: dir, env: { OLLAMA_BOUNDED_OUTPUT: bounded } });
+          expect(() => createAiSdkLlmProvider(config, "ollama")).toThrow(/local models/i);
+        }
+      }
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  } finally {
+    fetchSpy.mockRestore();
+  }
+});
+
+test("cloud providers ignore local Ollama model configuration", () => {
+  const config = loadConfig({ rootDir: dir, env: {
+    PROFILE: "cloud", OLLAMA_MODEL_MAIN: "example:cloud", ANTHROPIC_API_KEY: "test-key",
+    LLM_MODEL_MAIN: "model", LLM_MODEL_FAST: "model",
+  } });
+  expect(() => createAiSdkLlmProvider(config, "anthropic")).not.toThrow();
 });
 
 test("DATA_DIR is resolved against the root directory, not the working directory", () => {
