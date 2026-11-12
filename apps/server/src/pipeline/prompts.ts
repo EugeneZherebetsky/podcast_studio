@@ -12,6 +12,7 @@ export const PROMPT_NAMES = [
   "graded-script",
   "graded-proofread",
   "graded-level-review",
+  "bilingual-script",
 ] as const;
 export type PromptName = (typeof PROMPT_NAMES)[number];
 

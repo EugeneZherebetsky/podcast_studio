@@ -55,6 +55,7 @@ test("every prompt file loads and has a system and a user part", () => {
     "graded-script",
     "graded-proofread",
     "graded-level-review",
+    "bilingual-script",
   ]);
   for (const name of PROMPT_NAMES) {
     const template = loadPrompt(name);
