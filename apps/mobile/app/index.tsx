@@ -6,6 +6,7 @@ import Storage from "expo-sqlite/kv-store";
 import { clampPosition, formatTime } from "../src/position";
 import { sampleEpisode } from "../src/sample";
 import { samplePlayback } from "../src/sample-playback";
+import { SpeedControl } from "../src/SpeedControl";
 
 // Metro requires a static require for bundled media.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -23,7 +24,7 @@ export default function Player() {
   const [ready, setReady] = useState(false);
   const [positionReady, setPositionReady] = useState(false);
   const [error, setError] = useState("");
-  const [rate, setRate] = useState(1);
+
 
   useEffect(() => {
     setAudioModeAsync({
@@ -84,13 +85,7 @@ export default function Player() {
       player.play();
     }
   };
-  const changeRate = () => {
-    const next =
-      rate === 0.5 ? 0.75 : rate === 0.75 ? 1 : rate === 1 ? 1.25 : rate === 1.25 ? 1.5 : 0.5;
-    player.shouldCorrectPitch = true;
-    player.playbackRate = next;
-    setRate(next);
-  };
+
 
   return (
     <SafeAreaView style={{ flex: 1, padding: 24, justifyContent: "center", gap: 16 }}>
@@ -111,7 +106,7 @@ export default function Player() {
         />
         <Button title="Forward 30s" onPress={() => seek(30)} disabled={!status.isLoaded} />
       </View>
-      <Button title={`Speed ${rate}×`} onPress={changeRate} disabled={!status.isLoaded} />
+      <SpeedControl player={player} mode={sampleEpisode.mode} disabled={!status.isLoaded} />
       <Button title="Library" onPress={() => router.navigate("/library")} />
     </SafeAreaView>
   );

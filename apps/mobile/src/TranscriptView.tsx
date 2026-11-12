@@ -7,10 +7,11 @@ import { segmentAt, tokenParts } from "./transcript";
 type TranslationMode = "tap" | "always" | "never";
 const settingKey = "transcript-translation-mode-v1";
 
-export function Transcript({ segments, positionMs, onSeek }: {
+export function Transcript({ segments, positionMs, onSeek, onLoop }: {
   segments: EpisodeSegment[];
   positionMs: number;
   onSeek: (seconds: number) => void;
+  onLoop: (index: number) => void;
 }) {
   const [mode, setMode] = useState<TranslationMode>(() => {
     try {
@@ -52,6 +53,7 @@ export function Transcript({ segments, positionMs, onSeek }: {
           if (index === active) scroll.current?.scrollTo({ y: positions.current[index], animated: false });
         }} style={{ padding: 12, backgroundColor: active === index ? "#dcecff" : "transparent" }}>
         <Text accessibilityRole="button" accessibilityLabel={`${active === index ? "Current sentence. " : ""}${segment.text}. Seek${mode === "tap" && segment.translation ? " and toggle translation" : ""}`}
+          onLongPress={() => onLoop(index)}
           onPress={() => {
             onSeek(segment.startMs / 1000);
             if (mode === "tap" && segment.translation) setRevealed((old) => ({ ...old, [segment.id]: !old[segment.id] }));
@@ -61,6 +63,7 @@ export function Transcript({ segments, positionMs, onSeek }: {
                 onPress={(event) => { event.stopPropagation(); setSelected(part.token ?? null); }} style={{ textDecorationLine: "underline" }}>{part.text}</Text>
             : <Text key={partIndex}>{part.text}</Text>)}
         </Text>
+        <Button title={`Loop sentence ${index + 1}`} onPress={() => onLoop(index)} disabled={segment.endMs <= segment.startMs} />
         {segment.translation && (mode === "always" || (mode === "tap" && revealed[segment.id]))
           ? <Text style={{ marginTop: 6 }}>{segment.translation}</Text> : null}
       </View>)}

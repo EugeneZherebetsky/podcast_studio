@@ -6,7 +6,11 @@ The library displays the bundled sample's locally saved position. Playback check
 
 USB import is available in Library: copy an existing package to the phone, then select its `episode.json` and `audio.m4a` in the system picker. Select packages from a trusted source: the SHA-256 check detects corruption, not malicious replacement. The app validates the shared schema, stages the audio, checks its byte count and digest, and publishes only the verified package. Existing episode IDs are rejected, not replaced, to preserve local data; remove or replacement behavior is not implemented. The picker and offline playback still need physical-device verification.
 
-The preliminary offline player has play/pause and background controls but does not yet persist imported episode playback position. Secure Wi-Fi download and the complete SQLite episode index remain unfinished; no progress upload is connected to USB import. The filesystem adapter tests use isolated local fixtures, not a server.
+The offline player saves imported episode playback position locally. Secure Wi-Fi download and the complete SQLite episode index remain unfinished; no progress upload is connected to USB import. The filesystem adapter tests use isolated local fixtures, not a server.
+
+Imported episodes with timed transcript segments offer sentence drill (one, two or three plays before pausing), previous/repeat/next and sentence looping by long press or the labelled loop button. Dismiss the loop to return to normal playback. Speed is pitch-corrected, adjustable from 0.50× to 1.50× in 0.05 steps and saved locally per episode mode. The bundled sample has no transcript, so only speed applies there.
+
+Drill and looping react to player status updates requested every 100 ms; they are not sample-accurate, and pauses can overshoot when updates or JavaScript execution are delayed, especially in the background. Accurate timing and operation with screen off require physical-device checks with a timed episode and actual inter-sentence silence; the bundled sample cannot verify these features. T23 remains open until that check.
 
 ## Android development build
 
