@@ -110,6 +110,7 @@ describe("AiSdkLlmProvider.generateObject", () => {
 
     expect(result.object).toEqual({ city: "Budapest", population: 1700000 });
     expect(main.doGenerateCalls).toHaveLength(2);
+    expect(main.doGenerateCalls[1]!.prompt).toEqual(main.doGenerateCalls[0]!.prompt);
     expect(result.usage.inputTokens).toBe(200);
     expect(result.usage.outputTokens).toBe(40);
     expect(result.usage.costUsd).toBeCloseTo((200 * 3 + 40 * 15) / 1_000_000, 12);
@@ -224,6 +225,19 @@ describe("bounded Ollama opt-in", () => {
     }
   });
 
+  test("does not retry bounded local network errors", async () => {
+    const fetchMock = vi.fn(async () => { throw new Error("connection refused"); });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const provider = createAiSdkLlmProvider(parseConfig({ PROFILE: "local" }), "ollama", {
+        env: { OLLAMA_BOUNDED_OUTPUT: "1" },
+      });
+      await expect(provider.generateObject({ slot: "main", ...request, localTimeoutMs: 900_000 })).rejects.toBeDefined();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   test("aborts an unresponsive request at its deadline without retry", async () => {
     const nativeTimeout = AbortSignal.timeout;
     const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockImplementation(() => nativeTimeout(10));
@@ -319,7 +333,7 @@ describe("bounded Ollama opt-in", () => {
       vi.unstubAllGlobals();
     }
   });
-  test("rejects a streamed schema refinement failure without retry", async () => {
+  test("retries a streamed schema refinement failure with feedback", async () => {
     const fetchMock = vi.fn(async () => new Response(
       'data: {"id":"x","model":"tiny","choices":[{"index":0,"delta":{"content":"{\\"city\\":\\"Paris\\",\\"population\\":10}"},"finish_reason":null}]}\n\n' +
       'data: {"id":"x","model":"tiny","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
@@ -334,12 +348,12 @@ describe("bounded Ollama opt-in", () => {
         slot: "main", ...request, localTimeoutMs: 900_000,
         schema: CitySchema.refine((value) => value.population > 100),
       })).rejects.toBeDefined();
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     } finally {
       vi.unstubAllGlobals();
     }
   });
-  test("sends bounded structured output and disables thinking, failing closed without retry", async () => {
+  test("sends bounded structured output and disables thinking, failing closed after retry", async () => {
     const fetchMock = vi.fn(
       async (url: string | URL | Request, init?: RequestInit) => {
         void url;
@@ -366,10 +380,12 @@ describe("bounded Ollama opt-in", () => {
       const provider = createAiSdkLlmProvider(parseConfig({ PROFILE: "local" }), "ollama", {
         env: { OLLAMA_BOUNDED_OUTPUT: "1" },
       });
-      await expect(provider.generateObject({ slot: "main", ...request })).rejects.toBeInstanceOf(
-        LlmOutputError,
+      await expect(provider.generateObject({ slot: "main", ...request })).rejects.toThrow(
+        /2 attempts[\s\S]*population/,
       );
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const retryBody = JSON.parse(fetchMock.mock.calls[1]![1]!.body as string);
+      expect(JSON.stringify(retryBody.messages)).toContain("population");
       const init = fetchMock.mock.calls[0]![1] as RequestInit;
       const body = JSON.parse(init.body as string);
       expect(body.max_tokens).toBe(8192);

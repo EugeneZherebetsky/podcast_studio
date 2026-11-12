@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { parseConfig } from "shared";
+import { createAiSdkLlmProvider } from "../src/providers/llm/ai-sdk.ts";
 import { ScriptSegmentSchema } from "shared";
 import { responseSchemaFor, runScriptStage } from "../src/pipeline/script.ts";
 import { runReviewStage } from "../src/pipeline/review.ts";
@@ -46,6 +48,38 @@ const draft = {
     { kind: "outro", speaker: "host", lang: "en", text: "Thanks for listening." },
   ],
 };
+
+test("local script retries an invalid first chapter with validation feedback", async () => {
+  const bad = structuredClone(draft);
+  bad.chapters[0]!.segmentIndex = 0;
+  const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    void url;
+    void init;
+    const content = JSON.stringify(fetchMock.mock.calls.length === 1 ? bad : draft);
+    const chunk = { id: "x", model: "tiny", choices: [{ index: 0, delta: { content }, finish_reason: null }] };
+    const end = { id: "x", model: "tiny", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] };
+    return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify(end)}\n\ndata: [DONE]\n\n`, {
+      headers: { "content-type": "text/event-stream" },
+    });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  try {
+    const llm = createAiSdkLlmProvider(parseConfig({ PROFILE: "local" }), "ollama", {
+      env: { OLLAMA_BOUNDED_OUTPUT: "1" },
+    });
+    const result = await runScriptStage({ workDir: dir, llm }, {
+      plan, notes, sources, lang: "en", mode: "standard",
+    });
+    expect(result.artifact.chapters[0]?.segmentIndex).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const retry = JSON.parse(fetchMock.mock.calls[1]![1]!.body as string);
+    expect(JSON.stringify(retry.messages)).toContain("Chapter must start at a later content segment");
+    expect(JSON.stringify(retry.messages)).toContain("First chapter must start at first content segment");
+    expect(retry.max_tokens).toBe(8192);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
 
 test("local script and review request bounded streaming deadlines", async () => {
   class LocalFake extends FakeLlmProvider {
