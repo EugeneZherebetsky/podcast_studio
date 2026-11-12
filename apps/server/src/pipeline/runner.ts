@@ -113,3 +113,177 @@ export async function runJobStage<T>(
     throw error;
   }
 }
+
+export interface GenerateDeps {
+  db: Db;
+  providers: import("../providers/index.ts").Providers;
+  dataDir: string;
+  budgetUsd: number;
+  voice: string;
+  profile: string;
+  llmName: string;
+  ttsName: string;
+  nativeLang: string;
+}
+
+/** Run the standard pipeline. Providers must be free: paid usage is not safely priced yet. */
+export async function generateJob(
+  deps: GenerateDeps,
+  id: string,
+  options: { stopAfterScript?: boolean } = {},
+): Promise<void> {
+  const { db, providers } = deps;
+  const job = db.select().from(jobs).where(eq(jobs.id, id)).get();
+  if (!job) throw new Error("Job not found");
+  if (job.options.mode !== "standard")
+    throw new Error("Only standard mode is supported by this runner");
+  const { mkdir, readFile, copyFile, writeFile } = await import("node:fs/promises");
+  const path = await import("node:path");
+  const { createHash } = await import("node:crypto");
+  const { EpisodeSchema, EPISODE_SCHEMA_VERSION } = await import("shared");
+  const { episodes } = await import("../db/schema.ts");
+  const { assembleAudio } = await import("../audio/assemble.ts");
+  const { runPlanStage } = await import("./plan.ts");
+  const { runSearchStage } = await import("./search.ts");
+  const { runExtractStage } = await import("./extract.ts");
+  const { runNotesStage } = await import("./notes.ts");
+  const { runScriptStage } = await import("./script.ts");
+  const { runReviewStage } = await import("./review.ts");
+  const { hashInputs } = await import("./artifacts.ts");
+  const workDir = path.join(deps.dataDir, "jobs", id);
+  const stage = <T>(name: StageName, fn: () => Promise<StageResult<T>>) =>
+    runJobStage(db, id, name, fn);
+  const uncached = <T>(artifact: T): StageResult<T> => ({
+    artifact,
+    usage: [],
+    skipped: false,
+    inputHash: hashInputs(artifact),
+  });
+  startJob(db, id, deps.budgetUsd);
+  const plan = (
+    await stage("plan", () => runPlanStage({ workDir, llm: providers.llm }, job.options))
+  ).artifact;
+  const candidates = (
+    await stage("search", () => runSearchStage({ workDir, search: providers.search }, { plan }))
+  ).artifact;
+  const sources = (
+    await stage("extract", () =>
+      runExtractStage({ workDir, extractor: providers.extractor }, { candidates }),
+    )
+  ).artifact;
+  const notes = (
+    await stage("notes", () =>
+      runNotesStage({ workDir, llm: providers.llm }, { title: job.options.title, plan, sources }),
+    )
+  ).artifact;
+  const script = (
+    await stage("script", () =>
+      runScriptStage(
+        { workDir, llm: providers.llm },
+        { plan, notes, sources, lang: job.options.lang, mode: "standard" },
+      ),
+    )
+  ).artifact;
+  if (options.stopAfterScript) {
+    await stage("review", async () => {
+      throw new Error("Interrupted after script");
+    });
+  }
+  const reviewed = (
+    await stage("review", () =>
+      runReviewStage(
+        { workDir, llm: providers.llm },
+        { script, notes, sources, plan, noReview: job.options.review === false },
+      ),
+    )
+  ).artifact.script;
+  const wavPaths = (
+    await stage("tts", async () =>
+      uncached(
+        await Promise.all(
+          reviewed.segments.map(
+            async (segment) =>
+              (
+                await providers.tts.synthesize({
+                  text: segment.text,
+                  lang: segment.lang,
+                  voice: deps.voice,
+                  rate: segment.rate ?? 1,
+                })
+              ).wavPath,
+          ),
+        ),
+      ),
+    )
+  ).artifact;
+  const audioPath = path.join(workDir, "audio.m4a");
+  const audio = (
+    await stage("assemble", async () =>
+      uncached(
+        await assembleAudio({
+          segments: reviewed.segments,
+          chapters: reviewed.chapters,
+          wavPaths,
+          outputPath: audioPath,
+        }),
+      ),
+    )
+  ).artifact;
+  await stage("publish", async () => {
+    const dir = path.join(deps.dataDir, "episodes", id);
+    await mkdir(dir, { recursive: true });
+    const buffer = await readFile(audioPath);
+    const createdAt = job.createdAt;
+    const episode = EpisodeSchema.parse({
+      schemaVersion: EPISODE_SCHEMA_VERSION,
+      id,
+      title: reviewed.title,
+      summary: reviewed.summary,
+      createdAt,
+      durationMs: audio.durationMs,
+      mode: "standard",
+      lang: job.options.lang,
+      nativeLang: deps.nativeLang,
+      audio: {
+        file: "audio.m4a",
+        bytes: buffer.length,
+        sha256: createHash("sha256").update(buffer).digest("hex"),
+      },
+      segments: audio.segments,
+      chapters: audio.chapters,
+      sources: sources.sources,
+      generation: {
+        profile: deps.profile,
+        llm: deps.llmName,
+        tts: deps.ttsName,
+        voice: deps.voice,
+        costUsd: 0,
+      },
+    });
+    await copyFile(audioPath, path.join(dir, "audio.m4a"));
+    await writeFile(
+      path.join(dir, "episode.json"),
+      `${JSON.stringify(episode, null, 2)}
+`,
+    );
+    db.insert(episodes)
+      .values({
+        id,
+        topicId: null,
+        title: episode.title,
+        summary: episode.summary,
+        mode: episode.mode,
+        lang: episode.lang,
+        durationMs: episode.durationMs,
+        createdAt,
+        path: dir,
+      })
+      .onConflictDoNothing()
+      .run();
+    return uncached({ id });
+  });
+  db.update(jobs)
+    .set({ status: "succeeded", updatedAt: new Date().toISOString() })
+    .where(and(eq(jobs.id, id), eq(jobs.status, "running")))
+    .run();
+}
