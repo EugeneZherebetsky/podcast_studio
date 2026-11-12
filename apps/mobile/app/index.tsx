@@ -3,10 +3,11 @@ import { Button, SafeAreaView, Text, View } from "react-native";
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import Storage from "expo-sqlite/kv-store";
 import { clampPosition, formatTime } from "../src/position";
+import { sampleEpisode } from "../src/sample";
 
 // Metro requires a static require for bundled media.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const source = require("../assets/sample.mp3");
+const source = require("../assets/audio.m4a");
 const key = "sample-position-seconds";
 
 export default function Player() {
@@ -67,8 +68,8 @@ export default function Player() {
     if (status.playing) player.pause();
     else {
       player.setActiveForLockScreen(true, {
-        title: "The Mouth",
-        artist: "John Poole Sandlands; read by Meliora Dockery",
+        title: sampleEpisode.title,
+        artist: sampleEpisode.generation.voice,
       });
       player.play();
     }
@@ -84,7 +85,7 @@ export default function Player() {
   return (
     <SafeAreaView style={{ flex: 1, padding: 24, justifyContent: "center", gap: 16 }}>
       <Text accessibilityRole="header" style={{ fontSize: 24 }}>
-        The Mouth
+        {sampleEpisode.title}
       </Text>
       <Text>LibriVox sample • available offline</Text>
       <Text>

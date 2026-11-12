@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "librivox-the-mouth",
+  "title": "The Mouth",
+  "summary": "Chapter 3 of The Voice and Public Speaking by John Poole Sandlands, read by Meliora Dockery for LibriVox.",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "durationMs": 619987,
+  "mode": "standard",
+  "lang": "en",
+  "nativeLang": "en",
+  "audio": {
+    "file": "audio.m4a",
+    "bytes": 5405650,
+    "sha256": "38a720ab0c2a12d3b4e665ec3769ad1c1792da82946fb972561d6491d796a85c"
+  },
+  "segments": [],
+  "chapters": [{ "title": "The Mouth", "startMs": 0 }],
+  "sources": [{
+    "id": "librivox",
+    "url": "https://librivox.org/the-voice-and-public-speaking-by-john-poole-sandlands/",
+    "title": "The Voice and Public Speaking",
+    "site": "LibriVox"
+  }],
+  "generation": {
+    "profile": "recording",
+    "llm": "none",
+    "tts": "none",
+    "voice": "Meliora Dockery",
+    "costUsd": 0
+  }
+}
