@@ -205,7 +205,7 @@ All bodies are JSON validated by shared schemas. Requests from non-loopback addr
 
 ## 9. Security and privacy
 
-- Server binds `127.0.0.1` unless `HOST=0.0.0.0` is set; then every non-loopback request needs a device token (stored hashed).
+- Server binds `127.0.0.1` unless `HOST=0.0.0.0` is set; then every non-loopback request needs a device token (stored hashed), except pairing completion with a valid one-use code. Pairing codes expire after five minutes or ten failed attempts and are lost on restart. Remote requests carrying browser Origin or Fetch Metadata headers are rejected. Pairing currently returns the local request host in its QR payload, not a remotely reachable address; a user-facing pairing flow must supply a reachable server address. Direct plain HTTP exposes codes and tokens to the network: use a trusted encrypted transport. A reverse proxy must not present remote traffic as trusted loopback traffic; proxy deployment is not supported until its authentication boundary is designed.
 - Secrets only in `.env` on the PC. `.env`, `data/`, `infra/piper/` are git-ignored.
 - Logs redact `Authorization` headers and anything matching configured key values.
 - What leaves the machine in the cloud profile: search queries, topic text, extracted page text, scripts (to the LLM), script text (to TTS). The learner's vocabulary list is sent to the LLM only as lemmas.

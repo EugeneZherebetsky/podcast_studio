@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 import { PassThrough } from "node:stream";
@@ -6,6 +6,9 @@ import { and, eq } from "drizzle-orm";
 import Fastify, { type FastifyInstance } from "fastify";
 import {
   CreateTopicRequestSchema,
+  PairCompleteRequestSchema,
+  PairCompleteResponseSchema,
+  PairStartResponseSchema,
   IdParamsSchema,
   UpdateTopicRequestSchema,
   ServerEventSchema,
@@ -15,7 +18,7 @@ import {
   type HealthResponse,
 } from "shared";
 import type { Db } from "./db/index.ts";
-import { topics, vocab } from "./db/schema.ts";
+import { devices, topics, vocab } from "./db/schema.ts";
 import { registerEpisodeRoutes } from "./episode-routes.ts";
 import { registerJobRoutes, type JobRunner } from "./job-routes.ts";
 import { registerSettingsRoutes } from "./settings-routes.ts";
@@ -33,11 +36,21 @@ export function buildApp(options?: {
 }): FastifyInstance {
   const app = Fastify({ logger: false });
   if (options?.webRoot) registerWebAssets(app, options.webRoot);
-  // Pairing and token verification arrive in T17: fail closed until then.
+  const db = options?.db;
+  let pairing: { code: string; expires: number; attempts: number } | undefined;
+  const hash = (value: string) => createHash("sha256").update(value).digest("hex");
   app.addHook("onRequest", async (request, reply) => {
     const ip = request.ip;
-    if (ip !== "::1" && !ip.startsWith("127.") && !ip.startsWith("::ffff:127.")) {
-      return reply.code(401).send({ error: "Remote access is not available" });
+    const loopback = ip === "::1" || ip.startsWith("127.") || ip.startsWith("::ffff:127.");
+    if (!loopback) {
+      if (request.headers.origin !== undefined || request.headers["sec-fetch-site"] !== undefined)
+        return reply.code(403).send({ error: "Untrusted request origin" });
+      if (request.method === "POST" && request.routeOptions.url === "/api/pair/complete") return;
+      const match = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(request.headers.authorization ?? "");
+      const device = match && db?.select().from(devices).where(eq(devices.tokenHash, hash(match[1]!))).get();
+      if (!device) return reply.code(401).send({ error: "Remote access is not available" });
+      db!.update(devices).set({ lastSeenAt: new Date().toISOString() }).where(eq(devices.id, device.id)).run();
+      return;
     }
     const host = request.headers.host ?? "";
     const origin = request.headers.origin;
@@ -49,8 +62,32 @@ export function buildApp(options?: {
       return reply.code(403).send({ error: "Untrusted request origin" });
     }
   });
-  const db = options?.db;
   if (!db) return app;
+  app.post("/api/pair/start", async (request, reply) => {
+    const ip = request.ip;
+    if (ip !== "::1" && !ip.startsWith("127.") && !ip.startsWith("::ffff:127."))
+      return reply.code(401).send({ error: "Remote access is not available" });
+    pairing = { code: randomBytes(32).toString("base64url"), expires: Date.now() + 5 * 60_000, attempts: 0 };
+    const qr = new URL("podcast-studio://pair");
+    qr.searchParams.set("host", request.headers.host ?? "localhost");
+    qr.searchParams.set("code", pairing.code);
+    return reply.header("cache-control", "no-store").send(PairStartResponseSchema.parse({ qr: qr.toString() }));
+  });
+  app.post("/api/pair/complete", async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    const parsed = PairCompleteRequestSchema.safeParse(request.body);
+    if (!pairing || pairing.expires <= Date.now() || pairing.attempts >= 10) {
+      pairing = undefined;
+      return reply.code(401).send({ error: "Invalid pairing code" });
+    }
+    pairing.attempts++;
+    if (!parsed.success || parsed.data.code !== pairing.code || parsed.data.deviceName.length > 128)
+      return reply.code(401).send({ error: "Invalid pairing code" });
+    pairing = undefined;
+    const token = randomBytes(32).toString("base64url");
+    db.insert(devices).values({ id: randomUUID(), name: parsed.data.deviceName, tokenHash: hash(token), createdAt: new Date().toISOString() }).run();
+    return PairCompleteResponseSchema.parse({ token });
+  });
   app.get("/api/health", async (_request, reply) => {
     if (!options?.config || !options.providerHealth)
       return reply.code(503).send({ error: "Provider health checks unavailable" });
