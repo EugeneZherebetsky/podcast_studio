@@ -1,5 +1,15 @@
 import {
   ApiErrorSchema,
+  CreateTopicRequestSchema,
+  UpdateTopicRequestSchema,
+  TopicSchema,
+  ListTopicsResponseSchema,
+  OkResponseSchema,
+  SettingsSchema,
+  UpdateSettingsRequestSchema,
+  type CreateTopicRequestInput,
+  type UpdateTopicRequest,
+  type UpdateSettingsRequest,
   CreateJobRequestSchema,
   GetEpisodeResponseSchema,
   JobDetailSchema,
@@ -16,15 +26,17 @@ async function request<T>(
   path: string,
   schema: { parse: (value: unknown) => T },
   body?: unknown,
+  method = "POST",
 ): Promise<T> {
   const response = await fetch(
     `/api${path}`,
-    body === undefined
+    body === undefined && method === "POST"
       ? undefined
       : {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          method,
+          ...(body === undefined
+            ? {}
+            : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
         },
   );
   const json: unknown = await response.json().catch(() => null);
@@ -36,6 +48,16 @@ async function request<T>(
 }
 const idPath = (id: string) => encodeURIComponent(id);
 export const api = {
+  topics: () => request("/topics", ListTopicsResponseSchema),
+  createTopic: (body: CreateTopicRequestInput) =>
+    request("/topics", TopicSchema, CreateTopicRequestSchema.parse(body)),
+  updateTopic: (id: string, body: UpdateTopicRequest) =>
+    request(`/topics/${idPath(id)}`, TopicSchema, UpdateTopicRequestSchema.parse(body), "PATCH"),
+  deleteTopic: (id: string) =>
+    request(`/topics/${idPath(id)}`, OkResponseSchema, undefined, "DELETE"),
+  settings: () => request("/settings", SettingsSchema),
+  updateSettings: (body: UpdateSettingsRequest) =>
+    request("/settings", SettingsSchema, UpdateSettingsRequestSchema.parse(body), "PUT"),
   jobs: () => request("/jobs", ListJobsResponseSchema),
   job: (id: string) => request(`/jobs/${idPath(id)}`, JobDetailSchema),
   createJob: (body: CreateJobRequestInput) =>

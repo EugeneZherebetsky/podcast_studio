@@ -19,6 +19,33 @@ test("reports API errors and validates successful responses", async () => {
   await expect(api.jobs()).rejects.toThrow();
 });
 
+test("topic mutations encode ids and use the correct methods", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+  vi.stubGlobal("fetch", fetchMock);
+  await api.deleteTopic("a/b");
+  expect(fetchMock).toHaveBeenCalledWith("/api/topics/a%2Fb", { method: "DELETE" });
+});
+
+test("settings reject unexpected secret fields in responses", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          profile: "cloud",
+          nativeLang: "en",
+          targetLang: "hu",
+          level: "A1",
+          monthlyBudgetUsd: 1,
+          voices: { huHost: null, huCohost: null, nativeHost: null, nativeTeacher: null },
+          secret: "not-for-client",
+        }),
+      ),
+    ),
+  );
+  await expect(api.settings()).rejects.toThrow();
+});
+
 test("encodes episode identifiers", () => {
   expect(api.audioUrl("a/b")).toBe("/api/episodes/a%2Fb/audio");
 });

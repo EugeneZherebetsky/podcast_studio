@@ -1,0 +1,138 @@
+import { useEffect, useState, type FormEvent } from "react";
+import { SettingsSchema, type Settings as SettingsValue } from "shared";
+import { api } from "./api.ts";
+
+export function Settings() {
+  const [value, setValue] = useState<SettingsValue | null>(null);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api
+      .settings()
+      .then(setValue)
+      .catch((cause: unknown) => setError(String(cause)));
+  }, []);
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!value) return;
+    const parsed = SettingsSchema.safeParse(value);
+    if (!parsed.success) {
+      setError(parsed.error.issues.map((issue) => issue.message).join("; "));
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setSaved(false);
+    try {
+      setValue(await api.updateSettings(parsed.data));
+      setSaved(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not save settings");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section>
+      <header className="page-heading">
+        <p className="eyebrow">Preferences</p>
+        <h1>Settings</h1>
+        <p>Stored preferences are not yet connected to generation or budget enforcement.</p>
+      </header>
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+      {!value ? (
+        <p role="status">{error ? "Settings could not be loaded." : "Loading settings…"}</p>
+      ) : (
+        <form
+          className="panel form"
+          onSubmit={(event) => void submit(event)}
+          onChange={() => setSaved(false)}
+        >
+          <label>
+            Profile
+            <select
+              value={value.profile}
+              onChange={(e) =>
+                setValue({ ...value, profile: e.target.value as SettingsValue["profile"] })
+              }
+            >
+              <option value="cloud">Cloud</option>
+              <option value="local">Local</option>
+            </select>
+          </label>
+          <label>
+            Native language tag
+            <input
+              required
+              value={value.nativeLang}
+              onChange={(e) => setValue({ ...value, nativeLang: e.target.value })}
+            />
+          </label>
+          <label>
+            Target language tag
+            <input
+              required
+              value={value.targetLang}
+              onChange={(e) => setValue({ ...value, targetLang: e.target.value })}
+            />
+          </label>
+          <label>
+            Level
+            <select
+              value={value.level}
+              onChange={(e) =>
+                setValue({ ...value, level: e.target.value as SettingsValue["level"] })
+              }
+            >
+              <option>A1</option>
+              <option>A2</option>
+              <option>B1</option>
+              <option>B2</option>
+            </select>
+          </label>
+          <label>
+            Monthly budget (USD)
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              required
+              value={value.monthlyBudgetUsd}
+              onChange={(e) => setValue({ ...value, monthlyBudgetUsd: Number(e.target.value) })}
+            />
+          </label>
+          <h2>Voice IDs</h2>
+          <p>Voice previews are not available yet.</p>
+          {(
+            [
+              ["huHost", "Hungarian host"],
+              ["huCohost", "Hungarian co-host"],
+              ["nativeHost", "Native host"],
+              ["nativeTeacher", "Native teacher"],
+            ] as const
+          ).map(([key, label]) => (
+            <label key={key}>
+              {label}
+              <input
+                value={value.voices[key] ?? ""}
+                onChange={(e) =>
+                  setValue({ ...value, voices: { ...value.voices, [key]: e.target.value || null } })
+                }
+              />
+            </label>
+          ))}
+          <p>Usage totals are not available yet.</p>
+          <button className="primary" disabled={busy}>
+            {busy ? "Saving…" : "Save settings"}
+          </button>
+          {saved && <p role="status">Preferences saved.</p>}
+        </form>
+      )}
+    </section>
+  );
+}

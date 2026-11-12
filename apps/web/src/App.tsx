@@ -3,6 +3,8 @@ import { APP_NAME } from "shared";
 import { Jobs } from "./Jobs.tsx";
 import { Library, Player } from "./Library.tsx";
 import { NewEpisode } from "./NewEpisode.tsx";
+import { Topics } from "./Topics.tsx";
+import { Settings } from "./Settings.tsx";
 import "./style.css";
 
 export function App() {
@@ -49,6 +51,8 @@ export function App() {
               ["new", "New episode"],
               ["jobs", "Jobs"],
               ["library", "Library"],
+              ["topics", "Topics"],
+              ["settings", "Settings"],
             ].map(([path, label]) => (
               <a key={path} href={`#/${path}`} aria-current={current === path ? "page" : undefined}>
                 {label}
@@ -58,7 +62,11 @@ export function App() {
         </div>
       </header>
       <main id="main" tabIndex={-1}>
-        {route === "#/jobs" ? (
+        {route === "#/topics" ? (
+          <Topics />
+        ) : route === "#/settings" ? (
+          <Settings />
+        ) : route === "#/jobs" ? (
           <Jobs />
         ) : route === "#/library" ? (
           <Library />

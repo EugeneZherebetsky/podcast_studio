@@ -291,6 +291,7 @@ p {
   }
   nav {
     margin-top: 0.5rem;
+    flex-wrap: wrap;
   }
   nav a {
     padding: 0.75rem 0.65rem;
