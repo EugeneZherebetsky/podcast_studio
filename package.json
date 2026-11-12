@@ -14,6 +14,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "gen": "pnpm --filter server run gen",
+    "usb:export": "pnpm --filter server run usb:export",
     "smoke": "pnpm --filter server run smoke",
     "autostart:install": "node scripts/autostart.mjs install",
     "autostart:remove": "node scripts/autostart.mjs remove"
