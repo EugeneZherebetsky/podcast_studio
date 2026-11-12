@@ -19,3 +19,40 @@ export function offlinePlayback(storage: Storage, episodeId: string) {
     },
   };
 }
+
+export function createSeekCheckpoint(playback: ReturnType<typeof offlinePlayback>, onSaveError: () => void = () => {}) {
+  let generation = 0;
+  let pending = false;
+  let target: number | null = null;
+  let queue = Promise.resolve();
+  return {
+    async seek(seconds: number, seek: () => Promise<void>, save = true) {
+      const current = ++generation;
+      pending = true;
+      target = seconds;
+      const operation = queue.then(() => current === generation ? seek() : undefined);
+      queue = operation.catch(() => {});
+      try {
+        await operation;
+      } catch (error) {
+        if (current !== generation) return false;
+        pending = false; target = null;
+        throw error;
+      }
+      if (current !== generation) return false;
+      pending = false;
+      if (save) {
+        try { playback.record(seconds, false); } catch { onSaveError(); }
+      }
+      return true;
+    },
+    acceptClock(seconds: number, finished: boolean) {
+      if (pending) return false;
+      if (target !== null) {
+        if (finished || Math.abs(seconds - target) > 1) return false;
+        target = null;
+      }
+      return true;
+    },
+  };
+}

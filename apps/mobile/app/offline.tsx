@@ -6,7 +6,7 @@ import type { Episode } from "shared";
 import { listOfflineEpisodes } from "../src/offline-files";
 import { clampPosition, formatTime } from "../src/position";
 import Storage from "expo-sqlite/kv-store";
-import { offlinePlayback } from "../src/offline-playback";
+import { createSeekCheckpoint, offlinePlayback } from "../src/offline-playback";
 import { Transcript } from "../src/TranscriptView";
 import { SpeedControl } from "../src/SpeedControl";
 import { createDrill, transition, type DrillEvent } from "../src/drill";
@@ -16,6 +16,7 @@ function OfflinePlayer({ episode, audioUri }: { episode: Episode; audioUri: stri
   const status = useAudioPlayerStatus(player);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
+  const [checkpoint] = useState(() => createSeekCheckpoint(offlinePlayback(Storage, episode.id), () => setError("Could not save position.")));
   const [positionReady, setPositionReady] = useState(false);
   const restored = useRef(false);
   const canSave = useRef(true);
@@ -34,8 +35,10 @@ function OfflinePlayer({ episode, audioUri }: { episode: Episode; audioUri: stri
       const effect = result.effect;
       const generation = ++seekGeneration.current;
       player.pause();
-      player.seekTo(effect.positionMs / 1000).then(() => {
+      const seconds = clampPosition(effect.positionMs / 1000, status.duration);
+      checkpoint.seek(seconds, () => player.seekTo(seconds), canSave.current).then(() => {
         if (generation !== seekGeneration.current) return;
+        target.current = seconds;
         const next = transition(drillRef.current, { type: "seeked" }, episode.segments).state;
         drillRef.current = next; setDrill(next);
         if (effect.play) { player.setActiveForLockScreen(true, { title: episode.title, artist: episode.generation.voice }); player.play(); }
@@ -65,6 +68,7 @@ function OfflinePlayer({ episode, audioUri }: { episode: Episode; audioUri: stri
   }, [episode.id, player, status.isLoaded, status.duration]);
   useEffect(() => {
     if (!positionReady || !status.isLoaded || !canSave.current) return;
+    if (!checkpoint.acceptClock(status.currentTime, status.didJustFinish)) return;
     if (lastSaved.current === -1 && Math.abs(status.currentTime - target.current) > 1) return;
     const second = Math.floor(status.currentTime);
     if (!status.didJustFinish && (second === lastSaved.current || (status.playing && second % 5 !== 0))) return;
@@ -99,7 +103,12 @@ function OfflinePlayer({ episode, audioUri }: { episode: Episode; audioUri: stri
       onLoop={(index) => dispatch({ type: "loop", index })}
       onSeek={(seconds) => {
         if (drillRef.current.mode !== "off") dispatch({ type: "select", index: episode.segments.findIndex((s) => s.startMs === seconds * 1000) });
-        else player.seekTo(clampPosition(seconds, status.duration)).catch(() => setError("Could not seek."));
+        else {
+          const destination = clampPosition(seconds, status.duration);
+          checkpoint.seek(destination, () => player.seekTo(destination), canSave.current)
+            .then((current) => { if (current) target.current = destination; })
+            .catch(() => setError("Could not seek."));
+        }
       }} /> : null}
   </SafeAreaView>;
 }
