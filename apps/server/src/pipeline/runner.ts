@@ -84,8 +84,10 @@ export async function runJobStage<T>(
   });
   try {
     const result = await run();
-    db.transaction((tx) => {
+    const cancelled = db.transaction((tx) => {
       for (const item of result.usage) recordLlmUsage(db, item, { jobId: id });
+      const job = tx.select().from(jobs).where(eq(jobs.id, id)).get();
+      if (!job || job.status !== "running") return true;
       tx.update(jobStages)
         .set({
           status: result.skipped ? "skipped" : "done",
@@ -95,7 +97,9 @@ export async function runJobStage<T>(
         })
         .where(where)
         .run();
+      return false;
     });
+    if (cancelled) throw new Error("Job cancelled during stage");
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

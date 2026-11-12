@@ -99,3 +99,19 @@ test("records a failed stage and leaves the job resumable", async () => {
   startJob(db, job.id, 20);
   expect(getJob(job.id).status).toBe("running");
 });
+
+test("cancellation during a stage does not report its successful completion", async () => {
+  const job = createJob(db, options, 20);
+  startJob(db, job.id, 20);
+  let finish!: () => void;
+  const waiting = new Promise<void>((resolve) => { finish = resolve; });
+  const running = runJobStage(db, job.id, "plan", async () => {
+    await waiting;
+    return { artifact: {}, skipped: false, inputHash: "abc", usage: [] };
+  });
+  cancelJob(db, job.id);
+  finish();
+  await expect(running).rejects.toThrow(/cancel/i);
+  expect(getJob(job.id).status).toBe("cancelled");
+  expect(stage(job.id, "plan").status).toBe("failed");
+});
