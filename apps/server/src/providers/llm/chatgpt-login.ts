@@ -16,6 +16,7 @@ type LoginResult =
       refreshToken?: string;
       idToken: string;
       expiresIn: number;
+      expiresAt?: number;
       scopes: string[];
       planEnabled: boolean;
     };
@@ -27,6 +28,8 @@ export async function beginChatGptLogin(options: {
   transport?: typeof fetch;
   keys?: JWTVerifyGetKey;
   timeoutMs?: number;
+  onExchange?: () => void;
+  onDiscard?: (token: string, clientId: string, hint: string) => Promise<void>;
 }): Promise<{ authorizationUrl: string; result: Promise<LoginResult>; close: () => void }> {
   const timeoutMs = options.timeoutMs ?? 120_000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 600_000)
@@ -45,13 +48,17 @@ export async function beginChatGptLogin(options: {
   const deadline = Date.now() + timeoutMs;
   let attempt: ReturnType<typeof startChatGptAuthorization>;
   const finish = (value?: LoginResult) => {
-    if (finished) return;
+    if (finished) return false;
     finished = true;
     clearTimeout(timer);
     abort.abort();
     server.close();
-    if (value && Date.now() < deadline) resolveResult(value);
-    else rejectResult(new Error("ChatGPT login failed"));
+    if (value && Date.now() < deadline) {
+      resolveResult(value);
+      return true;
+    }
+    rejectResult(new Error("ChatGPT login failed"));
+    return false;
   };
   const server = createServer({ maxHeaderSize: 8192 }, (req, res) => {
     const reply = (status: number, text: string) => {
@@ -95,80 +102,108 @@ export async function beginChatGptLogin(options: {
       return;
     }
     void (async () => {
-      const body = new URLSearchParams({
-        grant_type: "authorization_code",
-        client_id: callback.clientId,
-        code: callback.code,
-        code_verifier: callback.verifier,
-        redirect_uri: callback.redirectUri,
-        resource,
-      });
-      const response = await (options.transport ?? fetch)(endpoint, {
-        method: "POST",
-        redirect: "error",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Accept: "application/json",
-        },
-        body: body.toString(),
-        signal: abort.signal,
-      });
-      if (!response.ok || response.redirected || !response.body) throw new Error("Exchange failed");
-      const reader = response.body.getReader();
-      const chunks: Uint8Array[] = [];
-      let length = 0;
-      for (;;) {
-        const part = await reader.read();
-        if (part.done) break;
-        length += part.value.length;
-        if (length > 65536) {
-          await reader.cancel();
-          throw new Error("Response too large");
+      let refreshToken: string | undefined;
+      let accessToken: string | undefined;
+      let delivered = false;
+      try {
+        const body = new URLSearchParams({
+          grant_type: "authorization_code",
+          client_id: callback.clientId,
+          code: callback.code,
+          code_verifier: callback.verifier,
+          redirect_uri: callback.redirectUri,
+          resource,
+        });
+        const exchangeStartedAt = Date.now();
+        options.onExchange?.();
+        const response = await (options.transport ?? fetch)(endpoint, {
+          method: "POST",
+          redirect: "error",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Accept: "application/json",
+          },
+          body: body.toString(),
+          signal: abort.signal,
+        });
+        if (!response.ok || response.redirected || !response.body)
+          throw new Error("Exchange failed");
+        const reader = response.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let length = 0;
+        for (;;) {
+          const part = await reader.read();
+          if (part.done) break;
+          length += part.value.length;
+          if (length > 65536) {
+            await reader.cancel();
+            throw new Error("Response too large");
+          }
+          chunks.push(part.value);
         }
-        chunks.push(part.value);
+        const data: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        if (!data || typeof data !== "object") throw new Error("Invalid response");
+        const token = data as Record<string, unknown>;
+        if (
+          typeof token.access_token === "string" &&
+          token.access_token.length > 0 &&
+          token.access_token.length <= 32768
+        )
+          accessToken = token.access_token;
+        if (
+          typeof token.refresh_token === "string" &&
+          token.refresh_token.length > 0 &&
+          token.refresh_token.length <= 32768
+        )
+          refreshToken = token.refresh_token;
+        if (
+          typeof token.access_token !== "string" ||
+          !token.access_token ||
+          token.access_token.length > 32768 ||
+          typeof token.id_token !== "string" ||
+          typeof token.scope !== "string" ||
+          token.scope.length > 8192 ||
+          typeof token.token_type !== "string" ||
+          token.token_type.toLowerCase() !== "bearer" ||
+          typeof token.expires_in !== "number" ||
+          !Number.isSafeInteger(token.expires_in) ||
+          token.expires_in <= 0 ||
+          (token.refresh_token !== undefined &&
+            (typeof token.refresh_token !== "string" ||
+              !token.refresh_token ||
+              token.refresh_token.length > 32768))
+        )
+          throw new Error("Invalid response");
+        const identity = await verifyChatGptIdentity(
+          token.id_token,
+          callback.clientId,
+          callback.nonce,
+          options.keys,
+        );
+        if (options.expectedSubject && identity.subject !== options.expectedSubject)
+          throw new Error("Identity mismatch");
+        const scopes = token.scope.split(/\s+/).filter(Boolean);
+        delivered = finish({
+          kind: "success",
+          subject: identity.subject,
+          clientId: callback.clientId,
+          accessToken: token.access_token,
+          idToken: token.id_token,
+          ...(typeof token.refresh_token === "string" ? { refreshToken: token.refresh_token } : {}),
+          expiresIn: token.expires_in,
+          expiresAt: exchangeStartedAt + token.expires_in * 1000,
+          scopes,
+          planEnabled:
+            scopes.includes("chatgpt.tokens.use.direct") && scopes.includes("resource.invoke"),
+        });
+      } finally {
+        if (!delivered) {
+          if (refreshToken)
+            await options.onDiscard?.(refreshToken, callback.clientId, "refresh_token");
+          if (accessToken)
+            await options.onDiscard?.(accessToken, callback.clientId, "access_token");
+        }
       }
-      const data: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-      if (!data || typeof data !== "object") throw new Error("Invalid response");
-      const token = data as Record<string, unknown>;
-      if (
-        typeof token.access_token !== "string" ||
-        !token.access_token ||
-        token.access_token.length > 32768 ||
-        typeof token.id_token !== "string" ||
-        typeof token.scope !== "string" ||
-        token.scope.length > 8192 ||
-        typeof token.token_type !== "string" ||
-        token.token_type.toLowerCase() !== "bearer" ||
-        typeof token.expires_in !== "number" ||
-        !Number.isSafeInteger(token.expires_in) ||
-        token.expires_in <= 0 ||
-        (token.refresh_token !== undefined &&
-          (typeof token.refresh_token !== "string" ||
-            !token.refresh_token ||
-            token.refresh_token.length > 32768))
-      )
-        throw new Error("Invalid response");
-      const identity = await verifyChatGptIdentity(
-        token.id_token,
-        callback.clientId,
-        callback.nonce,
-        options.keys,
-      );
-      if (options.expectedSubject && identity.subject !== options.expectedSubject)
-        throw new Error("Identity mismatch");
-      const scopes = token.scope.split(/\s+/).filter(Boolean);
-      finish({
-        kind: "success",
-        subject: identity.subject,
-        clientId: callback.clientId,
-        accessToken: token.access_token,
-        idToken: token.id_token,
-        ...(typeof token.refresh_token === "string" ? { refreshToken: token.refresh_token } : {}),
-        expiresIn: token.expires_in,
-        scopes,
-        planEnabled:
-          scopes.includes("chatgpt.tokens.use.direct") && scopes.includes("resource.invoke"),
-      });
     })().catch(() => finish());
   });
   server.requestTimeout = Math.min(timeoutMs, 10_000);

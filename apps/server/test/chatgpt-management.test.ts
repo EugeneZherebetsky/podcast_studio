@@ -6,7 +6,13 @@ describe("ChatGPT management boundary", () => {
   it("rejects hostile origins and exposes only safe status on loopback", async () => {
     const app = Fastify();
     const session = {
-      status: () => ({ active: null, accounts: [], planEnabled: false }),
+      status: () => ({
+        active: null,
+        accounts: [],
+        planEnabled: false,
+        expired: true,
+        remoteUncertain: true,
+      }),
       login: async () => {
         throw new Error();
       },
@@ -32,7 +38,12 @@ describe("ChatGPT management boundary", () => {
       ).toBe(403);
       const response = await fetch(`${base}/api/chatgpt/status`, { headers: { origin: base } });
       expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ active: null, planEnabled: false });
+      expect(await response.json()).toMatchObject({
+        active: null,
+        planEnabled: false,
+        expired: true,
+        remoteUncertain: true,
+      });
     } finally {
       await app.close();
     }
@@ -43,7 +54,13 @@ describe("ChatGPT management boundary", () => {
     let complete!: (value: boolean) => void;
     let shutdown = false;
     const session = {
-      status: () => ({ active: null, accounts: [], planEnabled: false }),
+      status: () => ({
+        active: null,
+        accounts: [],
+        planEnabled: false,
+        expired: false,
+        remoteUncertain: false,
+      }),
       login: async () => ({
         authorizationUrl: "https://auth.openai.com/api/accounts/authorize?state=example",
         complete: () =>
@@ -88,7 +105,13 @@ describe("ChatGPT management boundary", () => {
   it("rejects a wildcard listener even for a loopback peer", async () => {
     const app = Fastify();
     registerChatGptManagement(app, {
-      status: () => ({ active: null, accounts: [], planEnabled: false }),
+      status: () => ({
+        active: null,
+        accounts: [],
+        planEnabled: false,
+        expired: false,
+        remoteUncertain: false,
+      }),
       login: async () => {
         throw new Error();
       },

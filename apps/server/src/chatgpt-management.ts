@@ -46,6 +46,8 @@ export function registerChatGptManagement(app: FastifyInstance, session: Session
       active: value.active,
       accounts: value.accounts,
       planEnabled: value.planEnabled,
+      expired: value.expired,
+      remoteUncertain: value.remoteUncertain,
       phase,
     };
   };

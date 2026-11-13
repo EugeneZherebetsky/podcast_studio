@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 type Status = {
   active: string | null;
   planEnabled: boolean;
+  expired: boolean;
+  remoteUncertain: boolean;
   phase: "idle" | "starting" | "pending" | "failed";
 };
 async function call(path: string, body: object = {}) {
@@ -38,11 +40,11 @@ export function ChatGptSettings() {
       );
   }, []);
   useEffect(() => {
-    if (status?.phase !== "pending") return;
+    if (status?.phase !== "pending" && !status?.active) return;
     let cancelled = false;
     let count = 0;
     const timer = window.setInterval(() => {
-      if (++count > 150) {
+      if (status?.phase === "pending" && ++count > 150) {
         window.clearInterval(timer);
         if (!cancelled) setMessage("Sign-in polling stopped. Cancel or refresh Settings.");
         return;
@@ -60,7 +62,7 @@ export function ChatGptSettings() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [status?.phase]);
+  }, [status?.phase, status?.active]);
   async function start() {
     setBusy(true);
     setMessage("");
@@ -117,15 +119,23 @@ export function ChatGptSettings() {
       </p>
       <p role="status">
         {status
-          ? status.active
-            ? `Signed in as ${status.active}. ${status.planEnabled ? "Plan access enabled." : "Plan access not enabled."}`
-            : status.phase === "pending" || status.phase === "starting"
-              ? "Sign-in pending."
-              : status.phase === "failed"
-                ? "Sign-in failed or was denied."
-                : "Not signed in."
+          ? status.expired
+            ? "Session expired. Sign out and sign in again."
+            : status.active
+              ? `Signed in as ${status.active}. ${status.planEnabled ? "Plan access enabled." : "Plan access not enabled."}`
+              : status.phase === "pending" || status.phase === "starting"
+                ? "Sign-in pending."
+                : status.phase === "failed"
+                  ? "Sign-in failed or was denied."
+                  : "Not signed in."
           : "Checking sign-in status…"}
       </p>
+      {status?.remoteUncertain && (
+        <p role="alert">
+          Remote authorization or revocation could not be confirmed. Disconnect the app in ChatGPT
+          Settings.
+        </p>
+      )}
       <label>
         Account label{" "}
         <input

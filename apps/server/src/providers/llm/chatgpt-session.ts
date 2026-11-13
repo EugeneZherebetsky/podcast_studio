@@ -5,7 +5,7 @@ import { openRegistrationStore } from "./chatgpt-registration.ts";
 type Result = Awaited<Awaited<ReturnType<typeof beginChatGptLogin>>["result"]>;
 type Success = Extract<Result, { kind: "success" }>;
 
-async function revoke(token: string, clientId: string): Promise<boolean> {
+async function revoke(token: string, clientId: string, hint = "refresh_token"): Promise<boolean> {
   try {
     const signal = AbortSignal.timeout(10_000);
     const discovery = await fetch("https://auth.openai.com/.well-known/openid-configuration", {
@@ -45,7 +45,7 @@ async function revoke(token: string, clientId: string): Promise<boolean> {
       redirect: "error",
       signal,
       headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ token, token_type_hint: "refresh_token", client_id: clientId }),
+      body: new URLSearchParams({ token, token_type_hint: hint, client_id: clientId }),
     });
     return response.status === 200;
   } catch {
@@ -59,11 +59,37 @@ export async function createChatGptSession(
   revokeSession = revoke,
 ) {
   const store = await openRegistrationStore(directory);
-  let active: { label: string; credentials: Success } | undefined;
+  let active: { label: string; credentials: Success; expiresAt: number } | undefined;
   let pending:
     { cancelled: boolean; close?: () => void; done: Promise<void>; finish: () => void } | undefined;
   let closed = false;
   let signingOut = false;
+  let remoteUncertain = false;
+  async function discard(result: Success) {
+    let refreshRevoked = false;
+    let accessRevoked = false;
+    if (result.refreshToken) {
+      try {
+        refreshRevoked = await revokeSession(result.refreshToken, result.clientId);
+      } catch {
+        // Treat transport failures as unconfirmed revocation.
+      }
+    }
+    try {
+      accessRevoked = await revokeSession(result.accessToken, result.clientId, "access_token");
+    } catch {
+      // Treat transport failures as unconfirmed revocation.
+    }
+    const revoked = refreshRevoked && accessRevoked;
+    if (!revoked) remoteUncertain = true;
+    return revoked;
+  }
+  const expired = () => !!active && Date.now() >= active.expiresAt;
+  const requireAccess = () => {
+    if (expired()) throw new Error("ChatGPT session expired; sign out and sign in again");
+    if (!active?.credentials.planEnabled) throw new Error("A plan-enabled session is required");
+    return active.credentials.accessToken;
+  };
   async function cancelPending() {
     const current = pending;
     if (!current) return;
@@ -76,7 +102,9 @@ export async function createChatGptSession(
       return {
         active: active?.label ?? null,
         accounts: Object.keys(store.accounts).sort(),
-        planEnabled: active?.credentials.planEnabled ?? false,
+        planEnabled: !expired() && (active?.credentials.planEnabled ?? false),
+        expired: expired(),
+        remoteUncertain,
       };
     },
     async login(label: string) {
@@ -94,6 +122,7 @@ export async function createChatGptSession(
         close: undefined as (() => void) | undefined,
         done,
         finish,
+        exchanging: false,
       };
       pending = current;
       const cleanup = () => {
@@ -105,33 +134,72 @@ export async function createChatGptSession(
         const account = Object.hasOwn(accounts, label) ? accounts[label] : undefined;
         const attempt = await start({
           hostId: store.hostId,
+          onExchange: () => {
+            current.exchanging = true;
+          },
+          onDiscard: async (token, clientId, hint) => {
+            try {
+              if (!(await revokeSession(token, clientId, hint))) remoteUncertain = true;
+            } catch {
+              remoteUncertain = true;
+            }
+          },
           ...(account ? { clientId: account.clientId, expectedSubject: account.subject } : {}),
         });
         let consumed = false;
         current.close = () => {
           attempt.close();
-          if (!consumed) cleanup();
+          if (!consumed) {
+            consumed = true;
+            void attempt.result
+              .then(
+                async (result) => {
+                  if (result.kind === "success") await discard(result);
+                  else if (current.exchanging) remoteUncertain = true;
+                },
+                () => {
+                  if (current.exchanging) remoteUncertain = true;
+                },
+              )
+              .finally(cleanup);
+          }
         };
         void attempt.result.catch(() => {
-          if (!consumed) cleanup();
+          if (!consumed) {
+            if (current.exchanging) remoteUncertain = true;
+            cleanup();
+          }
         });
         if (current.cancelled) {
-          attempt.close();
+          current.close();
+          await current.done;
           throw new Error("Login cancelled");
         }
         return {
           authorizationUrl: attempt.authorizationUrl,
           async complete() {
+            if (current.cancelled) throw new Error("Login cancelled");
             if (consumed) throw new Error("Login already completed");
             consumed = true;
+            let acquired: Success | undefined;
             try {
               const result = await attempt.result;
+              if (result.kind === "success") acquired = result;
               if (current.cancelled) throw new Error("Login cancelled");
               if (result.kind === "denied") return false;
               await store.save(label, result.clientId, result.subject);
               if (current.cancelled) throw new Error("Login cancelled");
-              active = { label, credentials: result };
+              active = {
+                label,
+                credentials: result,
+                expiresAt: result.expiresAt ?? Date.now() + result.expiresIn * 1000,
+              };
+              acquired = undefined;
               return true;
+            } catch (error) {
+              if (acquired) await discard(acquired);
+              else if (current.exchanging) remoteUncertain = true;
+              throw error;
             } finally {
               cleanup();
             }
@@ -143,12 +211,10 @@ export async function createChatGptSession(
       }
     },
     async models(signal?: AbortSignal) {
-      if (!active?.credentials.planEnabled) throw new Error("A plan-enabled session is required");
-      return listModels(active.credentials.accessToken, { signal });
+      return listModels(requireAccess(), { signal });
     },
     async generate(model: string, prompt: string, signal?: AbortSignal) {
-      if (!active?.credentials.planEnabled) throw new Error("A plan-enabled session is required");
-      return generate(active.credentials.accessToken, model, prompt, { signal });
+      return generate(requireAccess(), model, prompt, { signal });
     },
     async generateStructured(
       model: string,
@@ -157,8 +223,7 @@ export async function createChatGptSession(
       schema: object,
       signal?: AbortSignal,
     ) {
-      if (!active?.credentials.planEnabled) throw new Error("A plan-enabled session is required");
-      return generate(active.credentials.accessToken, model, prompt, {
+      return generate(requireAccess(), model, prompt, {
         signal,
         structured: { system, schema },
       });
@@ -175,8 +240,8 @@ export async function createChatGptSession(
         await cancelPending();
         const session = active;
         active = undefined;
-        if (!session?.credentials.refreshToken) return true;
-        return await revokeSession(session.credentials.refreshToken, session.credentials.clientId);
+        if (session) await discard(session.credentials);
+        return !remoteUncertain;
       } finally {
         signingOut = false;
       }
