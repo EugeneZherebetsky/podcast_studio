@@ -4,11 +4,12 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { z } from "zod";
 import { generatePodcastScript } from "./cli/chatgpt-script.ts";
+
 import type { createChatGptSession } from "./providers/llm/chatgpt-session.ts";
 
 const Selection = z.discriminatedUnion("provider", [
   z.object({ provider: z.literal("local") }).strict(),
-  z.object({ provider: z.literal("chatgpt"), account: z.string().min(1).max(40), model: z.string().min(1).max(200) }).strict(),
+  z.object({ provider: z.literal("chatgpt"), account: z.string().min(1).max(40), model: z.string().min(1).max(200), scope: z.literal("all-stages").optional() }).strict(),
 ]);
 type Session = Pick<Awaited<ReturnType<typeof createChatGptSession>>, "status" | "models" | "generateStructured">;
 
@@ -59,7 +60,7 @@ export function createScriptSelection(directory: string, session?: Session) {
     },
     async models() { const account = requireAccount(); const models = await session!.models(); requireAccount(account); return models; },
     async set(raw: unknown) {
-      const input = z.discriminatedUnion("provider", [z.object({ provider: z.literal("local") }).strict(), z.object({ provider: z.literal("chatgpt"), model: z.string().min(1).max(200) }).strict()]).parse(raw);
+      const input = z.discriminatedUnion("provider", [z.object({ provider: z.literal("local") }).strict(), z.object({ provider: z.literal("chatgpt"), model: z.string().min(1).max(200), scope: z.literal("all-stages").optional() }).strict()]).parse(raw);
       const choiceRevision = randomUUID();
       locked(() => writeAtomic(intentFile, choiceRevision));
       let value: z.infer<typeof Selection> = { provider: "local" };
@@ -76,6 +77,44 @@ export function createScriptSelection(directory: string, session?: Session) {
         writeAtomic(committedFile, choiceRevision);
       });
       return value;
+    },
+    provider() {
+      const { selected, selectedRevision } = locked(() => {
+        const selectedRevision = intent();
+        if (selectedRevision !== readRevision(committedFile)) throw new Error("Selection incomplete; select a provider again");
+        return { selected: readSelection(), selectedRevision };
+      });
+      if (selected.provider === "local") return undefined;
+      if (selected.scope !== "all-stages") throw new ScriptPreflightError("Select ChatGPT for all stages again after reviewing the privacy notice");
+      requireAccount(selected.account);
+      return {
+        identity: `chatgpt:${selected.account}:${selected.model}`,
+        description: `ChatGPT: ${selected.model} (subscription usage unavailable; costUsd 0 is a placeholder)`,
+        create(signal?: AbortSignal) {
+          return {
+            cacheIdentity: `chatgpt:${selected.account}:${selected.model}`,
+            async generateObject<T>(request: import("./providers/llm/interface.ts").GenerateObjectRequest<T>) {
+
+              for (let attempt = 0; attempt < 2; attempt++) {
+                request.assertContinue?.();
+                const pending = locked(() => {
+                  const current = readSelection();
+                  if (intent() !== selectedRevision || current.provider !== "chatgpt" || current.account !== selected.account || current.model !== selected.model)
+                    throw new ScriptPreflightError("Selection changed before generation");
+                  try { requireAccount(selected.account); signal?.throwIfAborted(); }
+                  catch (error) { throw new ScriptPreflightError(error instanceof Error ? error.message : String(error)); }
+                  return session!.generateStructured(selected.model, request.system, request.prompt, z.toJSONSchema(request.schema), signal);
+                });
+                const text = await pending;
+                requireAccount(selected.account);
+                try { return { object: request.schema.parse(JSON.parse(text)) }; }
+                catch { if (attempt === 1) throw new Error("ChatGPT returned invalid structured output after two attempts"); }
+              }
+              throw new Error("Unreachable");
+            },
+          };
+        },
+      };
     },
     generator() {
       const { selected, selectedRevision } = locked(() => {

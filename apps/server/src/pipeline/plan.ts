@@ -50,7 +50,7 @@ export async function runPlanStage(deps: PlanDeps, input: PlanInput): Promise<St
     workDir: deps.workDir,
     stage: "plan",
     // The template is an input too: editing a prompt re-runs the stage.
-    inputs: { ...input, previousEpisodes, template },
+    inputs: { ...input, previousEpisodes, template, model: deps.llm.cacheIdentity ?? deps.llm.localCacheIdentity },
     schema: PlanSchema,
     run: async () => {
       const { system, prompt } = renderPrompt(
@@ -75,7 +75,7 @@ export async function runPlanStage(deps: PlanDeps, input: PlanInput): Promise<St
         prompt,
         schema: PlanResponseSchema,
       });
-      return { artifact: { ...object, targetWordCount: wordCount }, usage: [usage] };
+      return { artifact: { ...object, targetWordCount: wordCount }, usage: usage ? [usage] : [] };
     },
   });
 }

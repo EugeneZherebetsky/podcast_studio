@@ -85,7 +85,7 @@ export class AiSdkLlmProvider implements LlmProvider {
     return { main: this.models.main.id, fast: this.models.fast.id };
   }
 
-  async generateObject<T>(request: GenerateObjectRequest<T>): Promise<GenerateObjectResult<T>> {
+  async generateObject<T>(request: GenerateObjectRequest<T>): Promise<GenerateObjectResult<T> & { usage: Usage }> {
     const { id, model } = this.models[request.slot];
     let inputTokens = 0;
     let outputTokens = 0;

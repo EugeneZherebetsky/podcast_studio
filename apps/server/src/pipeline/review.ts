@@ -119,7 +119,7 @@ async function runLocalReview(deps: ScriptDeps, input: ReviewInput, scriptInput:
         localTimeoutMs: 900_000,
       });
       part = schema.parse(result.object);
-      usage.push(result.usage);
+      if (result.usage) usage.push(result.usage);
       await mkdir(dir, { recursive: true });
       const temp = `${file}.${randomUUID()}.tmp`;
       try {
@@ -194,6 +194,7 @@ export async function runReviewStage(
     inputs: {
       ...input,
       template,
+      model: deps.llm.cacheIdentity ?? deps.llm.localCacheIdentity,
       ...(deps.llm.localCacheIdentity
         ? {
             localModel: deps.llm.localCacheIdentity,
@@ -229,7 +230,7 @@ export async function runReviewStage(
           findings: object.findings,
           skipped: false,
         },
-        usage: [usage],
+        usage: usage ? [usage] : [],
       };
     },
   });

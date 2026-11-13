@@ -7,13 +7,14 @@ import { LlmOutputError } from "../src/providers/llm/ai-sdk.ts";
 import type {
   GenerateObjectRequest,
   GenerateObjectResult,
+  Usage,
 } from "../src/providers/llm/interface.ts";
 
 // Match the real provider's one retry for invalid structured output.
 class RetryingFake extends FakeLlmProvider {
   override async generateObject<T>(
     request: GenerateObjectRequest<T>,
-  ): Promise<GenerateObjectResult<T>> {
+  ): Promise<GenerateObjectResult<T> & { usage: Usage }> {
     try {
       return await super.generateObject(request);
     } catch (error) {

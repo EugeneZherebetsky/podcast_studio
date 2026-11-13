@@ -94,7 +94,7 @@ export async function runGradedGeneration(deps: ScriptDeps, input: GradedInput) 
   const script = await runCachedStage({
     workDir: deps.workDir,
     stage: "script",
-    inputs: { input, version: VERSION, prompt },
+    inputs: { input, version: VERSION, prompt, model: deps.llm.cacheIdentity ?? deps.llm.localCacheIdentity },
     schema: GradedSchema,
     run: async () => {
       const { object, usage } = await deps.llm.generateObject({
@@ -108,7 +108,7 @@ export async function runGradedGeneration(deps: ScriptDeps, input: GradedInput) 
           research: escapeSourceText(JSON.stringify({ plan: input.plan, notes: input.notes })),
         }),
       });
-      return { artifact: { ...object, segments: assignIds(object.segments) }, usage: [usage] };
+      return { artifact: { ...object, segments: assignIds(object.segments) }, usage: usage ? [usage] : [] };
     },
   });
   const review = await runCachedStage({
@@ -118,6 +118,7 @@ export async function runGradedGeneration(deps: ScriptDeps, input: GradedInput) 
       input,
       script: script.artifact,
       version: VERSION,
+      model: deps.llm.cacheIdentity ?? deps.llm.localCacheIdentity,
       annotationPrompt: loadPrompt("graded-annotation"),
       proofreadingPrompt,
       levelPrompt,
@@ -152,14 +153,14 @@ export async function runGradedGeneration(deps: ScriptDeps, input: GradedInput) 
               source: escapeSourceText(JSON.stringify({ script: current, notes: input.notes })),
             }),
           });
-          usage.push(result.usage);
+          if (result.usage) usage.push(result.usage);
           current = { ...current, segments: assignIds(result.object.segments) };
         }
         const targets = new Set(current.targetVocabulary.map((t) => normalize(t.lemma)));
         const hu = current.segments.filter((s) => s.lang === "hu");
         for (let i = 0; i < hu.length; i += 10) {
           const result = await annotateGradedBatch(deps.llm, hu.slice(i, i + 10), input.nativeLang);
-          usage.push(result.usage);
+          if (result.usage) usage.push(result.usage);
           for (const segment of result.segments) {
             const index = current.segments.findIndex((s) => s.id === segment.id);
             current.segments[index] = {

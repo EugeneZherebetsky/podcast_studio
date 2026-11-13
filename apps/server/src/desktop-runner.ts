@@ -102,9 +102,11 @@ export function createDesktopRunner(
           : (saved?.voices.nativeHost ?? config.TTS_VOICE_NATIVE_HOST)
         : deps.voice;
       if (!voice) throw new Error("Configure a local Piper voice before generating");
+      const choice = selection?.get();
+      const allStages = choice?.provider === "chatgpt" && choice.scope === "all-stages";
       const jobDeps = {
         ...deps,
-        ...(selection ? { scriptGenerator: selection.generator() } : {}),
+        ...(selection ? { chatgptProvider: allStages ? selection.provider() : undefined, scriptGenerator: allStages ? undefined : selection.generator() } : {}),
         voice,
         budgetUsd: saved?.monthlyBudgetUsd ?? deps.budgetUsd,
         nativeLang: saved?.nativeLang ?? deps.nativeLang,
