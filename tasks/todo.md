@@ -77,6 +77,8 @@ Legend: **Read** = sections to load · **Accept** = what must be true · **Verif
 
 ## M2 — Server API and desktop UI
 
+PC generation integration remains blocked: `main.ts` does not supply a job runner; the existing runner's database ownership token does not fence job artifacts, the shared Piper cache, or filesystem publication. Cancellation is cooperative between calls, and Piper/ffmpeg children can outlive the server, so process restart or a second executor cannot safely infer that writes have stopped. Before wiring creation, implement cross-process exclusion or isolated attempt outputs and ownership-fenced publication, fail closed on uncertain restart, and test cancellation/shutdown including late child writes. A PC runner also needs local-only provider/voice preflight, busy rejection, status/SSE delivery, and shutdown coordination; do not enable paid fallback or recovery. Job and event HTTP routes are now restricted to loopback independently of legacy device authentication.
+
 - [ ] **T13 HTTP API**
   - Read: ARCHITECTURE §6, §9
   - Do: all routes except pairing/sync/feed; SSE; Range support for audio; loopback-only default.

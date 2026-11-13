@@ -52,6 +52,10 @@ export function buildApp(options?: {
     const ip = request.ip;
     const loopback = ip === "::1" || ip.startsWith("127.") || ip.startsWith("::ffff:127.");
     if (!loopback) {
+      // Job control and progress are PC-only, even for legacy paired devices.
+      const route = request.routeOptions.url;
+      if (route === "/api/jobs" || route?.startsWith("/api/jobs/") || route === "/api/events")
+        return reply.code(403).send({ error: "Job management is only available locally" });
       if (request.headers.origin !== undefined || request.headers["sec-fetch-site"] !== undefined)
         return reply.code(403).send({ error: "Untrusted request origin" });
       if (request.method === "POST" && request.routeOptions.url === "/api/pair/complete") return;
