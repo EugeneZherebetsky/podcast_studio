@@ -13,6 +13,7 @@ export interface Extractor {
   /**
    * Fetches a page and extracts its main text. Resolves to null when the page cannot be
    * used (refused URL, fetch failure, not an article): stage `extract` skips such sources.
+   * Rejects for fatal errors or cancellation, which stop the stage.
    */
   extract(url: string): Promise<ExtractedPage | null>;
 }
