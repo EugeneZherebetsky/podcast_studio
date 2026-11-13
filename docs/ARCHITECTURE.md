@@ -1,5 +1,7 @@
 # Architecture
 
+This document includes target architecture as well as implemented components. For the currently available PC and Android workflows and their verification limits, see [README](../README.md) and [Setup](SETUP.md). In particular, the desktop runner is standard-mode only, mobile Wi-Fi transfer is not implemented, and a signed standalone release is not established.
+
 ## 1. Overview
 
 ```
@@ -211,7 +213,7 @@ This table records existing and planned API surface, not authorization to expose
 - **Transfer (planned):** an explicitly PC-accepted phone downloads finished packages only over authenticated, encrypted home Wi-Fi; no playback or vocabulary upload. Independently, the user copies a package over USB and selects it for import. Validate shared episode schema, safe paths, audio byte count and SHA-256; stage first and publish via a commit marker written only after the destination is verified, preserving existing library and progress on failure even if a directory move copies. Legacy imports are verified before listing. An import with an already listed episode ID is rejected; incomplete directories are retained and ignored. A digest alone does not authenticate a package. USB imports rely on the user trusting its source.
 - **Player:** expo-audio with `shouldPlayInBackground`, lock-screen controls via `setActiveForLockScreen` (required on Android for sustained background playback), `playbackRate` with pitch correction. A position ticker (≈100 ms) drives transcript highlighting by binary search over `segments[].startMs`. The T18 scaffold plays a bundled LibriVox episode package without transcript segments; transcript highlighting remains to be implemented.
 - **Connectivity (planned):** no functional phone pairing is claimed. Design local discovery, explicit PC-side acceptance, encrypted transport and server identity verification, authorization scope, expiry/revocation, and recovery before enabling LAN access. No public internet exposure or remote access. A trusted certificate/key or equivalent authenticated channel must be established without sending reusable credentials in plaintext.
-- **Build:** development build with `expo run:android` on a USB-connected phone (Expo Go is not sufficient for background audio). Release APK with Gradle `assembleRelease`, installed by `adb install`.
+- **Build:** development build with `expo run:android` on a USB-connected phone (Expo Go is not sufficient for background audio). This debug development build needs a development server. Release signing and a standalone device-verified APK remain open; see the [mobile guide](../apps/mobile/README.md).
 
 ## 8. Desktop
 
