@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { lstat, readFile, realpath, rm, stat } from "node:fs/promises";
+import { copyFile, lstat, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { eq, gt } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -17,6 +18,7 @@ export function registerEpisodeRoutes(app: FastifyInstance, db: Db, dataDir?: st
     if (file !== "episode.json" && file !== "audio.m4a") return reply.code(404).send({ error: "File not found" });
     const row = db.select().from(episodes).where(eq(episodes.id, id)).get();
     if (!row) return reply.code(404).send({ error: "Episode not found" });
+    let stagingDir: string | undefined;
     try {
       if (!dataDir || !/^[a-zA-Z0-9_-]+$/.test(id)) throw new Error("unsafe path");
       const root = path.resolve(dataDir, "episodes");
@@ -28,18 +30,31 @@ export function registerEpisodeRoutes(app: FastifyInstance, db: Db, dataDir?: st
       const metadata = await readFile(path.join(dir, "episode.json"));
       const episode = EpisodeSchema.parse(JSON.parse(metadata.toString("utf8")));
       if (episode.id !== id) throw new Error("episode mismatch");
+      stagingDir = await mkdtemp(path.join(tmpdir(), "podcast-usb-"));
+      const stagedAudio = path.join(stagingDir, "audio.m4a");
+      await copyFile(path.join(dir, "audio.m4a"), stagedAudio);
       const hash = createHash("sha256");
       let bytes = 0;
-      for await (const chunk of createReadStream(path.join(dir, "audio.m4a"))) {
+      for await (const chunk of createReadStream(stagedAudio)) {
         const buffer = chunk as Buffer;
         bytes += buffer.length;
         hash.update(buffer);
       }
       if (bytes !== episode.audio.bytes || hash.digest("hex") !== episode.audio.sha256) throw new Error("audio mismatch");
       reply.header("cache-control", "no-store").header("content-disposition", `attachment; filename="${file}"`);
-      if (file === "episode.json") return reply.type("application/json").send(metadata);
-      return reply.type("audio/mp4").send(createReadStream(path.join(dir, file)));
+      if (file === "episode.json") {
+        await rm(stagingDir, { recursive: true, force: true });
+        stagingDir = undefined;
+        return reply.type("application/json").send(episode);
+      }
+      const stream = createReadStream(stagedAudio);
+      const cleanupDir = stagingDir;
+      stream.once("close", () => { void rm(cleanupDir, { recursive: true, force: true }).catch(() => {}); });
+      reply.raw.once("close", () => stream.destroy());
+      stagingDir = undefined;
+      return reply.type("audio/mp4").send(stream);
     } catch {
+      if (stagingDir) await rm(stagingDir, { recursive: true, force: true }).catch(() => {});
       return reply.code(422).send({ error: "Episode package is unavailable, unsafe, or failed integrity verification" });
     }
   });
