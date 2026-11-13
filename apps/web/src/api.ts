@@ -16,7 +16,6 @@ import {
   JobSchema,
   ListEpisodesResponseSchema,
   ListJobsResponseSchema,
-  RetryJobRequestSchema,
   ServerEventSchema,
   type CreateJobRequestInput,
   type ServerEvent,
@@ -62,8 +61,8 @@ export const api = {
   job: (id: string) => request(`/jobs/${idPath(id)}`, JobDetailSchema),
   createJob: (body: CreateJobRequestInput) =>
     request("/jobs", JobSchema, CreateJobRequestSchema.parse(body)),
-  retryJob: (id: string) =>
-    request(`/jobs/${idPath(id)}/retry`, JobSchema, RetryJobRequestSchema.parse({})),
+  retryAsNew: (id: string) =>
+    request(`/jobs/${idPath(id)}/retry-as-new`, JobSchema, {}),
   episodes: () => request("/episodes", ListEpisodesResponseSchema),
   episode: (id: string) => request(`/episodes/${idPath(id)}`, GetEpisodeResponseSchema),
   audioUrl: (id: string) => `/api/episodes/${idPath(id)}/audio`,
