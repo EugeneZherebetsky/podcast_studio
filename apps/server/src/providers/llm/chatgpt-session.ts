@@ -19,6 +19,7 @@ type Credentials = {
   refreshToken?: string;
   accessToken?: string;
   accessExpiresAt?: number;
+  accessUnusable?: boolean;
   refreshUnusable?: boolean;
 };
 export type UncertainGrant = {
@@ -225,9 +226,10 @@ export async function createChatGptSession(
     ]);
     const refreshResolved = !credentials.refreshUnusable && (!refreshToken || refreshRevoked);
     const accessResolved =
-      !accessToken ||
-      accessRevoked ||
-      (credentials.accessExpiresAt !== undefined && credentials.accessExpiresAt <= Date.now());
+      !credentials.accessUnusable &&
+      (!accessToken ||
+        accessRevoked ||
+        (credentials.accessExpiresAt !== undefined && credentials.accessExpiresAt <= Date.now()));
     const confirmed = refreshResolved && accessResolved;
     if (confirmed) await removeGrant(grantId);
     else
@@ -235,7 +237,7 @@ export async function createChatGptSession(
         grantId,
         label,
         clientId,
-        refreshResolved ? credentials.accessExpiresAt : undefined,
+        refreshResolved && !credentials.accessUnusable ? credentials.accessExpiresAt : undefined,
       );
     return confirmed;
   }

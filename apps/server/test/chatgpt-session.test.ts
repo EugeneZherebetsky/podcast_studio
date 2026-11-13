@@ -895,6 +895,31 @@ it("keeps malformed refresh issuance uncertain even after access revocation and 
     }
   }));
 
+it("retains malformed access issuance after refresh revocation without a false expiry", () =>
+  withDir(async (dir) => {
+    for (const value of [null, "", "x".repeat(32769)]) {
+      const session = await createChatGptSession(
+        dir,
+        (options) =>
+          beginChatGptLogin({
+            ...options,
+            transport: async () =>
+              Response.json({ access_token: value, refresh_token: "refresh", expires_in: 1 }),
+            keys,
+          }),
+        async () => "revoked",
+        fast,
+      );
+      const attempt = await session.login("work");
+      const done = expect(attempt.complete()).rejects.toThrow();
+      await approve(attempt.authorizationUrl);
+      await done;
+      expect((await records(dir)).at(-1)).toMatchObject({ state: "revocation-unconfirmed" });
+      expect((await records(dir)).at(-1)).not.toHaveProperty("accessExpiresAt");
+      expect((await createChatGptSession(dir)).status().remoteUncertain).toBe(true);
+    }
+  }));
+
 it("retains access uncertainty after refresh revocation until access expiry", () =>
   withDir(async (dir) => {
     const expiresAt = Date.now() + 60000;

@@ -36,6 +36,7 @@ export type ExchangeEnd =
       refreshToken?: string;
       accessToken?: string;
       accessExpiresAt?: number;
+      accessUnusable?: boolean;
       refreshUnusable?: boolean;
     };
 
@@ -132,6 +133,7 @@ export async function beginChatGptLogin(options: {
       let refreshToken: string | undefined;
       let accessToken: string | undefined;
       let accessExpiresAt: number | undefined;
+      let accessUnusable = false;
       let refreshUnusable = false;
       let delivered = false;
       let outcome: "no-tokens" | "unknown" = "unknown";
@@ -199,6 +201,10 @@ export async function beginChatGptLogin(options: {
             outcome = "no-tokens";
           throw new Error("Exchange refused");
         }
+        accessUnusable =
+          typeof token.access_token !== "string" ||
+          !token.access_token ||
+          token.access_token.length > 32768;
         refreshUnusable =
           Object.hasOwn(token, "refresh_token") &&
           (typeof token.refresh_token !== "string" ||
@@ -272,6 +278,7 @@ export async function beginChatGptLogin(options: {
                   clientId: callback.clientId,
                   ...(refreshToken ? { refreshToken } : {}),
                   ...(refreshUnusable ? { refreshUnusable: true } : {}),
+                  ...(accessUnusable ? { accessUnusable: true } : {}),
                   ...(accessToken ? { accessToken } : {}),
                   ...(accessExpiresAt !== undefined ? { accessExpiresAt } : {}),
                 }
