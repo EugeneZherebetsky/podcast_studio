@@ -1,6 +1,5 @@
 // Stage 3, `extract`: ranked candidates -> sources.json.
-import type { ExtractedPage, Extractor } from "../providers/extract/interface.ts";
-import { ConcurrencyLimiter } from "../providers/tts/cache.ts";
+import type { Extractor } from "../providers/extract/interface.ts";
 import { runCachedStage, type StageResult } from "./artifacts.ts";
 import {
   MAX_SOURCE_TEXT_CHARS,
@@ -18,10 +17,8 @@ const DEFAULT_CONCURRENCY = 4;
 const MAX_CANDIDATE_ATTEMPTS = 40;
 // A length/access-wall heuristic excludes obvious stubs, not unreliable facts.
 const MIN_READABLE_CHARS = 200;
-// A practical research-text target, not a guarantee of factual quality.
-const TARGET_READABLE_CHARS = 12_000;
 const ACCESS_WALL =
-  /^(?:(?:subscribe|sign in|log in|register)\s+to\s+(?:continue|read|access)\b|(?:please\s+)?enable\s+javascript\b)/i;
+  /(?:^|\n)[ \t]*(?:[^\n]{1,120}?[|:–—-][ \t]*)?(?:(?:subscribe|sign in|log in|register)[ \t]+to[ \t]+(?:continue(?:[ \t]+reading)?|read|access)(?:[ \t]+(?:this|the)[ \t]+(?:article|page|content))?|(?:please[ \t]+)?enable[ \t]+javascript(?:[ \t]+to[ \t]+view[ \t]+this[ \t]+page)?)(?=[.!\r\n]|$)/i;
 
 export interface ExtractInput {
   candidates: Candidates;
@@ -34,6 +31,7 @@ export interface ExtractInput {
 export interface ExtractDeps {
   workDir: string;
   extractor: Extractor;
+  assertContinue?: () => void;
 }
 
 function checkMaxSources(value: number): number {
@@ -62,14 +60,14 @@ export async function runExtractStage(
     throw new Error("Invalid extract concurrency: expected a positive integer");
   }
   const concurrency = Math.min(input.concurrency ?? DEFAULT_CONCURRENCY, DEFAULT_CONCURRENCY);
-  const limiter = new ConcurrencyLimiter(concurrency);
 
   return runCachedStage({
     workDir: deps.workDir,
     stage: "extract",
-    inputs: { candidates: input.candidates, maxSources, concurrency, extractionVersion: 2 },
+    inputs: { candidates: input.candidates, maxSources, concurrency, extractionVersion: 3 },
     schema: SourcesSchema,
     run: async () => {
+      deps.assertContinue?.();
       const top = input.candidates.candidates.slice(0, MAX_CANDIDATE_ATTEMPTS);
       const sources: Source[] = [];
       let attempted = 0;
@@ -79,24 +77,15 @@ export async function runExtractStage(
           attempted + Math.min(concurrency, maxSources - sources.length),
         );
         attempted += batch.length;
-        const pages = await Promise.all(
-          batch.map((candidate) =>
-            limiter.run(async (): Promise<ExtractedPage | null> => {
-              try {
-                return await deps.extractor.extract(candidate.url);
-              } catch {
-                return null; // one unreachable page must not fail the stage
-              }
-            }),
-          ),
-        );
+        const pages = await Promise.all(batch.map((candidate) => deps.extractor.extract(candidate.url)));
+        deps.assertContinue?.();
         batch.forEach((candidate, i) => {
           const page = pages[i];
           const text = page?.text.trim().slice(0, MAX_SOURCE_TEXT_CHARS).trimEnd() ?? "";
           if (
             !page ||
             text.replace(/\s+/g, " ").length < MIN_READABLE_CHARS ||
-            ACCESS_WALL.test(text)
+            ACCESS_WALL.test(text.slice(0, 500))
           )
             return;
           const publishedAt = page.publishedAt ?? candidate.publishedAt;
@@ -109,11 +98,6 @@ export async function runExtractStage(
             text,
           });
         });
-        if (
-          sources.length >= MIN_USABLE_SOURCES &&
-          sources.reduce((total, source) => total + source.text.length, 0) >= TARGET_READABLE_CHARS
-        )
-          break;
       }
       console.info(`[extract] attempted ${attempted}, usable ${sources.length}`);
 

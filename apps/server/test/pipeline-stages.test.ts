@@ -405,12 +405,12 @@ test("fewer than 3 usable sources is an error that says how many were found", as
   expect(existsSync(artifactPaths(workDir, "extract").hash)).toBe(false);
 });
 
-test("extract treats a throwing extractor and an empty page as failures", async () => {
+test("extract skips inaccessible and empty pages", async () => {
   const urls = ["a", "b", "c", "d", "e"].map((name) => `https://example.org/${name}`);
   const page = (text: string): ExtractedPage => ({ title: "", text, site: "example.org" });
   const extractor: Extractor = {
     async extract(url) {
-      if (url.endsWith("/a")) throw new Error("socket hang up");
+      if (url.endsWith("/a")) return null;
       if (url.endsWith("/b")) return page("   ");
       return page(`Body of ${url}. `.repeat(20));
     },
@@ -427,6 +427,42 @@ test("extract treats a throwing extractor and an empty page as failures", async 
   ]);
   // The page had no title of its own: the search result's title is kept.
   expect(artifact.sources[0]!.title).toBe("Title 3");
+});
+
+test("extract propagates fatal and cancellation errors without starting another batch", async () => {
+  const urls = Array.from({ length: 20 }, (_, i) => `https://example.org/fatal-${i}`);
+  for (const failure of [new Error("fatal provider error"), new Error("Job cancelled between provider calls")]) {
+    const requested: string[] = [];
+    const extractor: Extractor = {
+      async extract(url) {
+        requested.push(url);
+        if (url === urls[1]) throw failure;
+        return null;
+      },
+    };
+    await expect(runExtractStage({ workDir, extractor }, {
+      candidates: candidatesFor(urls), concurrency: 3,
+    })).rejects.toBe(failure);
+    expect(requested).toEqual(urls.slice(0, 3));
+    expect(existsSync(artifactPaths(workDir, "extract").artifact)).toBe(false);
+  }
+});
+
+test("extract checks cooperative cancellation after an in-flight batch", async () => {
+  const urls = Array.from({ length: 12 }, (_, i) => `https://example.org/cancel-${i}`);
+  let cancelled = false;
+  const requested: string[] = [];
+  const failure = new Error("cancelled");
+  const extractor: Extractor = { async extract(url) {
+    requested.push(url);
+    cancelled = true;
+    return { title: url, text: "article ".repeat(40), site: "example.org" };
+  } };
+  await expect(runExtractStage({ workDir, extractor, assertContinue() {
+    if (cancelled) throw failure;
+  } }, { candidates: candidatesFor(urls), concurrency: 3 })).rejects.toBe(failure);
+  expect(requested).toEqual(urls.slice(0, 3));
+  expect(existsSync(artifactPaths(workDir, "extract").artifact)).toBe(false);
 });
 
 test("extract skips short and paywall placeholder bodies", async () => {
@@ -447,6 +483,23 @@ test("extract skips short and paywall placeholder bodies", async () => {
     { candidates: candidatesFor(urls) },
   );
   expect(artifact.sources.map((source) => source.url)).toEqual(urls.slice(3));
+});
+
+test("extract detects a wall after a heading but retains articles discussing subscriptions", async () => {
+  const urls = Array.from({ length: 5 }, (_, i) => `https://example.org/wall-${i}`);
+  const article = "The economics of newspapers and subscriptions. ".repeat(15);
+  const bodies = [
+    `The daily news\nSubscribe to continue reading\n${article}`,
+    `News\nPlease enable JavaScript to view this page\n${article}`,
+    `Subscribe to read our analysis of how subscriptions changed newspapers. ${article}`,
+    `This article examines calls to subscribe to continue reading online. ${article}`,
+    article,
+  ];
+  const extractor: Extractor = { async extract(url) {
+    return { title: "Article", text: bodies[urls.indexOf(url)]!, site: "example.org" };
+  } };
+  const { artifact } = await runExtractStage({ workDir, extractor }, { candidates: candidatesFor(urls) });
+  expect(artifact.sources.map((source) => source.url)).toEqual(urls.slice(2));
 });
 
 test("extract searches beyond blocked early candidates within a bounded budget", async () => {
@@ -478,7 +531,7 @@ test("extract searches beyond blocked early candidates within a bounded budget",
   expect(requested).toHaveLength(40);
 });
 
-test("extract stops early when several substantial articles provide enough text", async () => {
+test("extract retains the requested number of substantial articles", async () => {
   const urls = Array.from({ length: 30 }, (_, i) => `https://example.org/substantial-${i}`);
   const requested: string[] = [];
   const extractor: Extractor = {
@@ -491,8 +544,29 @@ test("extract stops early when several substantial articles provide enough text"
     { workDir, extractor },
     { candidates: candidatesFor(urls) },
   );
-  expect(artifact.sources).toHaveLength(4);
-  expect(requested).toHaveLength(4);
+  expect(artifact.sources).toHaveLength(10);
+  expect(requested).toHaveLength(10);
+});
+
+test("extract returns the same ranked sources regardless of concurrency and completion order", async () => {
+  const urls = Array.from({ length: 25 }, (_, i) => `https://example.org/order-${i}`);
+  const extractor: Extractor = { async extract(url) {
+    const rank = urls.indexOf(url);
+    await new Promise((resolve) => setTimeout(resolve, (3 - rank % 4) * 2));
+    return rank < 3 || rank === 8 ? null : {
+      title: url, text: "Substantial reporting on this topic. ".repeat(150), site: "example.org",
+    };
+  } };
+  const outputs = [];
+  for (const concurrency of [1, 2, 4]) {
+    const result = await runExtractStage({ workDir, extractor }, {
+      candidates: candidatesFor(urls), maxSources: 10, concurrency,
+    });
+    outputs.push(result.artifact.sources.map((source) => source.url));
+  }
+  const expected = urls.filter((_, index) => index >= 3 && index !== 8).slice(0, 10);
+  expect(outputs).toEqual([expected, expected, expected]);
+  expect(expected).toContain(urls[13]);
 });
 
 test("extract takes only the top N candidates, a few at a time", async () => {

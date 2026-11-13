@@ -264,7 +264,6 @@ export async function generateJob(
   };
   // Every LLM call is written to `usage` as it completes; see `meterLlm`.
   const llm = deps.providers.llm;
-  let extractFailure: unknown;
   const providers: import("../providers/index.ts").Providers = {
     ...deps.providers,
     llm: meterLlm({
@@ -280,8 +279,7 @@ export async function generateJob(
     } },
     extractor: { async extract(url) {
       assertOwner();
-      try { return await deps.providers.extractor.extract(url); }
-      catch (error) { extractFailure = error ?? new Error("Extractor failed"); throw error; }
+      return deps.providers.extractor.extract(url);
     } },
   };
   const job = db.select().from(jobs).where(eq(jobs.id, id)).get();
@@ -370,16 +368,9 @@ export async function generateJob(
   ).artifact;
   const sources = (
     await stage("extract", async () => {
-      try {
-        const result = await runExtractStage({ workDir, extractor: providers.extractor }, { candidates });
-        if (extractFailure !== undefined) throw extractFailure;
-        assertOwner();
-        return result;
-      } catch (error) {
-        if (extractFailure !== undefined) throw extractFailure;
-        assertOwner();
-        throw error;
-      }
+      const result = await runExtractStage({ workDir, extractor: providers.extractor, assertContinue: assertOwner }, { candidates });
+      assertOwner();
+      return result;
     })
   ).artifact;
   const notes = (
