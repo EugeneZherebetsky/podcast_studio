@@ -27,6 +27,8 @@ import { registerWebAssets } from "./web-static.ts";
 import { registerChatGptManagement } from "./chatgpt-management.ts";
 import type { createChatGptSession } from "./providers/llm/chatgpt-session.ts";
 import type { createScriptSelection } from "./chatgpt-selection.ts";
+import { createJobLog, type Progress } from "./job-log.ts";
+import { jobs } from "./db/schema.ts";
 
 const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
 
@@ -108,6 +110,34 @@ export function buildApp(options?: {
     return { version, profile: options.config.PROFILE, providers: await options.providerHealth() };
   });
   const events = options?.events ?? new EventEmitter();
+  const jobLog = options?.config ? createJobLog(options.config.DATA_DIR) : undefined;
+  const stageStarts = new Map<string, number>();
+  const record = (jobId: string, progress: Progress) => {
+    try { jobLog?.append(jobId, progress); } catch { /* Logging must not stop generation. */ }
+  };
+  const onStage = (event: unknown) => {
+    const parsed = ServerEventSchema.safeParse(event);
+    if (!parsed.success || parsed.data.type !== "job-stage") return;
+    const { jobId, stage, status } = parsed.data;
+    if (status === "pending") return;
+    const key = `${jobId}:${stage}`;
+    const start = stageStarts.get(key);
+    if (status === "running") stageStarts.set(key, Date.now());
+    else stageStarts.delete(key);
+    record(jobId, { kind: "stage", stage, status, ...(status !== "running" && start !== undefined ? { elapsedMs: Date.now() - start } : {}) });
+  };
+  const onProgress = (jobId: string, progress: Progress) => record(jobId, progress);
+  events.on("event", onStage);
+  events.on("job-progress", onProgress);
+  app.addHook("onClose", async () => { events.off("event", onStage); events.off("job-progress", onProgress); });
+  app.get<{ Params: { id: string } }>("/api/jobs/:id/log", async (request, reply) => {
+    if (!db.select({ id: jobs.id }).from(jobs).where(eq(jobs.id, request.params.id)).get())
+      return reply.code(404).send({ error: "Job not found" });
+    try {
+      if (!jobLog) return reply.code(503).send({ error: "Progress log unavailable" });
+      return reply.header("cache-control", "no-store").send(jobLog.read(request.params.id));
+    } catch { return reply.code(503).send({ error: "Progress log unavailable" }); }
+  });
   const streams = new Set<PassThrough>();
   app.addHook("preClose", (done) => {
     for (const stream of streams) stream.end();
@@ -121,8 +151,13 @@ export function buildApp(options?: {
       if (parsed.success && !stream.write(`data: ${JSON.stringify(parsed.data)}\n\n`)) stream.destroy();
     };
     events.on("event", listener);
+    const progressListener = (jobId: string) => {
+      if (!stream.write(`event: job-log\ndata: ${JSON.stringify({ jobId })}\n\n`)) stream.destroy();
+    };
+    events.on("job-progress", progressListener);
     reply.raw.on("close", () => {
       events.off("event", listener);
+      events.off("job-progress", progressListener);
       streams.delete(stream);
       stream.destroy();
     });

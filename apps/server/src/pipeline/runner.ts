@@ -255,6 +255,7 @@ export interface GenerateDeps {
   scriptGenerator?: import("./script.ts").ScriptDeps["scriptGenerator"];
   signal?: AbortSignal;
   onEvent?: (event: ServerEvent) => void;
+  onProgress?: (progress: import("../job-log.ts").Progress) => void;
 }
 
 export interface GenerateOptions {
@@ -401,6 +402,7 @@ export async function generateJob(
           workDir,
           llm: providers.llm,
           assertContinue: assertOwner,
+          onProgress: deps.onProgress,
         },
         { title: job.options.title, plan, sources },
       ),

@@ -32,6 +32,7 @@ export interface NotesDeps {
   llm: LlmProvider;
   shouldContinue?: () => boolean;
   assertContinue?: () => void;
+  onProgress?: (progress: import("../job-log.ts").Progress) => void;
 }
 
 const DEFAULT_CONCURRENCY = 3;
@@ -106,11 +107,13 @@ export async function runNotesStage(
               }
             }
             if (object) {
+              deps.onProgress?.({ kind: "map", status: "cached", index: i + 1, total: sources.length });
               console.info(`[notes] map ${i + 1}/${sources.length} cache hit`);
               mapped[i] = { object };
               continue;
             }
             console.info(`[notes] map ${i + 1}/${sources.length} started`);
+            deps.onProgress?.({ kind: "map", status: "started", index: i + 1, total: sources.length });
             const result = await deps.llm.generateObject({
               slot: "fast",
               system,
@@ -129,10 +132,12 @@ export async function runNotesStage(
               }
             }
             mapped[i] = result;
+            deps.onProgress?.({ kind: "map", status: "done", index: i + 1, total: sources.length, elapsedMs: Date.now() - started });
             console.info(
               `[notes] map ${i + 1}/${sources.length} completed in ${Date.now() - started}ms`,
             );
           } catch (error) {
+            deps.onProgress?.({ kind: "map", status: "failed", index: i + 1, total: sources.length, elapsedMs: Date.now() - started });
             console.info(
               `[notes] map ${i + 1}/${sources.length} failed after ${Date.now() - started}ms`,
             );
@@ -175,13 +180,18 @@ export async function runNotesStage(
         throw new Error("Job cancelled during notes");
       const mergeStarted = Date.now();
       console.info("[notes] merge started");
+      deps.onProgress?.({ kind: "merge", status: "started" });
       const merged = await deps.llm.generateObject({
         slot: "fast",
         system,
         prompt,
         ...(deps.llm.localCacheIdentity ? { localTimeoutMs: 900_000 } : {}),
         schema: outlineResponseSchemaFor(sources.map((source) => source.id)),
+      }).catch((error: unknown) => {
+        deps.onProgress?.({ kind: "merge", status: "failed", elapsedMs: Date.now() - mergeStarted });
+        throw error;
       });
+      deps.onProgress?.({ kind: "merge", status: "done", elapsedMs: Date.now() - mergeStarted });
       console.info(`[notes] merge completed in ${Date.now() - mergeStarted}ms`);
       usage.push(merged.usage);
 

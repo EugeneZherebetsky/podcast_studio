@@ -8,6 +8,7 @@ import { createDesktopRunner } from "../src/desktop-runner.ts";
 import { fakeGeneration, GENERATION_TIMEOUT_MS } from "./generation-fakes.ts";
 import { loadConfig } from "../src/config.ts";
 import { openDesktopGuard } from "../src/desktop-guard.ts";
+import { parseConfig } from "shared";
 
 test(
   "HTTP creates and runs a new job without starting an old queued job",
@@ -15,7 +16,7 @@ test(
     const f = fakeGeneration();
     const events = new EventEmitter();
     const runner = createDesktopRunner(f.deps, events);
-    const app = buildApp({ db: f.db, runner, events });
+    const app = buildApp({ db: f.db, runner, events, config: parseConfig({ DATA_DIR: f.dir }) });
     try {
       const address = await app.listen({ host: "127.0.0.1", port: 0 });
       const stream = await fetch(`${address}/api/events`);
@@ -49,6 +50,15 @@ test(
       );
       await viWait(async () => received.join("").includes('"episode-ready"'));
       expect(received.join("")).toContain('"job-stage"');
+      await viWait(async () => {
+        const log = await (await fetch(`${address}/api/jobs/${job.id}/log`)).json() as { entries: { message: string }[] };
+        return log.entries.some((entry) => entry.message === "Job completed");
+      });
+      const log = await (await fetch(`${address}/api/jobs/${job.id}/log`)).json() as { entries: { message: string }[] };
+      expect(log.entries.map((entry) => entry.message)).toContain("Job queued");
+      expect(log.entries.some((entry) => entry.message.startsWith("Map 1/"))).toBe(true);
+      expect(log.entries.some((entry) => entry.message.startsWith("Merge completed"))).toBe(true);
+      expect(received.join("")).toContain("event: job-log");
       expect(f.job().status).toBe("queued");
       expect(
         (

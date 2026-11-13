@@ -314,3 +314,17 @@ p {
     margin-top: 0.75rem;
   }
 }
+.progress-log {
+  max-height: 20rem;
+  overflow-y: auto;
+  padding-left: 1.5rem;
+}
+
+.progress-log li {
+  padding: 0.25rem 0;
+  overflow-wrap: anywhere;
+}
+
+.progress-log time {
+  margin-right: 0.5rem;
+}

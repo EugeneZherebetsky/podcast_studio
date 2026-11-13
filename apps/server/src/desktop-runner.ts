@@ -42,7 +42,9 @@ export function createDesktopRunner(
     if (get(id).status !== "queued") return pump();
     activeId = id;
     abort = new AbortController();
-    active = generateJob({ ...item.deps, signal: abort.signal, onEvent: (event) => events.emit("event", event) }, id)
+    events.emit("job-progress", id, { kind: "job", status: "started" });
+    active = generateJob({ ...item.deps, signal: abort.signal, onEvent: (event) => events.emit("event", event), onProgress: (progress) => events.emit("job-progress", id, progress) }, id)
+      .then(() => { events.emit("job-progress", id, { kind: "job", status: "completed" }); })
       .catch((error: unknown) => {
         // A failed request may still be running in an external service.
         if (error instanceof ExternalWorkUncertain) {
@@ -52,7 +54,10 @@ export function createDesktopRunner(
             const result = deps.db.update(jobs)
               .set({ status: "failed", error: blocked, updatedAt: new Date().toISOString() })
               .where(and(eq(jobs.id, queued.id), eq(jobs.status, "queued"))).run();
-            if (result.changes) events.emit("event", { type: "job-stage", jobId: queued.id, stage: "plan", status: "failed", error: blocked });
+            if (result.changes) {
+              events.emit("event", { type: "job-stage", jobId: queued.id, stage: "plan", status: "failed", error: blocked });
+              events.emit("job-progress", queued.id, { kind: "job", status: "failed" });
+            }
           }
         }
         const message = error instanceof Error ? error.message : String(error);
@@ -61,6 +66,7 @@ export function createDesktopRunner(
           .set({ status: "failed", error: message, updatedAt: new Date().toISOString() })
           .where(and(eq(jobs.id, id), inArray(jobs.status, ["queued", "running"])))
           .run();
+        events.emit("job-progress", id, { kind: "job", status: get(id).status === "cancelled" ? "cancelled" : "failed" });
       })
       .finally(() => {
         active = undefined;
@@ -115,6 +121,7 @@ export function createDesktopRunner(
         deps.db.update(jobs).set({ topicId: topic.id }).where(eq(jobs.id, job.id)).run();
       }
       queue.push({ id: job.id, deps: jobDeps });
+      events.emit("job-progress", job.id, { kind: "job", status: "queued" });
       setImmediate(pump);
       return { ...job, topicId: topic?.id ?? null };
     },
@@ -125,12 +132,16 @@ export function createDesktopRunner(
       if (id !== activeId && !queue.some((item) => item.id === id))
         throw new Error("Job is not owned by this runner");
       cancelJob(deps.db, id);
+      if (id !== activeId) events.emit("job-progress", id, { kind: "job", status: "cancelled" });
       if (id === activeId) abort?.abort();
       return get(id);
     },
     async close() {
       closing = true;
-      for (const { id } of queue.splice(0)) cancelJob(deps.db, id);
+      for (const { id } of queue.splice(0)) {
+        cancelJob(deps.db, id);
+        events.emit("job-progress", id, { kind: "job", status: "cancelled" });
+      }
       if (activeId && get(activeId).currentStage !== "publish") {
         cancelJob(deps.db, activeId);
         abort?.abort();
