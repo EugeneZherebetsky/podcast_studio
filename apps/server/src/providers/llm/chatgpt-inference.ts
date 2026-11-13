@@ -3,6 +3,7 @@ type Options = {
   signal?: AbortSignal;
   maxBytes?: number;
   timeoutMs?: number;
+  structured?: { system: string; schema: object };
 };
 
 async function request<T>(
@@ -94,7 +95,15 @@ export async function generate(
   return request(
     token,
     "responses",
-    { model, input: [{ role: "user", content: prompt }], store: false, stream: true },
+    {
+      model,
+      input: [
+        ...(options.structured ? [{ role: "system", content: options.structured.system }] : []),
+        { role: "user", content: prompt },
+      ],
+      store: false, stream: true,
+      ...(options.structured ? { text: { format: { type: "json_schema", name: "podcast_script", strict: false, schema: options.structured.schema } } } : {}),
+    },
     options,
     (text) => {
       if (!/\r?\n\r?\n$/.test(text)) throw new Error("Incomplete stream framing");

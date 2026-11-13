@@ -111,6 +111,10 @@ export async function createChatGptSession(
       if (!active?.credentials.planEnabled) throw new Error("A plan-enabled session is required");
       return generate(active.credentials.accessToken, model, prompt, { signal });
     },
+    async generateStructured(model: string, system: string, prompt: string, schema: object, signal?: AbortSignal) {
+      if (!active?.credentials.planEnabled) throw new Error("A plan-enabled session is required");
+      return generate(active.credentials.accessToken, model, prompt, { signal, structured: { system, schema } });
+    },
     async signout() {
       if (pending) throw new Error("Login pending");
       const session = active;
