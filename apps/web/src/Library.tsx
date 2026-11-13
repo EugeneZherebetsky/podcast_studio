@@ -73,7 +73,28 @@ export function Library() {
   );
 }
 
+const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
+const speedKey = "playback-speed-v1";
+
+export function readPlaybackSpeed(): number {
+  try {
+    const saved = Number(localStorage.getItem(speedKey));
+    return speeds.includes(saved) ? saved : 1;
+  } catch {
+    return 1;
+  }
+}
+
+export function savePlaybackSpeed(speed: number): void {
+  try {
+    localStorage.setItem(speedKey, String(speed));
+  } catch {
+    // Playback still works when browser storage is unavailable.
+  }
+}
+
 export function Player({ id }: { id: string }) {
+  const [speed, setSpeed] = useState(readPlaybackSpeed);
   const [episode, setEpisode] = useState<Episode | null>(null);
   const [error, setError] = useState("");
   const [audioError, setAudioError] = useState(false);
@@ -122,16 +143,40 @@ export function Player({ id }: { id: string }) {
       </header>
       <div className="panel player">
         <audio
-          ref={audio}
+          ref={(element) => {
+            audio.current = element;
+            if (element) element.playbackRate = speed;
+          }}
           controls
           preload="metadata"
           src={api.audioUrl(id)}
+          onLoadedMetadata={(e) => {
+            e.currentTarget.playbackRate = speed;
+          }}
           onTimeUpdate={(e) => setPosition(e.currentTarget.currentTime * 1000)}
           onSeeked={(e) => setPosition(e.currentTarget.currentTime * 1000)}
           onError={() => setAudioError(true)}
         >
           Your browser does not support audio playback.
         </audio>
+        <label>
+          Playback speed{" "}
+          <select
+            value={speed}
+            onChange={(event) => {
+              const next = Number(event.currentTarget.value);
+              setSpeed(next);
+              if (audio.current) audio.current.playbackRate = next;
+              savePlaybackSpeed(next);
+            }}
+          >
+            {speeds.map((value) => (
+              <option key={value} value={value}>
+                {value}×
+              </option>
+            ))}
+          </select>
+        </label>
         {audioError && (
           <p role="alert" className="error">
             Audio could not be loaded or played.
