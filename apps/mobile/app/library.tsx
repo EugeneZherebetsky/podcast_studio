@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { useFocusEffect, useRouter } from "expo-router";
-import { Button, SafeAreaView, Text } from "react-native";
+import { Button, SafeAreaView, ScrollView, Text } from "react-native";
 import Storage from "expo-sqlite/kv-store";
 import { File } from "expo-file-system";
 import { clampPosition, formatTime } from "../src/position";
@@ -26,6 +26,7 @@ export default function Library() {
       setImportMessage("Now select audio.m4a from the same trusted package.");
       const audio = await File.pickFileAsync({ mimeTypes: "*/*" });
       if (audio.canceled) { setImportMessage("Import cancelled."); return; }
+      setImportMessage("Copying and verifying package. This may take a while.");
       const episode = await importUsbEpisode(metadata.result, audio.result);
       setOffline((await listOfflineEpisodes()).map((row) => row.episode));
       setImportMessage(`Imported ${episode.title}.`);
@@ -50,23 +51,25 @@ export default function Library() {
     return () => { active = false; };
   }, []));
   return (
-    <SafeAreaView style={{ flex: 1, padding: 24, gap: 16 }}>
-      <Text accessibilityRole="header" style={{ fontSize: 24 }}>
-        Library
-      </Text>
-      <Text>Server pairing and sync are not available yet.</Text>
-      <Text>USB import: select episode.json, then audio.m4a from a trusted copied package. Checksums detect corruption, not the source.</Text>
-      <Button title="Import USB package" disabled={importing} onPress={importPackage} />
-      {importMessage ? <Text accessibilityLiveRegion="polite">{importMessage}</Text> : null}
-      <Text>{sampleEpisode.title} • bundled • available offline</Text>
-      {error ? <Text accessibilityRole="alert">Could not read saved position.</Text> : null}
-      {position !== null && !error ? <Text>Saved position: {formatTime(position)}</Text> : null}
-      <Button title="Review vocabulary" onPress={() => router.push("/review")} />
-      <Button title="Open sample player" onPress={() => router.navigate("/")} />
-      {offlineError ? <Text accessibilityRole="alert">Could not verify the offline library.</Text> : null}
-      {offline.map((episode, index) => (
-        <Button key={`${episode.id}-${index}`} title={`${episode.title} • offline`} onPress={() => router.push({ pathname: "/offline", params: { id: episode.id } })} />
-      ))}
+    <SafeAreaView style={{ flex: 1 }}>
+      <ScrollView contentContainerStyle={{ padding: 24, gap: 16 }}>
+        <Text accessibilityRole="header" style={{ fontSize: 24 }}>
+          Library
+        </Text>
+        <Text>Server pairing and sync are not available yet.</Text>
+        <Text>USB import: select episode.json, then audio.m4a from a trusted copied package. Checksums detect corruption, not the source.</Text>
+        <Button title="Import USB package" disabled={importing} onPress={importPackage} />
+        {importMessage ? <Text accessibilityLiveRegion="polite">{importMessage}</Text> : null}
+        <Text>{sampleEpisode.title} • bundled • available offline</Text>
+        {error ? <Text accessibilityRole="alert">Could not read saved position.</Text> : null}
+        {position !== null && !error ? <Text>Saved position: {formatTime(position)}</Text> : null}
+        <Button title="Review vocabulary" onPress={() => router.push("/review")} />
+        <Button title="Open sample player" onPress={() => router.navigate("/")} />
+        {offlineError ? <Text accessibilityRole="alert">Could not verify the offline library.</Text> : null}
+        {offline.map((episode, index) => (
+          <Button key={`${episode.id}-${index}`} title={`${episode.title} • offline`} onPress={() => router.push({ pathname: "/offline", params: { id: episode.id } })} />
+        ))}
+      </ScrollView>
     </SafeAreaView>
   );
 }

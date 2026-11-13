@@ -8,7 +8,7 @@ USB import is available in Library: copy an existing package to the phone, then 
 
 ### USB acceptance still required on a physical Android device
 
-1. In desktop Library, download both files into a new folder; copy that folder to the unlocked phone via USB file transfer. In Android Library select `episode.json`, then `audio.m4a`; verify the title appears and plays. Cancel each picker in turn and check the library is unchanged.
+1. In desktop Library, download both files into a new folder; copy that folder to the unlocked phone via USB file transfer. In Android Library select `episode.json`, then `audio.m4a`; verify the copying/verification message replaces the picker instruction and import stays disabled until finished. Verify the title appears and plays. Cancel each picker in turn and check the library is unchanged. With enough episodes to exceed the screen, scroll to and open the last one; also check large text and screen-reader navigation.
 2. Reimport the same package and confirm rejection; record a playback position first and verify it is unchanged. Try missing, malformed, unsupported, unsafe-path, mismatched and truncated/corrupt files, plus an interrupted copy/import; confirm no partial episode appears and existing episodes and positions remain intact. Retry a valid import.
 3. With an embedded-JS build, enable airplane mode, play the imported episode with the screen off, test lock-screen controls and app switching, then force-stop and reopen to confirm the saved position. Confirm no progress is uploaded when connectivity returns. Do not uninstall an existing app to perform this test.
 
