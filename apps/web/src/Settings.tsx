@@ -2,12 +2,24 @@ import { useEffect, useState, type FormEvent } from "react";
 import { SettingsSchema, type Settings as SettingsValue } from "shared";
 import { api } from "./api.ts";
 import { PairingStatus, UsageTotal } from "./SettingsExtras.tsx";
+import { CloudTts, type CloudTtsStatus } from "./CloudTts.tsx";
 
 export function Settings() {
   const [value, setValue] = useState<SettingsValue | null>(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [cloudTts, setCloudTts] = useState<CloudTtsStatus | null>(null);
+  useEffect(() => {
+    fetch("/api/settings/cloud-tts")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Status unavailable");
+        const data: unknown = await response.json();
+        if (typeof data !== "object" || data === null || !("openaiConfigured" in data) || !("azureConfigured" in data) || typeof data.openaiConfigured !== "boolean" || typeof data.azureConfigured !== "boolean") throw new Error("Invalid status");
+        setCloudTts({ openaiConfigured: data.openaiConfigured, azureConfigured: data.azureConfigured });
+      })
+      .catch(() => setCloudTts(null));
+  }, []);
   useEffect(() => {
     api
       .settings()
@@ -42,6 +54,7 @@ export function Settings() {
         <p>Profile is saved as a preference but does not switch providers yet. Set PROFILE in .env and restart to configure the server. Other preferences are not yet connected to generation or budget enforcement.</p>
       </header>
       <PairingStatus />
+      <CloudTts status={cloudTts} />
       {error && (
         <p role="alert" className="error">
           {error}
