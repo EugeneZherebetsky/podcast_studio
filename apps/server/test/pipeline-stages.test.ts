@@ -392,7 +392,7 @@ test("extract numbers the usable sources and skips failed pages", async () => {
 
 test("fewer than 3 usable sources is an error that says how many were found", async () => {
   const urls = FAKE_SEARCH_HITS.map((hit) => hit.url);
-  const page = { title: "T", text: "Some body text.", site: "example.org" };
+  const page = { title: "T", text: "Some body text. ".repeat(20), site: "example.org" };
   const fake = createFakeProviders({
     wavDir: dir,
     extractor: { pages: { [urls[0]!]: page, [urls[1]!]: page, [urls[2]!]: null } },
@@ -412,7 +412,7 @@ test("extract treats a throwing extractor and an empty page as failures", async 
     async extract(url) {
       if (url.endsWith("/a")) throw new Error("socket hang up");
       if (url.endsWith("/b")) return page("   ");
-      return page(`Body of ${url}`);
+      return page(`Body of ${url}. `.repeat(20));
     },
   };
   const { artifact } = await runExtractStage(
@@ -429,6 +429,72 @@ test("extract treats a throwing extractor and an empty page as failures", async 
   expect(artifact.sources[0]!.title).toBe("Title 3");
 });
 
+test("extract skips short and paywall placeholder bodies", async () => {
+  const urls = Array.from({ length: 6 }, (_, i) => `https://example.org/quality-${i}`);
+  const bodies = [
+    "Short stub.",
+    "Subscribe to continue reading. ".repeat(20),
+    "Please enable JavaScript to view this page. ".repeat(20),
+    ...Array.from({ length: 3 }, () => "Detailed reporting on the subject. ".repeat(20)),
+  ];
+  const extractor: Extractor = {
+    async extract(url) {
+      return { title: "Article", text: bodies[urls.indexOf(url)]!, site: "example.org" };
+    },
+  };
+  const { artifact } = await runExtractStage(
+    { workDir, extractor },
+    { candidates: candidatesFor(urls) },
+  );
+  expect(artifact.sources.map((source) => source.url)).toEqual(urls.slice(3));
+});
+
+test("extract searches beyond blocked early candidates within a bounded budget", async () => {
+  const urls = Array.from({ length: 50 }, (_, i) => `https://example.org/page-${i + 1}`);
+  const requested: string[] = [];
+  const extractor: Extractor = {
+    async extract(url) {
+      requested.push(url);
+      const rank = urls.indexOf(url) + 1;
+      return [10, 14, 23, 28].includes(rank)
+        ? {
+            title: url,
+            text: "Readable reporting about the subject. ".repeat(40),
+            site: "example.org",
+          }
+        : null;
+    },
+  };
+  const { artifact } = await runExtractStage(
+    { workDir, extractor },
+    { candidates: candidatesFor(urls) },
+  );
+  expect(artifact.sources.map((source) => source.url)).toEqual([
+    urls[9],
+    urls[13],
+    urls[22],
+    urls[27],
+  ]);
+  expect(requested).toHaveLength(40);
+});
+
+test("extract stops early when several substantial articles provide enough text", async () => {
+  const urls = Array.from({ length: 30 }, (_, i) => `https://example.org/substantial-${i}`);
+  const requested: string[] = [];
+  const extractor: Extractor = {
+    async extract(url) {
+      requested.push(url);
+      return { title: url, text: "Detailed article text. ".repeat(200), site: "example.org" };
+    },
+  };
+  const { artifact } = await runExtractStage(
+    { workDir, extractor },
+    { candidates: candidatesFor(urls) },
+  );
+  expect(artifact.sources).toHaveLength(4);
+  expect(requested).toHaveLength(4);
+});
+
 test("extract takes only the top N candidates, a few at a time", async () => {
   const urls = Array.from({ length: 20 }, (_, i) => `https://example.org/page-${i + 1}`);
   let inFlight = 0;
@@ -441,7 +507,11 @@ test("extract takes only the top N candidates, a few at a time", async () => {
       peak = Math.max(peak, inFlight);
       await new Promise((resolve) => setTimeout(resolve, 2));
       inFlight--;
-      return { title: url, text: "x".repeat(9000), site: "example.org" };
+      return {
+        title: url,
+        text: url === urls[0] ? "x".repeat(9000) : "x".repeat(250),
+        site: "example.org",
+      };
     },
   };
   const { artifact } = await runExtractStage(
@@ -463,7 +533,10 @@ test("extract defaults to 10 candidates and refuses an N outside 8-12", async ()
     wavDir: dir,
     extractor: {
       pages: Object.fromEntries(
-        urls.map((url) => [url, { title: url, text: "Body.", site: "example.org" }]),
+        urls.map((url) => [
+          url,
+          { title: url, text: "Body text. ".repeat(30), site: "example.org" },
+        ]),
       ),
     },
   });
