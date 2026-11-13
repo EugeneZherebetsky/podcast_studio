@@ -38,7 +38,7 @@ export const SCRATCH_FILES = {
   assembledAudio: "audio.m4a",
 } as const;
 
-const STAGE_SCRATCH: Partial<Record<StageName, readonly string[]>> = {
+export const STAGE_SCRATCH: Partial<Record<StageName, readonly string[]>> = {
   notes: [SCRATCH_FILES.notesMap],
   script: [SCRATCH_FILES.scriptChapters],
   review: [SCRATCH_FILES.reviewSegments, SCRATCH_FILES.reviewedScript],

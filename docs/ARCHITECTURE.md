@@ -66,6 +66,8 @@ podcast-studio/
 
 A **job** produces one episode. It is a sequence of stages; each stage reads the previous stage's artifact from `data/jobs/<jobId>/` and writes its own JSON artifact. Stage status lives in SQLite. Re-running a job skips stages whose artifact exists and whose input hash is unchanged.
 
+The runner copies canonical stage caches into `jobs/<jobId>/runs/<ownerToken>/` and executes stages there. After each completed stage it copies that stage's outputs back only while holding a database transaction that verifies the running owner; hashes are removed before their artifacts are replaced and copied back last. Attempt directories are retained because an abandoned worker or child process may still write to them. Legacy workers that write directly to canonical paths must be stopped before upgrading. This isolation does not fence the shared TTS cache or episode publication; generation recovery and retry remain disabled.
+
 | # | Stage | Input → Output | Notes |
 |---|---|---|---|
 | 1 | `plan` | topic, brief, language, mode, previous episode summaries → `plan.json` (5–8 search queries, angle, target word count) | For recurring topics, the prompt includes titles and summaries of the last 5 episodes and asks for what is new |

@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
+import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import path from "node:path";
 import { and, eq } from "drizzle-orm";
 import { JobOptionsSchema, STAGE_NAMES, type JobOptions, type StageName } from "shared";
 import type { Db } from "../db/index.ts";
 import { episodes, jobs, jobStages } from "../db/schema.ts";
 import { usageOfFailedCall, type LlmProvider, type Usage } from "../providers/llm/interface.ts";
 import { monthTotalCostUsd, recordLlmUsage } from "../usage.ts";
-import type { StageResult } from "./artifacts.ts";
+import { ARTIFACT_FILES, artifactPaths, STAGE_SCRATCH, type CachedStageName, type StageResult } from "./artifacts.ts";
 import type { PublishStep } from "./publish.ts";
 
 function checkBudget(db: Db, budgetUsd: number): void {
@@ -134,6 +136,7 @@ export async function runJobStage<T>(
   stage: StageName,
   run: () => Promise<StageResult<T>>,
   ownerToken: string,
+  promote?: () => void,
 ): Promise<StageResult<T>> {
   const where = and(eq(jobStages.jobId, id), eq(jobStages.stage, stage));
   db.transaction((tx) => {
@@ -153,6 +156,9 @@ export async function runJobStage<T>(
       for (const item of result.usage) recordLlmUsage(db, item, { jobId: id });
       const job = tx.select().from(jobs).where(eq(jobs.id, id)).get();
       if (!job || job.status !== "running" || job.ownerToken !== ownerToken) return true;
+      // Acquire SQLite's write lock before touching files, including in WAL mode.
+      tx.update(jobs).set({ updatedAt: job.updatedAt }).where(eq(jobs.id, id)).run();
+      promote?.();
       tx.update(jobStages)
         .set({
           status: result.skipped ? "skipped" : "done",
@@ -248,7 +254,7 @@ export async function generateJob(
   if (!job) throw new Error("Job not found");
   if (job.options.mode !== "standard")
     throw new Error("Only standard mode is supported by this runner");
-  const path = await import("node:path");
+
   const { EPISODE_SCHEMA_VERSION } = await import("shared");
   const { publishEpisode } = await import("./publish.ts");
   const { assembleAudio } = await import("../audio/assemble.ts");
@@ -259,10 +265,25 @@ export async function generateJob(
   const { runScriptStage } = await import("./script.ts");
   const { runReviewStage } = await import("./review.ts");
   const { hashInputs, SCRATCH_FILES } = await import("./artifacts.ts");
-  const workDir = path.join(deps.dataDir, "jobs", id);
+  const canonicalDir = path.join(deps.dataDir, "jobs", id);
   // The meter has already recorded the stage's usage, so it must not be recorded again.
   const stage = <T>(name: StageName, fn: () => Promise<StageResult<T>>) =>
-    runJobStage(db, id, name, async () => ({ ...(await fn()), usage: [] }), ownerToken);
+    runJobStage(db, id, name, async () => ({ ...(await fn()), usage: [] }), ownerToken, () => {
+      const files = [...(STAGE_SCRATCH[name] ?? [])];
+      if (name in ARTIFACT_FILES) {
+        const paths = artifactPaths(workDir, name as CachedStageName);
+        const target = artifactPaths(canonicalDir, name as CachedStageName);
+        rmSync(target.hash, { force: true });
+        files.push(path.basename(paths.artifact), path.basename(paths.hash));
+      }
+      for (const file of files) {
+        const source = path.join(workDir, file);
+        if (!existsSync(source)) continue;
+        const target = path.join(canonicalDir, file);
+        rmSync(target, { recursive: true, force: true });
+        cpSync(source, target, { recursive: true });
+      }
+    });
   const uncached = <T>(artifact: T): StageResult<T> => ({
     artifact,
     usage: [],
@@ -285,6 +306,26 @@ export async function generateJob(
   if (job.status !== "queued")
     throw new Error("Job recovery is disabled: filesystem publication is not fenced");
   const ownerToken = startJob(db, id, deps.budgetUsd, true);
+  const workDir = path.join(canonicalDir, "runs", ownerToken);
+  // Copy, never link: an abandoned executor may still write its own files.
+  db.transaction((tx) => {
+    const owner = tx.select().from(jobs).where(eq(jobs.id, id)).get();
+    if (owner?.status !== "running" || owner.ownerToken !== ownerToken)
+      throw new Error("Job ownership lost");
+    tx.update(jobs).set({ updatedAt: owner.updatedAt }).where(eq(jobs.id, id)).run();
+    mkdirSync(workDir, { recursive: true });
+    const files = [
+      ...Object.keys(ARTIFACT_FILES).flatMap((stage) => {
+        const paths = artifactPaths(canonicalDir, stage as CachedStageName);
+        return [path.basename(paths.artifact), path.basename(paths.hash)];
+      }),
+      ...Object.values(STAGE_SCRATCH).flat(),
+    ];
+    for (const file of files) {
+      const source = path.join(canonicalDir, file);
+      if (existsSync(source)) cpSync(source, path.join(workDir, file), { recursive: true });
+    }
+  });
   const plan = (
     await stage("plan", () => runPlanStage({ workDir, llm: providers.llm }, job.options))
   ).artifact;

@@ -1,13 +1,14 @@
 import path from "node:path";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { eq } from "drizzle-orm";
 import { openDatabase } from "../src/db/index.ts";
 import { episodes, jobs } from "../src/db/schema.ts";
-import { createJob, generateJob } from "../src/pipeline/runner.ts";
+import { createJob, generateJob, markJobInterrupted, startJob } from "../src/pipeline/runner.ts";
 import { createFakeProviders } from "../src/providers/index.ts";
 import type { FakeLlmCall } from "../src/providers/llm/fake.ts";
 import { makeTempDir, removeTempDir } from "./temp-dir.ts";
+import { fakeGeneration } from "./generation-fakes.ts";
 
 function respond(call: FakeLlmCall): unknown {
   const id = /<source id="(s\d+)">/.exec(call.prompt)?.[1];
@@ -63,5 +64,58 @@ test("a fresh job publishes playable audio", async () => {
   } finally {
     db.$client.close();
     removeTempDir(dir);
+  }
+});
+
+test("a stale executor cannot overwrite a newer owner's canonical artifacts", async () => {
+  const f = fakeGeneration();
+  let release!: () => void;
+  let entered!: () => void;
+  const blocked = new Promise<void>((resolve) => { entered = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const llm = f.deps.providers.llm;
+  f.deps.providers.llm = {
+    async generateObject(request) {
+      entered();
+      await gate;
+      return llm.generateObject(request);
+    },
+  };
+  try {
+    const oldRun = generateJob(f.deps, f.jobId);
+    const result = oldRun.catch((error: Error) => error);
+    await blocked;
+    markJobInterrupted(f.db, f.jobId);
+    startJob(f.db, f.jobId, 20);
+    mkdirSync(f.workDir, { recursive: true });
+    const canonical = path.join(f.workDir, "plan.json");
+    writeFileSync(canonical, "new owner");
+    release();
+    expect(await result).toBeInstanceOf(Error);
+    expect(readFileSync(canonical, "utf8")).toBe("new owner");
+    expect(existsSync(path.join(f.workDir, "plan.inputs.sha256"))).toBe(false);
+    const oldDir = path.join(f.workDir, "runs", readdirSync(path.join(f.workDir, "runs"))[0]!);
+    const newDir = path.join(f.workDir, "runs", "new-owner");
+    mkdirSync(newDir);
+    writeFileSync(path.join(newDir, "plan.json"), "new run");
+    writeFileSync(path.join(oldDir, "plan.json"), "late child write");
+    expect(readFileSync(path.join(newDir, "plan.json"), "utf8")).toBe("new run");
+    expect(readFileSync(canonical, "utf8")).toBe("new owner");
+  } finally {
+    f.close();
+  }
+});
+
+test("a run imports and reuses a legacy canonical stage cache", async () => {
+  const f = fakeGeneration();
+  try {
+    const { runPlanStage } = await import("../src/pipeline/plan.ts");
+    await runPlanStage({ workDir: f.workDir, llm: f.deps.providers.llm }, f.job().options);
+    f.llm.stages.length = 0;
+    await generateJob(f.deps, f.jobId);
+    expect(f.llm.stages).not.toContain("plan");
+    expect(f.job().status).toBe("succeeded");
+  } finally {
+    f.close();
   }
 });
