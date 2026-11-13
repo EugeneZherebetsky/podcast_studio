@@ -38,6 +38,7 @@ export interface ScriptInput {
 export interface ScriptDeps {
   workDir: string;
   llm: LlmProvider;
+  scriptGenerator?: { identity: string; run(input: ScriptInput): Promise<Script> };
 }
 
 export function responseSchemaFor(input: ScriptInput) {
@@ -238,9 +239,18 @@ export async function runScriptStage(
       ...input,
       template,
       ...(localTemplate ? { localTemplate, localModel: deps.llm.localCacheIdentity, localScriptVersion: 2 } : {}),
+      ...(deps.scriptGenerator ? { scriptGenerator: deps.scriptGenerator.identity } : {}),
     },
     schema: ScriptSchema,
     run: async () => {
+      if (deps.scriptGenerator) {
+        const artifact = await deps.scriptGenerator.run(input);
+        responseSchemaFor(input).parse(artifact);
+        const evidence = new Set(input.notes.facts.map((fact) => fact.sourceId));
+        if (artifact.segments.some((segment) => segment.sourceIds?.some((id) => !evidence.has(id))))
+          throw new Error("Script cites a source without supporting research notes");
+        return { artifact, usage: [] };
+      }
       if (localTemplate) return runLocalScript(deps, input, localTemplate);
       const { system, prompt } = renderPrompt(
         template,

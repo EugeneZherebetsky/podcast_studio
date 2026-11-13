@@ -1,6 +1,13 @@
 import { expect, it, vi } from "vitest";
 import { generatePodcastScript } from "../src/cli/chatgpt-script.ts";
 import { generate } from "../src/providers/llm/chatgpt-inference.ts";
+import { runScriptStage } from "../src/pipeline/script.ts";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { FakeLlmProvider } from "../src/providers/llm/fake.ts";
+import { generateJob } from "../src/pipeline/runner.ts";
+import { fakeGeneration, GENERATION_TIMEOUT_MS } from "./generation-fakes.ts";
 
 const input = {
   lang: "en", mode: "standard",
@@ -13,6 +20,55 @@ const script = {
   chapters: [1, 2, 3].map((segmentIndex) => ({ title: "Chapter", segmentIndex })),
   segments: ["intro", "content", "content", "content", "recap", "outro"].map((kind) => ({ kind, speaker: "host", lang: "en", text: "word", ...(kind === "content" ? { sourceIds: ["s1"] } : {}) })),
 };
+
+it("passes selected script generation through the runner and still reviews it", async () => {
+  const f = fakeGeneration({ review: true });
+  try {
+    const generateStructured = vi.fn(async () => JSON.stringify({ ...script, segments: script.segments.map((s) => ({ ...s, text: Array(23).fill("bees").join(" ") })) }));
+    const run = vi.fn(async (research: Parameters<typeof runScriptStage>[1]) =>
+      (await generatePodcastScript({ generateStructured }, "chosen-model", research)).script,
+    );
+    await generateJob({ ...f.deps, scriptGenerator: { identity: "test:chosen", run } }, f.jobId);
+    expect(run).toHaveBeenCalledOnce();
+    expect(f.stageStatus("review")).toBe("done");
+    expect(f.llm.stages).toContain("review");
+    expect(f.llm.stages).not.toContain("script");
+    expect(f.job().status).toBe("succeeded");
+  } finally {
+    f.close();
+  }
+}, GENERATION_TIMEOUT_MS);
+
+it("rejects a selected generator result that cites an unbacked source", async () => {
+  const workDir = await mkdtemp(path.join(tmpdir(), "chatgpt-invalid-"));
+  try {
+    const bad = { ...script, segments: script.segments.map((s, i) => ({ ...s, id: `seg-${i}`, sourceIds: s.kind === "content" ? ["s2"] : undefined })) };
+    await expect(runScriptStage({ workDir, llm: new FakeLlmProvider(), scriptGenerator: { identity: "test", run: async () => bad as Awaited<ReturnType<typeof generatePodcastScript>>["script"] } }, input as Parameters<typeof runScriptStage>[1])).rejects.toThrow(/source|research/i);
+  } finally {
+    await rm(workDir, { recursive: true, force: true });
+  }
+});
+
+it("runs the explicit ChatGPT script stage and separates its cache from local generation", async () => {
+  const workDir = await mkdtemp(path.join(tmpdir(), "chatgpt-stage-"));
+  try {
+    const generateStructured = vi.fn().mockResolvedValue(JSON.stringify(script));
+    const llm = new FakeLlmProvider();
+    const typedInput = input as Parameters<typeof runScriptStage>[1];
+    const selected = { identity: "chatgpt:chosen-model", run: async () => (await generatePodcastScript({ generateStructured }, "chosen-model", input)).script };
+    const first = await runScriptStage({ workDir, llm, scriptGenerator: selected }, typedInput);
+    expect(first.artifact.segments[1]?.sourceIds).toEqual(["s1"]);
+    expect(first.skipped).toBe(false);
+    const cached = await runScriptStage({ workDir, llm, scriptGenerator: selected }, typedInput);
+    expect(cached.skipped).toBe(true);
+    expect(generateStructured).toHaveBeenCalledOnce();
+    const different = { ...selected, identity: "chatgpt:other-model" };
+    expect((await runScriptStage({ workDir, llm, scriptGenerator: different }, typedInput)).skipped).toBe(false);
+    expect(generateStructured).toHaveBeenCalledTimes(2);
+  } finally {
+    await rm(workDir, { recursive: true, force: true });
+  }
+});
 
 it("generates a validated script from prepared research without marking it reviewed", async () => {
   const generateStructured = vi.fn().mockResolvedValue(JSON.stringify(script));

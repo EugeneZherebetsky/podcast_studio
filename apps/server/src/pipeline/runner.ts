@@ -233,6 +233,7 @@ export interface GenerateDeps {
   llmName: string;
   ttsName: string;
   nativeLang: string;
+  scriptGenerator?: import("./script.ts").ScriptDeps["scriptGenerator"];
   onEvent?: (event: ServerEvent) => void;
 }
 
@@ -397,7 +398,16 @@ export async function generateJob(
   const script = (
     await stage("script", () =>
       runScriptStage(
-        { workDir, llm: providers.llm },
+        {
+          workDir,
+          llm: providers.llm,
+          ...(deps.scriptGenerator
+            ? { scriptGenerator: { ...deps.scriptGenerator, run: (input) => {
+                assertOwner();
+                return deps.scriptGenerator!.run(input);
+              } } }
+            : {}),
+        },
         { plan, notes, sources, lang: job.options.lang, mode: "standard" },
       ),
     )
