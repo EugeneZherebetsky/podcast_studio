@@ -33,6 +33,8 @@ it("keeps tokens in memory and reuses the selected account after signout", async
     const session = await createChatGptSession(dir, login, async () => false);
     const attempt = await session.login("work");
     await attempt.complete();
+    await expect(session.models()).rejects.toThrow("plan-enabled");
+    await expect(session.generate("m", "prompt")).rejects.toThrow("plan-enabled");
     expect(session.status()).toEqual({ active: "work", accounts: ["work"], planEnabled: false });
     expect(await session.signout()).toBe(false);
     expect(session.status().active).toBe(null);

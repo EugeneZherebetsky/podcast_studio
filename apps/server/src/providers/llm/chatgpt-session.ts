@@ -1,3 +1,4 @@
+import { generate, listModels } from "./chatgpt-inference.ts";
 import { beginChatGptLogin } from "./chatgpt-login.ts";
 import { openRegistrationStore } from "./chatgpt-registration.ts";
 
@@ -101,6 +102,14 @@ export async function createChatGptSession(
         pending = false;
         throw error;
       }
+    },
+    async models(signal?: AbortSignal) {
+      if (!active?.credentials.planEnabled) throw new Error("A plan-enabled session is required");
+      return listModels(active.credentials.accessToken, { signal });
+    },
+    async generate(model: string, prompt: string, signal?: AbortSignal) {
+      if (!active?.credentials.planEnabled) throw new Error("A plan-enabled session is required");
+      return generate(active.credentials.accessToken, model, prompt, { signal });
     },
     async signout() {
       if (pending) throw new Error("Login pending");

@@ -9,7 +9,9 @@ const terminal = createInterface({
   output: process.stdout,
   terminal: !!process.stdin.isTTY,
 });
-console.log("ChatGPT local session. Commands: login <label>, status, signout, quit");
+console.log(
+  "ChatGPT local session. Commands: login <label>, status, models, ask <model> <prompt>, signout, quit",
+);
 console.log(
   "Sign-in opens no browser automatically. Tokens stay in this process and are lost on exit.",
 );
@@ -24,6 +26,24 @@ for await (const line of terminal) {
       console.log((await attempt.complete()) ? "Signed in." : "Authorization denied.");
     } else if (command === "status" && !label) {
       console.log(JSON.stringify(session.status()));
+    } else if ((command === "models" && !label) || (command === "ask" && label && extra)) {
+      const controller = new AbortController();
+      const cancel = () => controller.abort();
+      terminal.once("SIGINT", cancel);
+      try {
+        if (command === "models")
+          console.log(JSON.stringify(await session.models(controller.signal)));
+        else
+          console.log(
+            await session.generate(
+              label!,
+              line.trim().replace(/^ask\s+\S+\s+/, ""),
+              controller.signal,
+            ),
+          );
+      } finally {
+        terminal.removeListener("SIGINT", cancel);
+      }
     } else if (command === "signout" && !label) {
       console.log(
         (await session.signout())
@@ -32,9 +52,12 @@ for await (const line of terminal) {
       );
     } else if (command === "quit" && !label) {
       break;
-    } else console.log("Commands: login <label>, status, signout, quit");
+    } else
+      console.log("Commands: login <label>, status, models, ask <model> <prompt>, signout, quit");
   } catch {
-    console.error("Command failed. Check the account label or retry sign-in.");
+    console.error(
+      "Command failed or was cancelled. Check sign-in, plan access, model, and connection.",
+    );
   }
 }
 if (session.status().active)
