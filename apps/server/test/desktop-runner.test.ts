@@ -1,4 +1,7 @@
 import { expect, test } from "vitest";
+import { APICallError } from "ai";
+import { MockLanguageModelV4 } from "ai/test";
+import { AiSdkLlmProvider } from "../src/providers/llm/ai-sdk.ts";
 import { EventEmitter } from "node:events";
 import { buildApp } from "../src/app.ts";
 import { createDesktopRunner } from "../src/desktop-runner.ts";
@@ -261,6 +264,84 @@ test.each([1, 2, 3, 4, 5, 6])("cancellation stops after TTS segment %i", async (
     expect(calls).toBe(stopAt);
     const guard = openDesktopGuard(f.dir);
     try { expect(() => guard.begin()).not.toThrow(); } finally { guard.close(true); }
+  } finally { release(); await runner.close(); f.close(); }
+}, GENERATION_TIMEOUT_MS);
+
+test.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])("cancellation stops local review after segment %i", async (stopAt) => {
+  const f = fakeGeneration();
+  const original = f.deps.providers.llm;
+  let reviewCalls = 0;
+  let laterCalls = 0;
+  let chapter = 0;
+  let release!: () => void;
+  let entered!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  f.deps.providers.llm = {
+    localCacheIdentity: "test-local",
+    async generateObject(request) {
+      const stage = f.db.$client.prepare("select current_stage from jobs where status = 'running'").get() as { current_stage: string };
+      if (reviewCalls && stage.current_stage !== "review") laterCalls++;
+      if (stage.current_stage === "script") {
+        const index = chapter++;
+        for (let n = 3; n < 40; n++) for (let short = 1; short < 15; short++) {
+          const text = Array(n).fill("bees").join(" ");
+          const boundary = Array(short).fill("bees").join(" ");
+          const candidate = { title: "Bees", summary: "Bees", intro: boundary, recap: boundary, outro: boundary, content: Array(index === 1 ? 3 : 2).fill({ text, sourceIds: ["s1"] }) };
+          const parsed = request.schema.safeParse(candidate);
+          if (parsed.success) return { object: parsed.data, usage: { provider: "fake", model: "fake", inputTokens: 0, outputTokens: 0, costUsd: 0 } };
+        }
+        throw new Error("No valid script fixture");
+      }
+      if (stage.current_stage === "review") {
+        reviewCalls++;
+        if (reviewCalls === stopAt) { entered(); await gate; }
+        const segment = /&quot;text&quot;:&quot;([^&]+)&quot;/.exec(request.prompt)?.[1] ?? Array(16).fill("bees").join(" ");
+        const object = request.schema.parse({ text: segment, findings: [] });
+        return { object, usage: { provider: "fake", model: "fake", inputTokens: 0, outputTokens: 0, costUsd: 0 } };
+      }
+      return original.generateObject(request);
+    },
+  };
+  const runner = createDesktopRunner(f.deps, new EventEmitter());
+  try {
+    const job = await runner.create({ title: "Bees", brief: "", mode: "standard", lang: "en", minutes: 1, review: true });
+    await started;
+    await runner.cancel(job.id);
+    release();
+    await viWait(async () => await runner.close());
+    expect(reviewCalls).toBe(stopAt);
+    expect(laterCalls).toBe(0);
+    expect(f.db.$client.prepare("select status from jobs where id = ?").get(job.id)).toMatchObject({ status: "cancelled" });
+    const guard = openDesktopGuard(f.dir);
+    try { expect(() => guard.begin()).not.toThrow(); } finally { guard.close(true); }
+  } finally { release(); await runner.close(); f.close(); }
+}, GENERATION_TIMEOUT_MS);
+
+test("cancellation during a transient provider failure retains the recovery guard", async () => {
+  const f = fakeGeneration();
+  let release!: () => void;
+  let entered!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  const model = new MockLanguageModelV4({ modelId: "test", async doGenerate() {
+    entered(); await gate;
+    throw new APICallError({ message: "connection lost", url: "http://example.invalid", requestBodyValues: {}, isRetryable: true });
+  } });
+  f.deps.providers.llm = new AiSdkLlmProvider({ provider: "ollama", models: { main: { id: "test", model }, fast: { id: "test", model } }, prices: "free" });
+  const runner = createDesktopRunner(f.deps, new EventEmitter());
+  const request = { title: "Bees", brief: "", mode: "standard" as const, lang: "en", minutes: 1 };
+  try {
+    const job = await runner.create(request);
+    await started;
+    const queued = await runner.create(request);
+    await runner.cancel(job.id);
+    release();
+    await viWait(async () => (f.db.$client.prepare("select status from jobs where id = ?").get(queued.id) as { status: string }).status === "failed");
+    expect(model.doGenerateCalls).toHaveLength(1);
+    expect(await runner.close()).toBe(true);
+    const guard = openDesktopGuard(f.dir);
+    try { expect(() => guard.begin()).toThrow(/manual/i); } finally { guard.close(false); }
   } finally { release(); await runner.close(); f.close(); }
 }, GENERATION_TIMEOUT_MS);
 

@@ -129,7 +129,7 @@ export class AiSdkLlmProvider implements LlmProvider {
           instructions: request.system,
           prompt,
           output: Output.object({ schema: request.schema }),
-          ...(this.providerName === "ollama" ? { maxRetries: 0 } : {}),
+          ...(this.providerName === "ollama" || request.assertContinue ? { maxRetries: 0 } : {}),
           ...(this.boundedOllama
             ? {
                 maxOutputTokens: 8192,

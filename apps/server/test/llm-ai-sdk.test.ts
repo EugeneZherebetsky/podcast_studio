@@ -1,4 +1,6 @@
 import { MockLanguageModelV4 } from "ai/test";
+import { APICallError } from "ai";
+import { CancelledAfterStage } from "../src/pipeline/cancellation.ts";
 import { describe, expect, test, vi } from "vitest";
 import { parseConfig } from "shared";
 import { z } from "zod";
@@ -63,6 +65,24 @@ function setup(options: { main?: string[]; fast?: string[]; prices?: LlmPriceTab
 const request = { system: "Be terse.", prompt: "Name a city.", schema: CitySchema };
 
 describe("AiSdkLlmProvider.generateObject", () => {
+  test.each(["ollama", "anthropic"])("%s does not retry a transient failure after cancellation", async (name) => {
+    let cancelled = false;
+    const model = new MockLanguageModelV4({ modelId: "test", doGenerate: async () => {
+      if (cancelled) return reply(VALID);
+      cancelled = true;
+      throw new APICallError({ message: "connection lost", url: "http://example.invalid", requestBodyValues: {}, isRetryable: true });
+    } });
+    const provider = new AiSdkLlmProvider({ provider: name, models: { main: { id: "test", model }, fast: { id: "test", model } }, prices: "free" });
+    const result = provider.generateObject({ slot: "main", ...request, assertContinue: () => { if (cancelled) throw new CancelledAfterStage("cancelled"); } });
+    await expect(result).rejects.not.toBeInstanceOf(CancelledAfterStage);
+    expect(model.doGenerateCalls).toHaveLength(1);
+  });
+
+  test("cancellation stops the invalid-output retry", async () => {
+    const { provider, main } = setup({ main: [WRONG_SHAPE, VALID] });
+    await expect(provider.generateObject({ slot: "main", ...request, assertContinue: () => { throw new CancelledAfterStage("cancelled"); } })).rejects.toBeInstanceOf(CancelledAfterStage);
+    expect(main.doGenerateCalls).toHaveLength(1);
+  });
   test("returns the validated object with usage and cost", async () => {
     const { provider, main, warnings } = setup();
 
