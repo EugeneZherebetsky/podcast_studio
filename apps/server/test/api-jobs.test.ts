@@ -97,3 +97,25 @@ test("local learning jobs and retries fail closed unless explicitly enabled", as
     } finally { await app.close(); db.$client.close(); }
   }
 });
+
+
+test("retry as new copies only failed job options through create", async () => {
+  const db = openDatabase(":memory:");
+  const old = { id: "old", topicId: null, status: "failed", currentStage: "notes", error: "failed", options: { title: "News", brief: "original", mode: "standard", lang: "en", minutes: 8 }, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" } as const;
+  db.insert(jobs).values(old).run();
+  const runner = { create: vi.fn().mockResolvedValue({ ...old, id: "new", status: "queued" }), retry: vi.fn(), cancel: vi.fn() };
+  const app = buildApp({ db, runner });
+  try {
+    const response = await app.inject({ method: "POST", url: "/api/jobs/old/retry-as-new", payload: {} });
+    expect(response.statusCode).toBe(201);
+    expect(response.json().id).toBe("new");
+    expect(runner.create).toHaveBeenCalledWith(old.options);
+    expect(db.select().from(jobs).get()).toMatchObject(old);
+    for (const status of ["succeeded", "running", "queued", "cancelled"] as const) {
+      db.update(jobs).set({ status }).run();
+      expect((await app.inject({ method: "POST", url: "/api/jobs/old/retry-as-new", payload: {} })).statusCode).toBe(409);
+    }
+    expect((await app.inject({ method: "POST", url: "/api/jobs/missing/retry-as-new", payload: {} })).statusCode).toBe(404);
+    expect(runner.create).toHaveBeenCalledTimes(1);
+  } finally { await app.close(); db.$client.close(); }
+});

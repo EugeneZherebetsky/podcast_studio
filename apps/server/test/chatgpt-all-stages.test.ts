@@ -2,7 +2,7 @@ import { expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { z } from "zod";
 import path from "node:path";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { eq } from "drizzle-orm";
 import { parseConfig } from "shared";
 import { buildApp } from "../src/app.ts";
@@ -12,8 +12,13 @@ import { createChatGptSession } from "../src/providers/llm/chatgpt-session.ts";
 import { episodes, jobs, usage } from "../src/db/schema.ts";
 import { fakeGeneration, GENERATION_TIMEOUT_MS, respond } from "./generation-fakes.ts";
 
-it("routes plan, notes map and merge, script and review through the selected ChatGPT model", async () => {
-  const f = fakeGeneration();
+it("retries a failed job as new using all-stage ChatGPT, preserving old artifacts and exporting the new episode", async () => {
+  const f = fakeGeneration({ review: true });
+  f.db.update(jobs).set({ status: "failed", error: "old failure" }).where(eq(jobs.id, f.jobId)).run();
+  const old = f.job();
+  mkdirSync(f.workDir, { recursive: true });
+  const oldArtifact = path.join(f.workDir, "old-artifact.txt");
+  writeFileSync(oldArtifact, "preserve this");
   const calls: string[] = [];
   const prompts: string[] = [];
   let stage = "";
@@ -43,15 +48,20 @@ it("routes plan, notes map and merge, script and review through the selected Cha
   await selection.set({ provider: "chatgpt", model: "chosen", scope: "all-stages" });
   expect(selection.get()).toMatchObject({ provider: "chatgpt", scope: "all-stages" });
   const runner = createDesktopRunner(f.deps, events, undefined, selection);
-  const app = buildApp({ db: f.db, config: parseConfig({ DATA_DIR: f.dir }), events });
+  const app = buildApp({ db: f.db, config: parseConfig({ DATA_DIR: f.dir }), events, runner });
   try {
-    const job = await runner.create({ title: "Bees", brief: "", mode: "standard", lang: "en", minutes: 1, review: true });
+    const response = await app.inject({ method: "POST", url: `/api/jobs/${f.jobId}/retry-as-new`, payload: {} });
+    expect(response.statusCode).toBe(201);
+    const job = response.json() as { id: string };
+    expect(job.id).not.toBe(f.jobId);
     for (let i = 0; i < 1000; i++) {
       const row = f.db.select().from(jobs).where(eq(jobs.id, job.id)).get()!;
       if (row.status === "succeeded" || row.status === "failed") { expect(row.status, row.error ?? "").toBe("succeeded"); break; }
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     expect(f.db.select().from(jobs).where(eq(jobs.id, job.id)).get()!.status).toBe("succeeded");
+    expect(f.job()).toEqual(old);
+    expect(readFileSync(oldArtifact, "utf8")).toBe("preserve this");
     expect(calls.filter((s) => s === "notes").length).toBeGreaterThanOrEqual(4);
     expect(new Set(calls)).toEqual(new Set(["plan", "notes", "script", "review"]));
     expect(schemas.plan?.some((keys) => keys.includes("queries") && keys.includes("angle"))).toBe(true);

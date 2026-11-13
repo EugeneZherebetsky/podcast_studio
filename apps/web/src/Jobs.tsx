@@ -11,6 +11,28 @@ export function Jobs() {
   const [logError, setLogError] = useState("");
   const [revision, setRevision] = useState(0);
   const sequence = useRef(0);
+  const retryBusy = useRef(false);
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState("");
+  async function retryAsNew(id: string) {
+    if (retryBusy.current) return;
+    retryBusy.current = true;
+    if (!window.confirm("Start over as a new job? Research and all stages run again using the current provider selection. ChatGPT may be selected for all stages or scripts only; check Settings before continuing. Your subscription may be used and research content may be sent to ChatGPT. The failed job and its files will be preserved.")) {
+      retryBusy.current = false;
+      return;
+    }
+    setRetrying(true);
+    setRetryError("");
+    try {
+      await api.retryAsNew(id);
+      await load();
+    } catch (cause) {
+      setRetryError(cause instanceof Error ? cause.message : "Could not start new job");
+    } finally {
+      retryBusy.current = false;
+      setRetrying(false);
+    }
+  }
   const load = useCallback(async () => {
     const request = ++sequence.current;
     try {
@@ -91,6 +113,7 @@ export function Jobs() {
         </p>
         <button onClick={() => void load()}>Refresh</button>
       </div>
+      {retryError && <p role="alert" className="error">{retryError}</p>}
       {error && (
         <p role="alert" className="error">
           {error}
@@ -134,7 +157,9 @@ export function Jobs() {
               ) : (
                 <p>No stage updates yet.</p>
               )}
-              {job.status === "failed" && <p>Retry is disabled until job recovery is safe.</p>}
+              {job.status === "failed" && (
+                <button disabled={retrying} onClick={() => void retryAsNew(job.id)}>Retry as new job</button>
+              )}
               <button
                 aria-expanded={selected === job.id}
                 onClick={() => {
@@ -169,6 +194,7 @@ export function Jobs() {
                     </ol>
                   )}
                 </section>
+
               )}
             </article>
           ))}

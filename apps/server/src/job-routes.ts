@@ -70,6 +70,20 @@ export function registerJobRoutes(
     if (!job) return reply.code(404).send({ error: "Job not found" });
     return reply.code(409).send({ error: "Retry is disabled until job recovery is safe" });
   });
+  app.post<{ Params: { id: string } }>("/api/jobs/:id/retry-as-new", async (request, reply) => {
+    if (request.body !== undefined && (request.body === null || typeof request.body !== "object" || Array.isArray(request.body) || Object.keys(request.body).length))
+      return reply.code(400).send({ error: "Expected an empty request body" });
+    const job = db.select().from(jobs).where(eq(jobs.id, request.params.id)).get();
+    if (!job) return reply.code(404).send({ error: "Job not found" });
+    if (job.status !== "failed") return reply.code(409).send({ error: "Only failed jobs can be retried as new" });
+    if (learningBlocked(job.options.mode)) return reply.code(400).send({ error: "Local learning modes require ALLOW_LOCAL_LEARNING=1" });
+    if (!runner) return reply.code(503).send({ error: "Job runner unavailable" });
+    try {
+      return reply.code(201).send(await runner.create(job.options));
+    } catch (error) {
+      return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
   app.post<{ Params: { id: string } }>("/api/jobs/:id/cancel", async (request, reply) => {
     if (!db.select().from(jobs).where(eq(jobs.id, request.params.id)).get())
       return reply.code(404).send({ error: "Job not found" });

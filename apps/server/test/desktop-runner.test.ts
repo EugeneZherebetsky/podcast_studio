@@ -9,6 +9,7 @@ import { fakeGeneration, GENERATION_TIMEOUT_MS } from "./generation-fakes.ts";
 import { loadConfig } from "../src/config.ts";
 import { openDesktopGuard } from "../src/desktop-guard.ts";
 import { parseConfig } from "shared";
+import { createScriptSelection } from "../src/chatgpt-selection.ts";
 
 test(
   "HTTP creates and runs a new job without starting an old queued job",
@@ -422,3 +423,66 @@ async function viWait(check: () => Promise<boolean>): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
 }
+
+
+test("HTTP retry-as-new starts a separate fake job and respects origin and recovery guard", async () => {
+  const f = fakeGeneration({ brief: "original options" });
+  f.db.$client.prepare("update jobs set status = ?, error = ? where id = ?").run("failed", "original failure", f.jobId);
+  const before = f.job();
+  const events = new EventEmitter();
+  const runner = createDesktopRunner(f.deps, events);
+  const app = buildApp({ db: f.db, runner, events });
+  try {
+    const address = await app.listen({ host: "127.0.0.1", port: 0 });
+    const url = `${address}/api/jobs/${f.jobId}/retry-as-new`;
+    const post = (origin: string) => fetch(url, { method: "POST", headers: { "content-type": "application/json", origin }, body: "{}" });
+    expect((await post("http://evil.example")).status).toBe(403);
+    const response = await post(address);
+    expect(response.status).toBe(201);
+    const job = await response.json() as { id: string; options: typeof before.options };
+    expect(job.id).not.toBe(f.jobId);
+    expect(job.options).toEqual(before.options);
+    await viWait(async () => ((await (await fetch(`${address}/api/jobs/${job.id}`)).json()) as { status: string }).status === "succeeded");
+    expect(f.job()).toEqual(before);
+  } finally { await app.close(); await runner.close(); f.close(); }
+}, GENERATION_TIMEOUT_MS);
+
+test("retry-as-new reports the durable recovery guard without creating a job", async () => {
+  const f = fakeGeneration();
+  f.db.$client.prepare("update jobs set status = ? where id = ?").run("failed", f.jobId);
+  const guard = openDesktopGuard(f.dir);
+  guard.begin(); guard.close(false);
+  const runner = createDesktopRunner(f.deps, new EventEmitter());
+  const app = buildApp({ db: f.db, runner });
+  try {
+    const res = await app.inject({ method: "POST", url: `/api/jobs/${f.jobId}/retry-as-new`, payload: {} });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toMatch(/manual recovery/i);
+    expect(f.db.$client.prepare("select count(*) as n from jobs").get()).toMatchObject({ n: 1 });
+  } finally { await app.close(); await runner.close(); f.close(); }
+});
+
+
+test("retry-as-new uses the latest script selection and fails closed on expired session", async () => {
+  const f = fakeGeneration();
+  f.db.$client.prepare("update jobs set status = ? where id = ?").run("failed", f.jobId);
+  let expired = false;
+  const session = { status: () => ({ active: "test", expired, planEnabled: true, accounts: [], remoteUncertain: false, uncertain: [] }), models: async () => [{ slug: "fixture", display_name: "Fixture" }], generateStructured: async () => { throw new Error("must not call provider"); } };
+  const selection = createScriptSelection(f.dir, session);
+  const runner = createDesktopRunner(f.deps, new EventEmitter(), undefined, selection);
+  const app = buildApp({ db: f.db, runner });
+  try {
+    await selection.set({ provider: "chatgpt", model: "fixture" });
+    expired = true;
+    const retry = () => app.inject({ method: "POST", url: `/api/jobs/${f.jobId}/retry-as-new`, payload: {} });
+    const refused = await retry();
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toMatch(/sign in/i);
+    expect(f.db.$client.prepare("select count(*) as n from jobs").get()).toMatchObject({ n: 1 });
+    await selection.set({ provider: "local" });
+    const accepted = await retry();
+    expect(accepted.statusCode).toBe(201);
+    const id = accepted.json().id as string;
+    await viWait(async () => (f.db.$client.prepare("select status from jobs where id = ?").get(id) as { status: string }).status === "succeeded");
+  } finally { await app.close(); await runner.close(); f.close(); }
+}, GENERATION_TIMEOUT_MS);

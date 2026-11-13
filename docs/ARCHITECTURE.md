@@ -66,7 +66,7 @@ podcast-studio/
 
 A **job** produces one episode. Stages write their artifacts under a run-specific directory; stage status lives in SQLite.
 
-New jobs use `jobs/<jobId>/runs/<ownerToken>/` for artifacts, partial caches, TTS and assembled audio. They neither import nor promote canonical caches; existing files are left untouched. Run directories are retained because abandoned workers may still write to them. Stop legacy workers before upgrading. Episode publication is not filesystem-fenced, so recovery and retry remain disabled. Cancellation and interruption are refused during publication; ownership is checked before entering it. Manual draft commands support legacy canonical research only and refuse jobs with run directories.
+New jobs use `jobs/<jobId>/runs/<ownerToken>/` for artifacts, partial caches, TTS and assembled audio. They neither import nor promote canonical caches; existing files are left untouched. Run directories are retained because abandoned workers may still write to them. Stop legacy workers before upgrading. Episode publication is not filesystem-fenced, so recovery and in-place retry remain disabled. Cancellation and interruption are refused during publication; ownership is checked before entering it. Manual draft commands support legacy canonical research only and refuse jobs with run directories.
 
 | # | Stage | Input → Output | Notes |
 |---|---|---|---|
@@ -85,7 +85,7 @@ Why per-segment synthesis: it gives exact sentence timings from any TTS provider
 ### Resume and retry
 
 - **Resume and retry from a stage are disabled**, including CLI `--resume` and `--interrupted`. A running job is never automatically taken over. A publication in progress cannot be cancelled or marked interrupted; the filesystem and database cannot be atomically fenced together.
-- `POST /api/jobs/:id/retry` and the web UI retry button remain disabled: the server has no job executor yet, and it must not adopt jobs it did not start.
+- `POST /api/jobs/:id/retry` remains disabled. For failed jobs, `POST /api/jobs/:id/retry-as-new` copies the saved options into a new job through the normal generation runner; it starts from the beginning with current settings, preserves the old files and remains subject to the desktop recovery guard. The UI asks for confirmation because research and provider usage may happen again.
 
 ### Prompt handling
 
