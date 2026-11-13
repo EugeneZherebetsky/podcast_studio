@@ -8,3 +8,9 @@ test("Gemini settings accurately describe the separate service and isolated draf
   expect(html).toContain('href="https://gemini.google.com/"');
   expect(html).toContain("not connected to review, audio, or publication");
 });
+
+test("ChatGPT settings offer a local sign-in and disclose the generation limit", () => {
+  const html = renderToString(<Settings />);
+  expect(html).toContain("Start ChatGPT sign-in");
+  expect(html).toContain("Script generation is not connected");
+});

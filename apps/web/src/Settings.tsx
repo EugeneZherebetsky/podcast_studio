@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { SettingsSchema, type Settings as SettingsValue } from "shared";
 import { api } from "./api.ts";
 import { PairingStatus, UsageTotal } from "./SettingsExtras.tsx";
+import { ChatGptSettings } from "./ChatGptSettings.tsx";
 
 export function Settings() {
   const [value, setValue] = useState<SettingsValue | null>(null);
@@ -41,10 +42,7 @@ export function Settings() {
         <h1>Settings</h1>
         <p>Profile is saved as a preference but does not switch providers yet. Set PROFILE in .env and restart to configure the server. Other preferences are not yet connected to generation or budget enforcement.</p>
       </header>
-      <section className="panel" aria-labelledby="chatgpt-plan-status">
-        <h2 id="chatgpt-plan-status">ChatGPT plan</h2>
-        <p>ChatGPT plan sign-in and script generation are not available yet. The local profile continues to use Ollama.</p>
-      </section>
+      <ChatGptSettings />
       <section className="panel" aria-labelledby="gemini-status">
         <h2 id="gemini-status">Gemini</h2>
         <p>Gemini consumer account sign-in is not connected to this app. <a href="https://gemini.google.com/" target="_blank" rel="noopener noreferrer">Open Gemini separately</a>.</p>

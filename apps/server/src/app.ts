@@ -24,6 +24,8 @@ import { registerEpisodeRoutes } from "./episode-routes.ts";
 import { registerJobRoutes, type JobRunner } from "./job-routes.ts";
 import { registerSettingsRoutes } from "./settings-routes.ts";
 import { registerWebAssets } from "./web-static.ts";
+import { registerChatGptManagement } from "./chatgpt-management.ts";
+import type { createChatGptSession } from "./providers/llm/chatgpt-session.ts";
 
 const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
 
@@ -34,8 +36,10 @@ export function buildApp(options?: {
   events?: EventEmitter;
   providerHealth?: () => Promise<HealthResponse["providers"]>;
   webRoot?: string;
+  chatgptSession?: Awaited<ReturnType<typeof createChatGptSession>>;
 }): FastifyInstance {
   const app = Fastify({ logger: false });
+  if (options?.chatgptSession) registerChatGptManagement(app, options.chatgptSession);
   if (options?.webRoot) registerWebAssets(app, options.webRoot);
   const db = options?.db;
   let pairing: { code: string; expires: number; attempts: number } | undefined;
