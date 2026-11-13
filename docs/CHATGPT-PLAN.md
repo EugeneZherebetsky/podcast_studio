@@ -1,6 +1,8 @@
 # ChatGPT plan: experimental sign-in
 
-Settings supports experimental sign-in when the server listens on numeric loopback and Settings is opened directly at that address (not via a proxy or Vite). Choose a label, start sign-in, then open the OpenAI link; cancel or sign out in Settings. Script generation is not connected to this session and the configured provider is unchanged. Sign out before exiting: shutdown makes one short revocation attempt but may not be able to confirm it. See the next section for what happens when sign-out cannot be confirmed.
+In desktop Settings, sign in, load the signed-in account's available models, explicitly choose one, and select “Use ChatGPT for scripts”. The choice applies to new PC jobs. Only the script stage sends the local plan and research notes to OpenAI; planning, research, review and Piper stay local. The normal review still runs when enabled. The selected account must remain signed in and plan-enabled; if it expires or is signed out, jobs fail rather than falling back to another provider. Switch back explicitly with “Use local script generation”. There is no paid API fallback. The provider, account label and model are stored in a local JSON preference; credentials are not stored there or sent to the browser. An abrupt power loss may lose the most recent preference write.
+
+Settings supports experimental sign-in when the server listens on numeric loopback and Settings is opened directly at that address (not via a proxy or Vite). Choose a label, start sign-in, then open the OpenAI link; cancel or sign out in Settings. Sign out before exiting: shutdown makes one short revocation attempt but may not be able to confirm it. See the next section for what happens when sign-out cannot be confirmed.
 
 ## Sign-out and the "could not confirm" warning
 

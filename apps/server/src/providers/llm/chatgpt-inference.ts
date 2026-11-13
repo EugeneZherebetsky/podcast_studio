@@ -97,10 +97,8 @@ export async function generate(
     "responses",
     {
       model,
-      input: [
-        ...(options.structured ? [{ role: "system", content: options.structured.system }] : []),
-        { role: "user", content: prompt },
-      ],
+      ...(options.structured ? { instructions: options.structured.system } : {}),
+      input: [{ role: "user", content: prompt }],
       store: false, stream: true,
       ...(options.structured ? { text: { format: { type: "json_schema", name: "podcast_script", strict: false, schema: options.structured.schema } } } : {}),
     },

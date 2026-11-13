@@ -1,12 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import type { createChatGptSession } from "./providers/llm/chatgpt-session.ts";
+import type { createScriptSelection } from "./chatgpt-selection.ts";
 
 type Session = Pick<
   Awaited<ReturnType<typeof createChatGptSession>>,
   "status" | "login" | "signout" | "shutdown" | "acknowledgeRemoteDisconnect"
 >;
 
-export function registerChatGptManagement(app: FastifyInstance, session: Session) {
+export function registerChatGptManagement(app: FastifyInstance, session: Session, selection?: ReturnType<typeof createScriptSelection>) {
   let phase: "idle" | "starting" | "pending" | "failed" = "idle";
   let generation = 0;
   let closing = false;
@@ -55,6 +56,17 @@ export function registerChatGptManagement(app: FastifyInstance, session: Session
   };
   app.get("/api/chatgpt/status", async () => status());
   app.post("/api/chatgpt/status", async () => status());
+  if (selection) {
+    app.post("/api/chatgpt/selection", async () => selection.get());
+    app.post("/api/chatgpt/models", async (_request, reply) => {
+      try { return { models: await selection.models() }; }
+      catch { return reply.code(400).send({ error: "Could not load ChatGPT models; check your session and plan access" }); }
+    });
+    app.post("/api/chatgpt/select", async (request, reply) => {
+      try { return await selection.set(request.body); }
+      catch { return reply.code(400).send({ error: "Could not save script selection; check your session and model" }); }
+    });
+  }
   app.post("/api/chatgpt/login", async (request, reply) => {
     const body = request.body as { label?: unknown } | null;
     if (!body || typeof body.label !== "string" || !/^[a-zA-Z0-9_-]{1,40}$/.test(body.label))

@@ -9,6 +9,7 @@ import { createChatGptSession } from "./providers/llm/chatgpt-session.ts";
 import { EventEmitter } from "node:events";
 import { createProviders } from "./providers/index.ts";
 import { createDesktopRunner } from "./desktop-runner.ts";
+import { createScriptSelection } from "./chatgpt-selection.ts";
 
 let config;
 try {
@@ -24,12 +25,13 @@ const chatgptSession = ["127.0.0.1", "::1"].includes(config.HOST)
   ? await createChatGptSession(path.join(config.DATA_DIR, "chatgpt"))
   : undefined;
 const events = new EventEmitter();
-const runner = config.PROFILE === "local" && config.SEARCH_PROVIDER === "searxng" && config.TTS_PROVIDER === "piper"
+const scriptSelection = chatgptSession ? createScriptSelection(path.join(config.DATA_DIR, "chatgpt"), chatgptSession) : undefined;
+const runner = chatgptSession && config.PROFILE === "local" && config.SEARCH_PROVIDER === "searxng" && config.TTS_PROVIDER === "piper"
   ? createDesktopRunner({
       db, providers: createProviders(config), dataDir: dataDirs.root,
       budgetUsd: config.MONTHLY_BUDGET_USD, voice: config.TTS_VOICE_NATIVE_HOST ?? "",
       profile: "local", llmName: config.OLLAMA_MODEL_MAIN, ttsName: "piper", nativeLang: config.NATIVE_LANG,
-    }, events, config)
+    }, events, config, scriptSelection)
   : undefined;
 
 const app = buildApp({
@@ -38,6 +40,7 @@ const app = buildApp({
   runner,
   events,
   chatgptSession,
+  scriptSelection,
   webRoot: fileURLToPath(new URL("../../web/dist", import.meta.url)),
 });
 app.addHook("onClose", async () => {

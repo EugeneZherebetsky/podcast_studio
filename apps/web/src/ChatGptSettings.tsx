@@ -95,6 +95,31 @@ export function ChatGptSettings() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [selection, setSelection] = useState<{ provider: string; account?: string; model?: string } | null>(null);
+  const [models, setModels] = useState<{ slug: string; display_name: string }[]>([]);
+  const [model, setModel] = useState("");
+  const [modelAccount, setModelAccount] = useState<string | null>(null);
+  useEffect(() => {
+    void call("selection").then(setSelection).catch(() => setMessage("Could not load script provider selection."));
+  }, []);
+
+  async function loadModels() {
+    setBusy(true); setMessage("");
+    try {
+      const result = (await call("models")) as { models: { slug: string; display_name: string }[] };
+      setModels(result.models); setModel(""); setModelAccount(status?.active ?? null);
+      if (!result.models.length) setMessage("No ChatGPT models are available for this account.");
+    } catch { setMessage("Could not load models. Check your session and plan access."); }
+    finally { setBusy(false); }
+  }
+  async function select(provider: "local" | "chatgpt") {
+    setBusy(true); setMessage("");
+    try {
+      setSelection(await call("select", provider === "local" ? { provider } : { provider, model }));
+      setMessage("Script provider saved for new jobs.");
+    } catch { setMessage("Could not save selection. Check your session and model."); }
+    finally { setBusy(false); }
+  }
   async function refresh() {
     const next = (await call("status")) as Status;
     setStatus(next);
@@ -195,9 +220,18 @@ export function ChatGptSettings() {
     <section className="panel" aria-labelledby="chatgpt-plan-status">
       <h2 id="chatgpt-plan-status">ChatGPT plan</h2>
       <p>
-        Script generation is not connected to ChatGPT sign-in. Your configured provider remains
-        unchanged; there is no automatic paid API fallback.
+        Script generation can use your ChatGPT plan. Plan and research notes are sent to OpenAI;
+        planning, research, review and speech remain local. There is no automatic paid API fallback.
       </p>
+      <h3>Script provider</h3>
+      <p role="status">{selection ? selection.provider === "chatgpt" ? `ChatGPT: ${selection.model} (${selection.account})` : "Local Ollama" : "Loading script provider…"}</p>
+      <button type="button" disabled={busy || !selection} onClick={() => void select("local")}>Use local script generation</button>{" "}
+      <button type="button" disabled={busy || !status?.active || status.expired || !status.planEnabled} onClick={() => void loadModels()}>Load available ChatGPT models</button>{" "}
+      <label>ChatGPT model <select value={model} onChange={(event) => setModel(event.target.value)} disabled={busy || !models.length || !status?.active || status.active !== modelAccount}>
+        <option value="">Choose a model</option>
+        {models.map((item) => <option key={item.slug} value={item.slug}>{item.display_name}</option>)}
+      </select></label>{" "}
+      <button type="button" disabled={busy || !model || !status?.active || status.active !== modelAccount || status.expired || !status.planEnabled} onClick={() => void select("chatgpt")}>Use ChatGPT for scripts</button>
       <p>
         Sessions are held in memory only. Stopping the server tries to end the session with OpenAI
         but cannot always confirm it, so sign out first. Plan eligibility depends on OpenAI.

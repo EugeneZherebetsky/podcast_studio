@@ -88,7 +88,8 @@ it("sends structured requests through the bounded streaming transport", async ()
   expect(result.script.title).toBe("Title");
   const body = JSON.parse(String(transport.mock.calls[0]?.[1]?.body));
   expect(body).toMatchObject({ model: "chosen-model", store: false, stream: true, text: { format: { type: "json_schema" } } });
-  expect(body.input[0].role).toBe("system");
+  expect(body.instructions).toBeTruthy();
+  expect(body.input.every((item: { role: string }) => item.role !== "system")).toBe(true);
 });
 
 it.each([

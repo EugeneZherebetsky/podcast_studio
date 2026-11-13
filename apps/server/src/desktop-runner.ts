@@ -11,12 +11,14 @@ import { jobs, topics, settings } from "./db/schema.ts";
 import type { JobRunner } from "./job-routes.ts";
 import { cancelJob, CancelledAfterStage, createJob, generateJob, type GenerateDeps } from "./pipeline/runner.ts";
 import { openDesktopGuard } from "./desktop-guard.ts";
+import type { createScriptSelection } from "./chatgpt-selection.ts";
 
 /** Owns only jobs created in this process; never scans persisted jobs for work. */
 export function createDesktopRunner(
   deps: GenerateDeps,
   events: EventEmitter,
   config?: AppConfig,
+  selection?: ReturnType<typeof createScriptSelection>,
 ): JobRunner & { close(): Promise<boolean> } {
   const guard = openDesktopGuard(deps.dataDir);
   const queue: { id: string; deps: GenerateDeps }[] = [];
@@ -99,6 +101,7 @@ export function createDesktopRunner(
       if (!voice) throw new Error("Configure a local Piper voice before generating");
       const jobDeps = {
         ...deps,
+        ...(selection ? { scriptGenerator: selection.generator() } : {}),
         voice,
         budgetUsd: saved?.monthlyBudgetUsd ?? deps.budgetUsd,
         nativeLang: saved?.nativeLang ?? deps.nativeLang,

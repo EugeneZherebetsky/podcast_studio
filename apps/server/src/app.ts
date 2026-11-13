@@ -26,6 +26,7 @@ import { registerSettingsRoutes } from "./settings-routes.ts";
 import { registerWebAssets } from "./web-static.ts";
 import { registerChatGptManagement } from "./chatgpt-management.ts";
 import type { createChatGptSession } from "./providers/llm/chatgpt-session.ts";
+import type { createScriptSelection } from "./chatgpt-selection.ts";
 
 const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
 
@@ -37,9 +38,10 @@ export function buildApp(options?: {
   providerHealth?: () => Promise<HealthResponse["providers"]>;
   webRoot?: string;
   chatgptSession?: Awaited<ReturnType<typeof createChatGptSession>>;
+  scriptSelection?: ReturnType<typeof createScriptSelection>;
 }): FastifyInstance {
   const app = Fastify({ logger: false });
-  if (options?.chatgptSession) registerChatGptManagement(app, options.chatgptSession);
+  if (options?.chatgptSession) registerChatGptManagement(app, options.chatgptSession, options.scriptSelection);
   if (options?.webRoot) registerWebAssets(app, options.webRoot);
   const db = options?.db;
   let pairing: { code: string; expires: number; attempts: number } | undefined;
