@@ -7,14 +7,14 @@ Podcast Studio is a work-in-progress PC episode generator and Android offline pl
 1. Install the prerequisites, copy `.env.example` to `.env`, and configure the local generation profile, Ollama, SearXNG and Piper as described in [Setup](docs/SETUP.md). Keep `.env` and the data directory private.
 2. From the repository root, run `pnpm install --frozen-lockfile`, then `pnpm --filter web build` and `pnpm --filter server start`.
 3. Open `http://127.0.0.1:4747` on the PC. In Settings choose the local profile and configure a Piper voice, then create a standard episode. Jobs show progress and details; retry as a new job runs the stages again.
-4. Optionally select a ChatGPT subscription for text stages or ElevenLabs/Fish Audio for speech. Both require explicit selection; see [ChatGPT plan](docs/CHATGPT-PLAN.md) and [cloud speech](docs/SETUP.md#optional-cloud-speech). Live provider operation has not been verified.
+4. Optionally select a ChatGPT subscription for text stages or ElevenLabs/Fish Audio for speech. Both require explicit selection; see [ChatGPT plan](docs/CHATGPT-PLAN.md) and [cloud speech](docs/SETUP.md#optional-cloud-speech). Cloud speech has not yet been verified against real providers.
 
 The server defaults to loopback. Local search and article fetching use the network; local generation is not a guarantee of offline operation. Do not expose the server to the LAN or Internet as a substitute for secure phone transfer: Wi-Fi transfer is not implemented and plain HTTP exposes credentials. See [network safety](docs/SETUP.md#network-safety).
 
 ## Current boundaries
 
 - The PC runner requires local Ollama, SearXNG and Piper configuration, with explicit optional ChatGPT text generation and cloud speech. The saved profile preference alone does not switch server providers.
-- ChatGPT sign-in and inference and real ElevenLabs/Fish Audio speech have not been verified live. Cloud speech is billed separately. Recorded usage, episode cost and the monthly budget exclude cloud TTS and ChatGPT subscription usage; they are **not total cost**.
+- One desktop episode has been generated using ChatGPT sign-in and inference; broader account and model compatibility is not established. ElevenLabs/Fish Audio speech has not been verified live. Cloud speech is billed separately. Recorded usage, episode cost and the monthly budget exclude cloud TTS and ChatGPT subscription usage; they are **not total cost**.
 - Android Wi-Fi pairing, downloads and sync are not implemented. Gemini is an isolated manual draft workflow, not a connected episode generator. Release signing and physical-device acceptance remain open; see the [Android guide](apps/mobile/README.md) and [manual Gemini guide](docs/MANUAL-GEMINI.md).
 - A crash or uncertain external request can block further generation. Do not automatically retry; follow the [recovery procedure](docs/SETUP.md#desktop-generation-recovery).
 

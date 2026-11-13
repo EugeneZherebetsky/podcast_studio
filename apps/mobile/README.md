@@ -25,7 +25,7 @@ Set `JAVA_HOME` and `ANDROID_HOME` to your local JDK and SDK. If needed, set `GR
 
 Expo's `prebuild --clean` deletes and recreates native directories: back up local native changes before using it. Normal prebuild layers changes onto existing files; this plugin is idempotent. See [Expo CNG](https://docs.expo.dev/workflow/continuous-native-generation/#clean).
 
-The debug build is not a standalone offline release: it needs the development server. A release signing workflow is not supplied or verified; do not treat an `assembleRelease` command as evidence of a signed, distributable or device-verified APK.
+The debug build is not a standalone offline release: it needs the development server. A production release signing workflow is not supplied or verified; do not treat an `assembleRelease` command as evidence of a production-signed, distributable or device-verified APK. If Android refuses an update because the signing key differs, do not uninstall the existing app without first considering the loss of its local data.
 
 Install the Android SDK and JDK as described in `docs/SETUP.md`; [Expo SDK 58](https://docs.expo.dev/versions/latest/) also specifies compile SDK 37. Connect and authorize the phone, then run `pnpm --filter mobile android`. The development build requires its development server; for a fully offline test use a build with the JavaScript bundle and assets embedded. Before T18 is complete, verify on a physical device: 10 minutes playing with the screen off, lock-screen pause/resume, playback while switching apps, and position restoration after force-stop. Position checkpoints are attempted every five seconds during playback, subject to Android's background execution behavior.
 
