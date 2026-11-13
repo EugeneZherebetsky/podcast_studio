@@ -25,8 +25,8 @@ const chatgptSession = ["127.0.0.1", "::1"].includes(config.HOST)
   ? await createChatGptSession(path.join(config.DATA_DIR, "chatgpt"))
   : undefined;
 const events = new EventEmitter();
-const scriptSelection = chatgptSession ? createScriptSelection(path.join(config.DATA_DIR, "chatgpt"), chatgptSession) : undefined;
-const runner = chatgptSession && config.PROFILE === "local" && config.SEARCH_PROVIDER === "searxng" && config.TTS_PROVIDER === "piper"
+const scriptSelection = createScriptSelection(path.join(config.DATA_DIR, "chatgpt"), chatgptSession);
+const runner = config.PROFILE === "local" && config.SEARCH_PROVIDER === "searxng" && config.TTS_PROVIDER === "piper"
   ? createDesktopRunner({
       db, providers: createProviders(config), dataDir: dataDirs.root,
       budgetUsd: config.MONTHLY_BUDGET_USD, voice: config.TTS_VOICE_NATIVE_HOST ?? "",

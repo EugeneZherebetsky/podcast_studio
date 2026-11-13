@@ -234,6 +234,7 @@ export interface GenerateDeps {
   ttsName: string;
   nativeLang: string;
   scriptGenerator?: import("./script.ts").ScriptDeps["scriptGenerator"];
+  signal?: AbortSignal;
   onEvent?: (event: ServerEvent) => void;
 }
 
@@ -404,7 +405,7 @@ export async function generateJob(
           ...(deps.scriptGenerator
             ? { scriptGenerator: { ...deps.scriptGenerator, run: (input) => {
                 assertOwner();
-                return deps.scriptGenerator!.run(input);
+                return deps.scriptGenerator!.run(input, deps.signal);
               } } }
             : {}),
         },
@@ -472,7 +473,7 @@ export async function generateJob(
         sources: sources.sources,
         generation: {
           profile: deps.profile,
-          llm: deps.llmName,
+          llm: deps.scriptGenerator?.description ? `${deps.llmName}; ${deps.scriptGenerator.description}` : deps.llmName,
           tts: deps.ttsName,
           voice: deps.voice,
           costUsd: 0,

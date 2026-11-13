@@ -11,7 +11,7 @@ import { jobs, topics, settings } from "./db/schema.ts";
 import type { JobRunner } from "./job-routes.ts";
 import { cancelJob, CancelledAfterStage, createJob, generateJob, type GenerateDeps } from "./pipeline/runner.ts";
 import { openDesktopGuard } from "./desktop-guard.ts";
-import type { createScriptSelection } from "./chatgpt-selection.ts";
+import { ScriptPreflightError, type createScriptSelection } from "./chatgpt-selection.ts";
 
 /** Owns only jobs created in this process; never scans persisted jobs for work. */
 export function createDesktopRunner(
@@ -24,6 +24,7 @@ export function createDesktopRunner(
   const queue: { id: string; deps: GenerateDeps }[] = [];
   let active: Promise<void> | undefined;
   let activeId: string | undefined;
+  let abort: AbortController | undefined;
   let closing = false;
   let uncertain = false;
   const get = (id: string): Job => {
@@ -40,10 +41,11 @@ export function createDesktopRunner(
     const { id } = item;
     if (get(id).status !== "queued") return pump();
     activeId = id;
-    active = generateJob({ ...item.deps, onEvent: (event) => events.emit("event", event) }, id)
+    abort = new AbortController();
+    active = generateJob({ ...item.deps, signal: abort.signal, onEvent: (event) => events.emit("event", event) }, id)
       .catch((error: unknown) => {
         // A failed request may still be running in an external service.
-        if (!(error instanceof CancelledAfterStage)) {
+        if (!(error instanceof CancelledAfterStage) && !(error instanceof ScriptPreflightError)) {
           uncertain = true;
           const blocked = "External work may still be running; stop the server and follow manual recovery in SETUP.md";
           for (const queued of queue.splice(0)) {
@@ -63,6 +65,7 @@ export function createDesktopRunner(
       .finally(() => {
         active = undefined;
         activeId = undefined;
+        abort = undefined;
         pump();
       });
   }
@@ -122,12 +125,16 @@ export function createDesktopRunner(
       if (id !== activeId && !queue.some((item) => item.id === id))
         throw new Error("Job is not owned by this runner");
       cancelJob(deps.db, id);
+      if (id === activeId) abort?.abort();
       return get(id);
     },
     async close() {
       closing = true;
       for (const { id } of queue.splice(0)) cancelJob(deps.db, id);
-      if (activeId && get(activeId).currentStage !== "publish") cancelJob(deps.db, activeId);
+      if (activeId && get(activeId).currentStage !== "publish") {
+        cancelJob(deps.db, activeId);
+        abort?.abort();
+      }
       if (!active) {
         guard.close(!uncertain);
         return true;
