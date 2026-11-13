@@ -66,10 +66,10 @@ export interface LlmPrice {
 export type LlmPriceTable = Readonly<Record<string, LlmPrice>>;
 
 /**
- * EDIT ME. Add one line per cloud model id you put in `.env`, with the prices from the
- * provider's current pricing page (do not trust remembered numbers). A model that is not
- * listed here is recorded with cost 0 and a warning, so the monthly budget guard cannot
- * see it. Local (Ollama) models are free and need no entry.
+ * EDIT ME. Add one line per cloud AI SDK model id you put in `.env`, with prices from the
+ * provider's current pricing page (do not trust remembered numbers). Missing or invalid
+ * rates are refused before a provider call. Local (Ollama) models need no entry. ChatGPT
+ * subscription usage uses a separate provider and is not priced by this table.
  */
 export const LLM_PRICES: LlmPriceTable = {
   // EXAMPLE ONLY: a made-up model id with made-up prices, to show the format.
