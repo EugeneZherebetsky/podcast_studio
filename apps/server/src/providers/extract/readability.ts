@@ -3,6 +3,7 @@ import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import type { ExtractedPage, Extractor } from "./interface.ts";
 import { type DnsLookupFn, validateUrlForSsrf } from "./ssrf.ts";
+import { pinnedFetch } from "./pinned-fetch.ts";
 
 export const DEFAULT_USER_AGENT = "PodcastStudio/1.0 (article reader)";
 export const DEFAULT_TIMEOUT_MS = 10_000;
@@ -76,7 +77,10 @@ function findDateInJsonLd(data: unknown): string | undefined {
 }
 
 function extractPublishedDate(
-  doc: { querySelectorAll(s: string): Iterable<{ textContent?: string | null }>; querySelector(s: string): { getAttribute(attr: string): string | null } | null },
+  doc: {
+    querySelectorAll(s: string): Iterable<{ textContent?: string | null }>;
+    querySelector(s: string): { getAttribute(attr: string): string | null } | null;
+  },
   articlePublishedTime?: string | null,
 ): string | undefined {
   // 1. JSON-LD datePublished
@@ -171,7 +175,9 @@ export function extractArticleText(
     try {
       const wrapped = `<!DOCTYPE html><html><body>${articleContentHtml}</body></html>`;
       const { document } = parseHTML(wrapped);
-      const extracted = nodeToText(document.body).replace(/\n{3,}/g, "\n\n").trim();
+      const extracted = nodeToText(document.body)
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
       if (extracted) {
         return extracted;
       }
@@ -183,14 +189,14 @@ export function extractArticleText(
 }
 
 export class ReadabilityExtractor implements Extractor {
-  private readonly fetchFn: typeof fetch;
+  private readonly fetchFn?: typeof fetch;
   private readonly lookupFn: DnsLookupFn;
   private readonly userAgent: string;
   private readonly timeoutMs: number;
   private readonly maxSizeBytes: number;
 
   constructor(options: ReadabilityExtractorOptions = {}) {
-    this.fetchFn = options.fetch ?? globalThis.fetch;
+    this.fetchFn = options.fetch;
     this.lookupFn = options.lookup ?? defaultLookup;
     this.userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -218,22 +224,33 @@ export class ReadabilityExtractor implements Extractor {
 
     try {
       while (redirectCount <= maxRedirects) {
-        const validation = await validateUrlForSsrf(currentUrlStr, this.lookupFn);
-        if (!validation.allowed || !validation.parsedUrl) {
+        const validation = await Promise.race([
+          validateUrlForSsrf(currentUrlStr, this.lookupFn),
+          new Promise<never>((_, reject) => {
+            if (controller.signal.aborted) reject(new Error("Timeout"));
+            else
+              controller.signal.addEventListener("abort", () => reject(new Error("Timeout")), {
+                once: true,
+              });
+          }),
+        ]);
+        if (!validation.allowed || !validation.parsedUrl || !validation.address) {
           return null;
         }
 
         finalParsedUrl = validation.parsedUrl;
-
-        const currentRes: Response = await this.fetchFn(validation.parsedUrl.href, {
-          method: "GET",
-          headers: {
-            "User-Agent": this.userAgent,
-            Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
-          },
-          redirect: "manual",
-          signal: controller.signal,
-        });
+        const headers = {
+          "User-Agent": this.userAgent,
+          Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+        };
+        const currentRes: Response = this.fetchFn
+          ? await this.fetchFn(validation.parsedUrl.href, {
+              method: "GET",
+              headers,
+              redirect: "manual",
+              signal: controller.signal,
+            })
+          : await pinnedFetch(validation.parsedUrl, validation.address, headers, controller.signal);
 
         // Handle redirects manually to protect against SSRF targets
         if (
@@ -329,7 +346,9 @@ export class ReadabilityExtractor implements Extractor {
       }
 
       // Extract metadata before running Readability
-      const ogSiteName = doc.querySelector('meta[property="og:site_name"]')?.getAttribute("content");
+      const ogSiteName = doc
+        .querySelector('meta[property="og:site_name"]')
+        ?.getAttribute("content");
       const appName = doc.querySelector('meta[name="application-name"]')?.getAttribute("content");
       const ogTitle = doc.querySelector('meta[property="og:title"]')?.getAttribute("content");
       const docTitle = doc.title || doc.querySelector("title")?.textContent || "";
@@ -373,6 +392,7 @@ export class ReadabilityExtractor implements Extractor {
       };
     } finally {
       clearTimeout(timeoutHandle);
+      controller.abort();
     }
   }
 }

@@ -34,6 +34,9 @@ export function isPrivateOrLocalIpv4(ip: string): boolean {
   if (a === 198 && b === 51 && c === 100) return true;
   // 203.0.113.0/24 (TEST-NET-3)
   if (a === 203 && b === 0 && c === 113) return true;
+  // Benchmarking and deprecated relay ranges are not public destinations.
+  if (a === 198 && (b === 18 || b === 19)) return true;
+  if (a === 192 && b === 88 && c === 99) return true;
   // Multicast (224.0.0.0/4), reserved (240.0.0.0/4), and broadcast (255.255.255.255)
   if (a >= 224) return true;
 
@@ -151,6 +154,10 @@ export function isPrivateOrLocalIpv6(ip: string): boolean {
   // ff00::/8 (multicast)
   if ((first & 0xff00) === 0xff00) return true;
 
+  // Only global unicast, excluding special-purpose and documentation ranges.
+  if ((first & 0xe000) !== 0x2000) return true;
+  if (first === 0x2001 && (hextets[1]! < 0x200 || hextets[1] === 0xdb8)) return true;
+  if (first === 0x2002 || (first === 0x3fff && (hextets[1]! & 0xf000) === 0)) return true;
   return false;
 }
 
@@ -179,7 +186,7 @@ export type DnsLookupFn = (
 export async function validateUrlForSsrf(
   urlStr: string,
   lookupFn: DnsLookupFn = dnsLookup,
-): Promise<{ allowed: boolean; parsedUrl?: URL }> {
+): Promise<{ allowed: boolean; parsedUrl?: URL; address?: { address: string; family: number } }> {
   let parsed: URL;
   try {
     parsed = new URL(urlStr);
@@ -211,19 +218,19 @@ export async function validateUrlForSsrf(
     }
   }
 
+  if (parsed.username || parsed.password) return { allowed: false };
+  if (ipType !== 0)
+    return { allowed: true, parsedUrl: parsed, address: { address: hostname, family: ipType } };
+
   try {
     const addresses = await lookupFn(hostname, { all: true });
-    if (!addresses || addresses.length === 0) {
-      return { allowed: false };
-    }
+    if (!addresses || addresses.length === 0) return { allowed: false };
     for (const record of addresses) {
-      if (isBlockedIp(record.address)) {
+      if (isBlockedIp(record.address) || isIP(record.address) !== record.family)
         return { allowed: false };
-      }
     }
+    return { allowed: true, parsedUrl: parsed, address: addresses[0]! };
   } catch {
     return { allowed: false };
   }
-
-  return { allowed: true, parsedUrl: parsed };
 }

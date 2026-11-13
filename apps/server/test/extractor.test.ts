@@ -15,10 +15,7 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ARTICLE_HTML = readFileSync(path.join(__dirname, "fixtures/article.html"), "utf8");
-const PAYWALL_STUB_HTML = readFileSync(
-  path.join(__dirname, "fixtures/paywall-stub.html"),
-  "utf8",
-);
+const PAYWALL_STUB_HTML = readFileSync(path.join(__dirname, "fixtures/paywall-stub.html"), "utf8");
 const NON_HTML_TXT = readFileSync(path.join(__dirname, "fixtures/non-html.txt"), "utf8");
 
 describe("SSRF and IP validation", () => {
@@ -64,6 +61,41 @@ describe("SSRF and IP validation", () => {
     expect(isBlockedIp("::ffff:127.0.0.1")).toBe(true);
     expect(isBlockedIp("::ffff:192.168.1.1")).toBe(true);
     expect(isBlockedIp("::ffff:10.0.0.1")).toBe(true);
+  });
+
+  test("returns the validated address for the connection rather than resolving again", async () => {
+    const lookup = vi.fn(async () => [{ address: "8.8.8.8", family: 4 }]);
+    const result = await validateUrlForSsrf("https://example.com/", lookup);
+    expect(result).toMatchObject({ allowed: true, address: { address: "8.8.8.8", family: 4 } });
+    expect(lookup).toHaveBeenCalledTimes(1);
+  });
+
+  test("rejects mixed public and private DNS answers and reserved ranges", async () => {
+    expect(
+      (
+        await validateUrlForSsrf("https://example.com", async () => [
+          { address: "8.8.8.8", family: 4 },
+          { address: "::1", family: 6 },
+        ])
+      ).allowed,
+    ).toBe(false);
+    for (const ip of ["198.18.0.1", "2001:db8::1", "2002:7f00:1::"])
+      expect(isBlockedIp(ip)).toBe(true);
+  });
+
+  test("rejects a rebinding hostname on a redirect before contacting it", async () => {
+    const lookup = vi
+      .fn()
+      .mockResolvedValueOnce([{ address: "8.8.8.8", family: 4 }])
+      .mockResolvedValueOnce([{ address: "127.0.0.1", family: 4 }]);
+    const fetch = vi.fn(
+      async () => new Response(null, { status: 302, headers: { location: "/next" } }),
+    );
+    expect(
+      await new ReadabilityExtractor({ lookup, fetch }).extract("https://news.example.com/start"),
+    ).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(lookup).toHaveBeenCalledTimes(2);
   });
 
   test("allows public IP addresses", () => {
@@ -128,9 +160,7 @@ describe("ReadabilityExtractor SSRF enforcement", () => {
 
   test("refuses private hostnames that resolve to private IPs without fetching", async () => {
     const mockFetch = vi.fn();
-    const mockLookup: DnsLookupFn = vi.fn(async () => [
-      { address: "192.168.1.100", family: 4 },
-    ]);
+    const mockLookup: DnsLookupFn = vi.fn(async () => [{ address: "192.168.1.100", family: 4 }]);
     const extractor = new ReadabilityExtractor({
       fetch: mockFetch,
       lookup: mockLookup,
@@ -168,9 +198,7 @@ describe("ReadabilityExtractor SSRF enforcement", () => {
 });
 
 describe("ReadabilityExtractor HTML fixtures", () => {
-  const publicLookup: DnsLookupFn = vi.fn(async () => [
-    { address: "93.184.216.34", family: 4 },
-  ]);
+  const publicLookup: DnsLookupFn = vi.fn(async () => [{ address: "93.184.216.34", family: 4 }]);
 
   test("extracts title, text, site, and publishedAt from standard article fixture", async () => {
     const mockFetch = vi.fn(async () => {
@@ -259,9 +287,7 @@ describe("ReadabilityExtractor HTML fixtures", () => {
       lookup: publicLookup,
     });
     await extractor.extract("https://news.example.com/bees");
-    expect(capturedHeaders?.["User-Agent"]).toContain(
-      "PodcastStudio/1.0 (article reader)",
-    );
+    expect(capturedHeaders?.["User-Agent"]).toContain("PodcastStudio/1.0 (article reader)");
   });
 
   test("returns null when fetch exceeds timeout", async () => {
@@ -325,9 +351,7 @@ describe("ReadabilityExtractor HTML fixtures", () => {
 });
 
 describe("ReadabilityExtractor size cap enforcement", () => {
-  const publicLookup: DnsLookupFn = vi.fn(async () => [
-    { address: "93.184.216.34", family: 4 },
-  ]);
+  const publicLookup: DnsLookupFn = vi.fn(async () => [{ address: "93.184.216.34", family: 4 }]);
 
   test("refuses response when Content-Length header exceeds 5 MB", async () => {
     const mockFetch = vi.fn(async () => {
@@ -417,9 +441,7 @@ describe("trimToParagraphBoundary", () => {
 });
 
 describe("Date extraction variants", () => {
-  const publicLookup = vi.fn(async () => [
-    { address: "93.184.216.34", family: 4 },
-  ]);
+  const publicLookup = vi.fn(async () => [{ address: "93.184.216.34", family: 4 }]);
 
   test("extracts published date from schema.org JSON-LD", async () => {
     const html = `<!DOCTYPE html>
