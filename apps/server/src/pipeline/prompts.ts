@@ -9,6 +9,7 @@ export const PROMPT_NAMES = [
   "script",
   "local-script",
   "review",
+  "local-review",
   "graded-annotation",
   "graded-script",
   "graded-proofread",

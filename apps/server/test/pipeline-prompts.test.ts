@@ -52,6 +52,7 @@ test("every prompt file loads and has a system and a user part", () => {
     "script",
     "local-script",
     "review",
+    "local-review",
     "graded-annotation",
     "graded-script",
     "graded-proofread",

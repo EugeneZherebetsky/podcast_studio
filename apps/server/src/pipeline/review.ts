@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { runCachedStage, type StageResult } from "./artifacts.ts";
+import { hashInputs, runCachedStage, type StageResult } from "./artifacts.ts";
 import { escapeSourceText, loadPrompt, renderPrompt } from "./prompts.ts";
 import {
   assignIds,
@@ -33,6 +33,108 @@ export interface ReviewInput {
   sources: Sources;
   plan: Plan;
   noReview?: boolean;
+}
+
+async function runLocalReview(deps: ScriptDeps, input: ReviewInput, scriptInput: ScriptInput) {
+  const template = loadPrompt("local-review");
+  responseSchemaFor(scriptInput).parse(input.script);
+  ScriptSchema.parse(input.script);
+  if (input.script.segments.some((s, i) => s.id !== `seg-${String(i + 1).padStart(4, "0")}`))
+    throw new Error("Review requires continuous original segment IDs");
+  const segments: Script["segments"] = [];
+  const findings: Review["findings"] = [];
+  const usage: StageResult<Review>["usage"] = [];
+  const words = (text: string) => text.trim().split(/\s+/u).length;
+  for (const [index, segment] of input.script.segments.entries()) {
+    const ids = new Set(segment.sourceIds ?? []);
+    const evidence = ids.size
+      ? { facts: input.notes.facts.filter((fact) => ids.has(fact.sourceId)) }
+      : { outline: input.notes.outline };
+    if (ids.size && [...ids].some((id) => !input.notes.facts.some((fact) => fact.sourceId === id)))
+      throw new Error(`Missing evidence for segment ${segment.id}`);
+    const otherWords = [...segments, ...input.script.segments.slice(index + 1)].reduce(
+      (sum, item) => sum + words(item.text),
+      0,
+    );
+    const schema = z
+      .object({
+        text: z
+          .string()
+          .trim()
+          .min(1)
+          .max(segment.text.length * 2 + 200),
+        findings: z
+          .array(
+            FindingSchema.extend({
+              claim: z.string().min(1).max(500),
+              reason: z.string().min(1).max(500),
+            }),
+          )
+          .max(12),
+      })
+      .superRefine((part, ctx) => {
+        const total = otherWords + words(part.text);
+        if (total < input.plan.targetWordCount * 0.8 || total > input.plan.targetWordCount * 1.2)
+          ctx.addIssue({
+            code: "custom",
+            message: `Word count ${total} would exceed the episode budget`,
+          });
+        for (const finding of part.findings)
+          if (finding.segmentId !== segment.id)
+            ctx.addIssue({ code: "custom", message: `Finding must refer to ${segment.id}` });
+      });
+    const { system, prompt } = renderPrompt(
+      template,
+      {
+        budget: `${Math.max(1, Math.ceil(input.plan.targetWordCount * 0.8 - otherWords))}–${Math.floor(input.plan.targetWordCount * 1.2 - otherWords)} words (original: ${words(segment.text)})`,
+        notes: escapeSourceText(JSON.stringify(evidence)),
+        script: escapeSourceText(JSON.stringify(segment)),
+      },
+      "local-review",
+    );
+    const key = hashInputs({
+      version: 1,
+      model: deps.llm.localCacheIdentity,
+      input,
+      otherWords,
+      system,
+      prompt,
+      schema: z.toJSONSchema(schema),
+    });
+    const dir = path.join(deps.workDir, "review-segments");
+    const file = path.join(dir, `${key}.json`);
+    let part: z.infer<typeof schema> | undefined;
+    try {
+      const cached = schema.safeParse(JSON.parse(await readFile(file, "utf8")));
+      if (cached.success) part = cached.data;
+    } catch {
+      // Missing or damaged entries are regenerated.
+    }
+    if (!part) {
+      const result = await deps.llm.generateObject({
+        slot: "main",
+        system,
+        prompt,
+        schema,
+        localTimeoutMs: 900_000,
+      });
+      part = schema.parse(result.object);
+      usage.push(result.usage);
+      await mkdir(dir, { recursive: true });
+      const temp = `${file}.${randomUUID()}.tmp`;
+      try {
+        await writeFile(temp, JSON.stringify(part), "utf8");
+        await rename(temp, file);
+      } finally {
+        await rm(temp, { force: true });
+      }
+    }
+    segments.push({ ...segment, text: part.text });
+    findings.push(...part.findings);
+  }
+  const script = ScriptSchema.parse({ ...input.script, segments });
+  responseSchemaFor(scriptInput).parse(script);
+  return { artifact: { script, findings, skipped: false }, usage };
 }
 
 export async function runReviewStage(
@@ -66,14 +168,45 @@ export async function runReviewStage(
         if (!input.script.segments.some((s) => s.id === finding.segmentId))
           ctx.addIssue({ code: "custom", message: `Unknown segment ${finding.segmentId}` });
     });
+  const storedSchema = ReviewSchema.superRefine((review, ctx) => {
+    if (!deps.llm.localCacheIdentity || input.noReview) return;
+    const valid = responseSchemaFor(scriptInput).safeParse(review.script);
+    if (!valid.success) ctx.addIssue({ code: "custom", message: "Invalid reviewed script" });
+    if (
+      review.skipped ||
+      hashInputs({ ...review.script, segments: input.script.segments }) !==
+        hashInputs(input.script) ||
+      review.script.segments.length !== input.script.segments.length ||
+      review.script.segments.some(
+        (segment, i) =>
+          hashInputs({ ...segment, text: input.script.segments[i]?.text }) !==
+          hashInputs(input.script.segments[i]),
+      ) ||
+      review.findings.some(
+        (finding) => !input.script.segments.some((segment) => segment.id === finding.segmentId),
+      )
+    )
+      ctx.addIssue({ code: "custom", message: "Review changed script structure" });
+  });
   const result = await runCachedStage({
     workDir: deps.workDir,
     stage: "review",
-    inputs: { ...input, template },
-    schema: ReviewSchema,
+    inputs: {
+      ...input,
+      template,
+      ...(deps.llm.localCacheIdentity
+        ? {
+            localModel: deps.llm.localCacheIdentity,
+            localTemplate: loadPrompt("local-review"),
+            localReviewVersion: 1,
+          }
+        : {}),
+    },
+    schema: storedSchema,
     run: async () => {
       if (input.noReview)
         return { artifact: { script: input.script, findings: [], skipped: true }, usage: [] };
+      if (deps.llm.localCacheIdentity) return runLocalReview(deps, input, scriptInput);
       const { system, prompt } = renderPrompt(
         template,
         {

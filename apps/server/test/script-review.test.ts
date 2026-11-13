@@ -58,7 +58,10 @@ const localParts = [
     title: "One",
     summary: "Bees",
     intro: "Hi bees",
-    content: [{ text: "Bees always fly", sourceIds: ["s1"] }, { text: "Bees always fly", sourceIds: ["s1"] }],
+    content: [
+      { text: "Bees always fly", sourceIds: ["s1"] },
+      { text: "Bees always fly", sourceIds: ["s1"] },
+    ],
   },
   {
     title: "Two",
@@ -72,14 +75,23 @@ const localParts = [
   {
     title: "Three",
     summary: "Bees",
-    content: [{ text: "Bees flyyyyyyy", sourceIds: ["s1"] }, { text: "Bees flyyyyyyy", sourceIds: ["s1"] }],
+    content: [
+      { text: "Bees flyyyyyyy", sourceIds: ["s1"] },
+      { text: "Bees flyyyyyyy", sourceIds: ["s1"] },
+    ],
     recap: "Bees fly",
     outro: "Bye bees",
   },
 ];
 
 test("local script resumes validated chapters after a failure", async () => {
-  const input = { plan: { ...plan, targetWordCount: 24 }, notes, sources, lang: "en" as const, mode: "standard" as const };
+  const input = {
+    plan: { ...plan, targetWordCount: 24 },
+    notes,
+    sources,
+    lang: "en" as const,
+    mode: "standard" as const,
+  };
   const first = new LocalFake({ responses: [localParts[0]!] });
   await expect(runScriptStage({ workDir: dir, llm: first }, input)).rejects.toThrow();
   const second = new LocalFake({ responses: localParts.slice(1) });
@@ -88,22 +100,56 @@ test("local script resumes validated chapters after a failure", async () => {
   expect(result.artifact.summary).toBe("Bees");
 });
 
-test.each(["{broken", JSON.stringify({ ...localParts[0], summary: "" })])("invalid chapter cache is regenerated: %s", async (corruption) => {
-  const input = { plan: { ...plan, targetWordCount: 24 }, notes, sources, lang: "en" as const, mode: "standard" as const };
-  await expect(runScriptStage({ workDir: dir, llm: new LocalFake({ responses: [localParts[0]!] }) }, input)).rejects.toThrow();
-  const file = path.join(dir, "script-chapters", readdirSync(path.join(dir, "script-chapters"))[0]!);
-  writeFileSync(file, corruption);
-  const llm = new LocalFake({ responses: localParts });
-  await runScriptStage({ workDir: dir, llm }, input);
-  expect(llm.calls).toHaveLength(3);
-});
+test.each(["{broken", JSON.stringify({ ...localParts[0], summary: "" })])(
+  "invalid chapter cache is regenerated: %s",
+  async (corruption) => {
+    const input = {
+      plan: { ...plan, targetWordCount: 24 },
+      notes,
+      sources,
+      lang: "en" as const,
+      mode: "standard" as const,
+    };
+    await expect(
+      runScriptStage({ workDir: dir, llm: new LocalFake({ responses: [localParts[0]!] }) }, input),
+    ).rejects.toThrow();
+    const file = path.join(
+      dir,
+      "script-chapters",
+      readdirSync(path.join(dir, "script-chapters"))[0]!,
+    );
+    writeFileSync(file, corruption);
+    const llm = new LocalFake({ responses: localParts });
+    await runScriptStage({ workDir: dir, llm }, input);
+    expect(llm.calls).toHaveLength(3);
+  },
+);
 
 test.each(["source", "model"])("changed %s invalidates chapter cache", async (change) => {
-  const input = { plan: { ...plan, targetWordCount: 24 }, notes, sources, lang: "en" as const, mode: "standard" as const };
-  await expect(runScriptStage({ workDir: dir, llm: new LocalFake({ responses: [localParts[0]!] }) }, input)).rejects.toThrow();
-  class OtherModel extends FakeLlmProvider { readonly localCacheIdentity = "other-model"; }
-  const llm = change === "model" ? new OtherModel({ responses: localParts }) : new LocalFake({ responses: localParts });
-  const changed = change === "source" ? { ...input, sources: { sources: sources.sources.map((s) => ({ ...s, text: "Changed source." })) } } : input;
+  const input = {
+    plan: { ...plan, targetWordCount: 24 },
+    notes,
+    sources,
+    lang: "en" as const,
+    mode: "standard" as const,
+  };
+  await expect(
+    runScriptStage({ workDir: dir, llm: new LocalFake({ responses: [localParts[0]!] }) }, input),
+  ).rejects.toThrow();
+  class OtherModel extends FakeLlmProvider {
+    readonly localCacheIdentity = "other-model";
+  }
+  const llm =
+    change === "model"
+      ? new OtherModel({ responses: localParts })
+      : new LocalFake({ responses: localParts });
+  const changed =
+    change === "source"
+      ? {
+          ...input,
+          sources: { sources: sources.sources.map((s) => ({ ...s, text: "Changed source." })) },
+        }
+      : input;
   await runScriptStage({ workDir: dir, llm }, changed);
   expect(llm.calls).toHaveLength(3);
 });
@@ -198,14 +244,105 @@ test("local script and review request bounded streaming deadlines", async () => 
       { plan: { ...plan, targetWordCount: 24 }, notes, sources, lang: "en", mode: "standard" },
     )
   ).artifact;
-  llm.enqueue({ segments: script.segments, findings: [] });
+  llm.enqueue(...script.segments.map((segment) => ({ text: segment.text, findings: [] })));
   await runReviewStage(
     { workDir: dir, llm },
     { script, notes, sources, plan: { ...plan, targetWordCount: 24 } },
   );
-  expect(llm.calls.map((call) => call.localTimeoutMs)).toEqual([
-    900_000, 900_000, 900_000, 900_000,
-  ]);
+  expect(llm.calls.map((call) => call.localTimeoutMs)).toEqual(
+    Array(3 + script.segments.length).fill(900_000),
+  );
+});
+
+const reviewScript = {
+  ...draft,
+  segments: draft.segments.map((segment, i) => ({
+    ...segment,
+    kind: segment.kind as "intro" | "content" | "recap" | "outro",
+    speaker: "host" as const,
+    lang: "en" as const,
+    id: `seg-${String(i + 1).padStart(4, "0")}`,
+  })),
+};
+const reviewParts = reviewScript.segments.map((segment) => ({ text: segment.text, findings: [] }));
+
+test("local review resumes validated segments and preserves cross-segment integrity", async () => {
+  const input = { script: reviewScript, notes, sources, plan };
+  const first = new LocalFake({
+    responses: [
+      reviewParts[0]!,
+      {
+        text: "Bees can fly.",
+        findings: [
+          {
+            segmentId: "seg-0002",
+            claim: "Bees fly around.",
+            reason: "Unsupported detail",
+            action: "fixed",
+          },
+        ],
+      },
+    ],
+  });
+  await expect(runReviewStage({ workDir: dir, llm: first }, input)).rejects.toThrow("no response");
+  const second = new LocalFake({ responses: reviewParts.slice(2) });
+  const result = await runReviewStage({ workDir: dir, llm: second }, input);
+  expect(second.calls).toHaveLength(4);
+  expect(result.artifact.findings).toHaveLength(1);
+  expect(result.artifact.script.segments[1]?.text).toBe("Bees can fly.");
+  expect(result.artifact.script.chapters).toEqual(reviewScript.chapters);
+  expect(result.artifact.script.segments.map((s) => s.id)).toEqual(
+    reviewScript.segments.map((s) => s.id),
+  );
+  expect(reviewScript.segments[1]?.text).toBe("Bees fly around.");
+  expect(second.calls[0]?.prompt).toContain("Bees fly.");
+});
+
+test.each(["input", "model"])(
+  "local review invalidates saved batches on changed %s",
+  async (change) => {
+    const input = { script: reviewScript, notes, sources, plan };
+    await expect(
+      runReviewStage({ workDir: dir, llm: new LocalFake({ responses: [reviewParts[0]!] }) }, input),
+    ).rejects.toThrow();
+    class OtherModel extends FakeLlmProvider {
+      readonly localCacheIdentity = "other";
+    }
+    const llm =
+      change === "model"
+        ? new OtherModel({ responses: reviewParts })
+        : new LocalFake({ responses: reviewParts });
+    const changed =
+      change === "input"
+        ? { ...input, notes: { ...notes, facts: [{ sourceId: "s1", text: "Changed." }] } }
+        : input;
+    await runReviewStage({ workDir: dir, llm }, changed);
+    expect(llm.calls).toHaveLength(reviewParts.length);
+  },
+);
+
+test("local review rejects cross-segment findings and preserves valid prior cache", async () => {
+  const input = { script: reviewScript, notes, sources, plan };
+  const bad = {
+    text: "Bees fly around.",
+    findings: [{ segmentId: "seg-0003", claim: "x", reason: "x", action: "removed" }],
+  };
+  await expect(
+    runReviewStage(
+      { workDir: dir, llm: new LocalFake({ responses: [reviewParts[0]!, bad] }) },
+      input,
+    ),
+  ).rejects.toThrow();
+  const llm = new LocalFake({ responses: reviewParts.slice(1) });
+  await runReviewStage({ workDir: dir, llm }, input);
+  expect(llm.calls).toHaveLength(reviewParts.length - 1);
+});
+
+test("local review rejects aggregate word budget violations", async () => {
+  const llm = new LocalFake({ responses: reviewParts.map(() => ({ text: "Hi", findings: [] })) });
+  await expect(
+    runReviewStage({ workDir: dir, llm }, { script: reviewScript, notes, sources, plan }),
+  ).rejects.toThrow("Word count");
 });
 
 test("script assigns valid segment ids and caches the artifact", async () => {
