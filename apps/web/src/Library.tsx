@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Episode, EpisodeSummary } from "shared";
 import { api } from "./api.ts";
 import { Transcript } from "./Transcript.tsx";
+import { UsbExport } from "./UsbExport.tsx";
 
 export function Library() {
   const [episodes, setEpisodes] = useState<EpisodeSummary[] | null>(null);
@@ -63,7 +64,7 @@ export function Library() {
                 </small>
               </div>
               <a className="button-link" href={`#/episode/${encodeURIComponent(episode.id)}`}>
-                Listen →
+                Listen / export →
               </a>
             </article>
           ))}
@@ -183,6 +184,7 @@ export function Player({ id }: { id: string }) {
           </p>
         )}
       </div>
+      <UsbExport id={id} />
       <div className="player-grid">
         <section>
           <h2>Transcript</h2>

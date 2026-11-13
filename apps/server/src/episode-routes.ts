@@ -1,13 +1,48 @@
+import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { lstat, readFile, realpath, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { eq, gt } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { EpisodeSummarySchema, GetEpisodeResponseSchema, ListEpisodesQuerySchema } from "shared";
+import { EpisodeSchema, EpisodeSummarySchema, GetEpisodeResponseSchema, ListEpisodesQuerySchema } from "shared";
 import type { Db } from "./db/index.ts";
 import { episodes } from "./db/schema.ts";
 
 export function registerEpisodeRoutes(app: FastifyInstance, db: Db, dataDir?: string): void {
+  app.get<{ Params: { id: string; file: string } }>("/api/episodes/:id/usb/:file", async (request, reply) => {
+    const ip = request.ip;
+    if (ip !== "::1" && !ip.startsWith("127.") && !ip.startsWith("::ffff:127."))
+      return reply.code(403).send({ error: "USB export is only available locally" });
+    const { id, file } = request.params;
+    if (file !== "episode.json" && file !== "audio.m4a") return reply.code(404).send({ error: "File not found" });
+    const row = db.select().from(episodes).where(eq(episodes.id, id)).get();
+    if (!row) return reply.code(404).send({ error: "Episode not found" });
+    try {
+      if (!dataDir || !/^[a-zA-Z0-9_-]+$/.test(id)) throw new Error("unsafe path");
+      const root = path.resolve(dataDir, "episodes");
+      const dir = path.join(root, id);
+      if (path.resolve(row.path) !== dir || await realpath(root) !== path.join(await realpath(dataDir), "episodes") || await realpath(dir) !== path.join(await realpath(root), id)) throw new Error("unsafe path");
+      for (const name of ["episode.json", "audio.m4a"]) {
+        if (!(await lstat(path.join(dir, name))).isFile()) throw new Error("unsafe file");
+      }
+      const metadata = await readFile(path.join(dir, "episode.json"));
+      const episode = EpisodeSchema.parse(JSON.parse(metadata.toString("utf8")));
+      if (episode.id !== id) throw new Error("episode mismatch");
+      const hash = createHash("sha256");
+      let bytes = 0;
+      for await (const chunk of createReadStream(path.join(dir, "audio.m4a"))) {
+        const buffer = chunk as Buffer;
+        bytes += buffer.length;
+        hash.update(buffer);
+      }
+      if (bytes !== episode.audio.bytes || hash.digest("hex") !== episode.audio.sha256) throw new Error("audio mismatch");
+      reply.header("cache-control", "no-store").header("content-disposition", `attachment; filename="${file}"`);
+      if (file === "episode.json") return reply.type("application/json").send(metadata);
+      return reply.type("audio/mp4").send(createReadStream(path.join(dir, file)));
+    } catch {
+      return reply.code(422).send({ error: "Episode package is unavailable, unsafe, or failed integrity verification" });
+    }
+  });
   app.delete<{ Params: { id: string } }>("/api/episodes/:id", async (request, reply) => {
     const episode = db.select().from(episodes).where(eq(episodes.id, request.params.id)).get();
     if (!episode) return reply.code(404).send({ error: "Episode not found" });

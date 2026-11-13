@@ -6,6 +6,8 @@ Status: **design complete, no code yet.**
 
 ## Export an existing episode for USB
 
+In the PC Library, open a finished episode and use **Export for Android via USB**. Download both files into a new empty folder, retaining the names `episode.json` and `audio.m4a`. If the browser saves them elsewhere, move them to that folder; do not overwrite files from another episode. Connect and unlock the phone, select USB file transfer, copy the folder to the phone, and in Android Library choose **Import USB package**, then select the metadata and audio files in order. This is a manual transfer, not automatic sync. The browser downloads validate the package before serving each file; a failed validation returns an error instead of a download.
+
 From the repository root, run `pnpm usb:export "<package-directory>" "<new-export-directory>"`. The source is an existing package directory containing `episode.json` and `audio.m4a` (normally `episodes/<id>` under the configured data directory); the destination must not exist and its parent must already exist. This command does not generate episodes or overwrite a destination. It validates the shared metadata schema and the copied audio's size and SHA-256 before writing the original metadata. A failed export can leave an incomplete destination; inspect it and use a new directory to retry.
 
 Copy both exported files to the phone over USB, then use Library's import picker to select `episode.json` and `audio.m4a`. Only import packages from a trusted source; checksums detect corruption, not malicious replacement. Device transfer, offline playback and restart-position checks remain to be verified.
