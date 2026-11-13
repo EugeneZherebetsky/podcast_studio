@@ -12,6 +12,16 @@ import {
   validateUrlForSsrf,
 } from "../src/providers/extract/ssrf.ts";
 
+vi.mock("../src/providers/extract/pinned-fetch.ts", () => ({ pinnedFetch: vi.fn() }));
+import { pinnedFetch } from "../src/providers/extract/pinned-fetch.ts";
+
+function mockTransport(fetchFn: typeof fetch) {
+  vi.mocked(pinnedFetch).mockImplementation((url, _address, headers, signal) =>
+    fetchFn(url.href, { method: "GET", headers, redirect: "manual", signal }),
+  );
+  return {};
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ARTICLE_HTML = readFileSync(path.join(__dirname, "fixtures/article.html"), "utf8");
@@ -92,7 +102,9 @@ describe("SSRF and IP validation", () => {
       async () => new Response(null, { status: 302, headers: { location: "/next" } }),
     );
     expect(
-      await new ReadabilityExtractor({ lookup, fetch }).extract("https://news.example.com/start"),
+      await new ReadabilityExtractor({ lookup, ...mockTransport(fetch) }).extract(
+        "https://news.example.com/start",
+      ),
     ).toBeNull();
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(lookup).toHaveBeenCalledTimes(2);
@@ -126,9 +138,17 @@ describe("SSRF and IP validation", () => {
 });
 
 describe("ReadabilityExtractor SSRF enforcement", () => {
+  test("times out stalled DNS before contacting a transport", async () => {
+    const fetch = vi.fn();
+    const lookup = vi.fn(() => new Promise<never>(() => {}));
+    const extractor = new ReadabilityExtractor({ lookup, timeoutMs: 20, ...mockTransport(fetch) });
+    expect(await extractor.extract("https://news.example.com/")).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   test("refuses http://127.0.0.1 without fetching", async () => {
     const mockFetch = vi.fn();
-    const extractor = new ReadabilityExtractor({ fetch: mockFetch });
+    const extractor = new ReadabilityExtractor({ ...mockTransport(mockFetch) });
     const result = await extractor.extract("http://127.0.0.1/secret");
     expect(result).toBeNull();
     expect(mockFetch).not.toHaveBeenCalled();
@@ -136,7 +156,7 @@ describe("ReadabilityExtractor SSRF enforcement", () => {
 
   test("refuses http://169.254.169.254 without fetching", async () => {
     const mockFetch = vi.fn();
-    const extractor = new ReadabilityExtractor({ fetch: mockFetch });
+    const extractor = new ReadabilityExtractor({ ...mockTransport(mockFetch) });
     const result = await extractor.extract("http://169.254.169.254/latest/meta-data");
     expect(result).toBeNull();
     expect(mockFetch).not.toHaveBeenCalled();
@@ -144,7 +164,7 @@ describe("ReadabilityExtractor SSRF enforcement", () => {
 
   test("refuses file:///etc/passwd without fetching", async () => {
     const mockFetch = vi.fn();
-    const extractor = new ReadabilityExtractor({ fetch: mockFetch });
+    const extractor = new ReadabilityExtractor({ ...mockTransport(mockFetch) });
     const result = await extractor.extract("file:///etc/passwd");
     expect(result).toBeNull();
     expect(mockFetch).not.toHaveBeenCalled();
@@ -152,7 +172,7 @@ describe("ReadabilityExtractor SSRF enforcement", () => {
 
   test("refuses IPv6 loopback and link-local URLs without fetching", async () => {
     const mockFetch = vi.fn();
-    const extractor = new ReadabilityExtractor({ fetch: mockFetch });
+    const extractor = new ReadabilityExtractor({ ...mockTransport(mockFetch) });
     expect(await extractor.extract("http://[::1]/secret")).toBeNull();
     expect(await extractor.extract("http://[fe80::1]/secret")).toBeNull();
     expect(mockFetch).not.toHaveBeenCalled();
@@ -162,7 +182,7 @@ describe("ReadabilityExtractor SSRF enforcement", () => {
     const mockFetch = vi.fn();
     const mockLookup: DnsLookupFn = vi.fn(async () => [{ address: "192.168.1.100", family: 4 }]);
     const extractor = new ReadabilityExtractor({
-      fetch: mockFetch,
+      ...mockTransport(mockFetch),
       lookup: mockLookup,
     });
 
@@ -187,7 +207,7 @@ describe("ReadabilityExtractor SSRF enforcement", () => {
     });
 
     const extractor = new ReadabilityExtractor({
-      fetch: mockFetch,
+      ...mockTransport(mockFetch),
       lookup: mockLookup,
     });
 
@@ -209,7 +229,7 @@ describe("ReadabilityExtractor HTML fixtures", () => {
     });
 
     const extractor = new ReadabilityExtractor({
-      fetch: mockFetch,
+      ...mockTransport(mockFetch),
       lookup: publicLookup,
     });
 
@@ -231,7 +251,7 @@ describe("ReadabilityExtractor HTML fixtures", () => {
     });
 
     const extractor = new ReadabilityExtractor({
-      fetch: mockFetch,
+      ...mockTransport(mockFetch),
       lookup: publicLookup,
     });
 
@@ -248,7 +268,7 @@ describe("ReadabilityExtractor HTML fixtures", () => {
     });
 
     const extractor = new ReadabilityExtractor({
-      fetch: mockFetch,
+      ...mockTransport(mockFetch),
       lookup: publicLookup,
     });
 
@@ -265,7 +285,7 @@ describe("ReadabilityExtractor HTML fixtures", () => {
     });
 
     const extractor = new ReadabilityExtractor({
-      fetch: mockFetch,
+      ...mockTransport(mockFetch),
       lookup: publicLookup,
     });
 
@@ -283,7 +303,7 @@ describe("ReadabilityExtractor HTML fixtures", () => {
       });
     });
     const extractor = new ReadabilityExtractor({
-      fetch: mockFetch,
+      ...mockTransport(mockFetch),
       lookup: publicLookup,
     });
     await extractor.extract("https://news.example.com/bees");
@@ -300,7 +320,7 @@ describe("ReadabilityExtractor HTML fixtures", () => {
         }),
     );
     const extractor = new ReadabilityExtractor({
-      fetch: mockFetch,
+      ...mockTransport(mockFetch),
       lookup: publicLookup,
       timeoutMs: 30,
     });
@@ -321,7 +341,7 @@ describe("ReadabilityExtractor HTML fixtures", () => {
       });
     });
     const extractor = new ReadabilityExtractor({
-      fetch: mockFetch,
+      ...mockTransport(mockFetch),
       lookup: publicLookup,
     });
     const result = await extractor.extract("https://news.example.com/long");
@@ -341,7 +361,7 @@ describe("ReadabilityExtractor HTML fixtures", () => {
     });
 
     const extractor = new ReadabilityExtractor({
-      fetch: mockFetch,
+      ...mockTransport(mockFetch),
       lookup: publicLookup,
     });
 
@@ -365,7 +385,7 @@ describe("ReadabilityExtractor size cap enforcement", () => {
     });
 
     const extractor = new ReadabilityExtractor({
-      fetch: mockFetch,
+      ...mockTransport(mockFetch),
       lookup: publicLookup,
     });
 
@@ -391,7 +411,7 @@ describe("ReadabilityExtractor size cap enforcement", () => {
     });
 
     const extractor = new ReadabilityExtractor({
-      fetch: mockFetch,
+      ...mockTransport(mockFetch),
       lookup: publicLookup,
     });
 
@@ -474,7 +494,7 @@ describe("Date extraction variants", () => {
     });
 
     const extractor = new ReadabilityExtractor({
-      fetch: mockFetch,
+      ...mockTransport(mockFetch),
       lookup: publicLookup,
     });
 

@@ -11,7 +11,6 @@ export const DEFAULT_MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 export const MAX_ARTICLE_TEXT_LENGTH = 8000;
 
 export interface ReadabilityExtractorOptions {
-  fetch?: typeof fetch;
   lookup?: DnsLookupFn;
   userAgent?: string;
   timeoutMs?: number;
@@ -189,14 +188,12 @@ export function extractArticleText(
 }
 
 export class ReadabilityExtractor implements Extractor {
-  private readonly fetchFn?: typeof fetch;
   private readonly lookupFn: DnsLookupFn;
   private readonly userAgent: string;
   private readonly timeoutMs: number;
   private readonly maxSizeBytes: number;
 
   constructor(options: ReadabilityExtractorOptions = {}) {
-    this.fetchFn = options.fetch;
     this.lookupFn = options.lookup ?? defaultLookup;
     this.userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -243,14 +240,12 @@ export class ReadabilityExtractor implements Extractor {
           "User-Agent": this.userAgent,
           Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
         };
-        const currentRes: Response = this.fetchFn
-          ? await this.fetchFn(validation.parsedUrl.href, {
-              method: "GET",
-              headers,
-              redirect: "manual",
-              signal: controller.signal,
-            })
-          : await pinnedFetch(validation.parsedUrl, validation.address, headers, controller.signal);
+        const currentRes = await pinnedFetch(
+          validation.parsedUrl,
+          validation.address,
+          headers,
+          controller.signal,
+        );
 
         // Handle redirects manually to protect against SSRF targets
         if (
