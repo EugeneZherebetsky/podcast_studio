@@ -199,6 +199,7 @@ This table records existing and planned API surface, not authorization to expose
 | `POST /sync/playback` | Existing legacy endpoint; not used for phone progress |
 | `POST /sync/vocab` | Existing legacy endpoint; not used for phone vocabulary |
 | `GET/PUT /settings` | profile, voices, native language, level, budget; never returns secrets |
+| `GET /settings/cloud-tts` | loopback-only, non-cacheable OpenAI/Azure key-presence flags; no connection test or activation. PC cloud TTS selection remains disabled until generation and cost controls are safe. |
 | `GET /feed.xml?token=` | optional RSS feed of episodes for third-party podcast apps |
 
 ## 7. Mobile app

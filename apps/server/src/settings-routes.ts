@@ -22,6 +22,15 @@ export function registerSettingsRoutes(app: FastifyInstance, db: Db, config: App
     const row = db.select().from(settings).where(eq(settings.key, "api-settings")).get();
     return row ? SettingsSchema.parse(row.value) : defaults;
   }
+  app.get("/api/settings/cloud-tts", async (request, reply) => {
+    const ip = request.ip;
+    if (ip !== "::1" && !ip.startsWith("127.") && !ip.startsWith("::ffff:127."))
+      return reply.code(403).send({ error: "Local access required" });
+    return reply.header("cache-control", "no-store").send({
+      openaiConfigured: Boolean(config.OPENAI_API_KEY?.trim()),
+      azureConfigured: Boolean(config.AZURE_SPEECH_KEY?.trim()),
+    });
+  });
   app.get("/api/settings", async () => current());
   app.put("/api/settings", async (request, reply) => {
     const parsed = UpdateSettingsRequestSchema.safeParse(request.body);

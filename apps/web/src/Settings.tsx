@@ -3,12 +3,24 @@ import { SettingsSchema, type Settings as SettingsValue } from "shared";
 import { api } from "./api.ts";
 import { PairingStatus, UsageTotal } from "./SettingsExtras.tsx";
 import { ChatGptSettings } from "./ChatGptSettings.tsx";
+import { CloudTts, type CloudTtsStatus } from "./CloudTts.tsx";
 
 export function Settings() {
   const [value, setValue] = useState<SettingsValue | null>(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [cloudTts, setCloudTts] = useState<CloudTtsStatus | null>(null);
+  useEffect(() => {
+    fetch("/api/settings/cloud-tts")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Status unavailable");
+        const data: unknown = await response.json();
+        if (typeof data !== "object" || data === null || !("openaiConfigured" in data) || !("azureConfigured" in data) || typeof data.openaiConfigured !== "boolean" || typeof data.azureConfigured !== "boolean") throw new Error("Invalid status");
+        setCloudTts({ openaiConfigured: data.openaiConfigured, azureConfigured: data.azureConfigured });
+      })
+      .catch(() => setCloudTts(null));
+  }, []);
   useEffect(() => {
     api
       .settings()
@@ -49,6 +61,7 @@ export function Settings() {
         <p>An experimental command-line manual draft workflow exists, but it requires prepared research and is not connected to review, audio, or publication. See docs/MANUAL-GEMINI.md in the project for its safety restrictions.</p>
       </section>
       <PairingStatus />
+      <CloudTts status={cloudTts} />
       {error && (
         <p role="alert" className="error">
           {error}
