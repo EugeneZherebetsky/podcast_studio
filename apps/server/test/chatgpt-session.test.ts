@@ -5,6 +5,25 @@ import { expect, it, vi } from "vitest";
 import { createChatGptSession } from "../src/providers/llm/chatgpt-session.ts";
 import { beginChatGptLogin } from "../src/providers/llm/chatgpt-login.ts";
 
+it("treats an absent optional refresh token as nothing to revoke", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "chatgpt-session-"));
+  try {
+    const revoke = vi.fn(async () => true);
+    const session = await createChatGptSession(dir, async () => ({
+      authorizationUrl: "https://example.test",
+      close() {},
+      result: Promise.resolve({ kind: "success" as const, subject: "sub", clientId: "client",
+        accessToken: "access", idToken: "id", expiresIn: 60, scopes: [], planEnabled: false }),
+    }), revoke);
+    await (await session.login("work")).complete();
+    expect(await session.signout()).toBe(true);
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(session.status().remoteUncertain).toBe(false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 it("reports uncertainty on cancellation during exchange and revokes late credentials", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "chatgpt-session-"));
   try {

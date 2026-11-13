@@ -122,7 +122,7 @@ export function ChatGptSettings() {
           ? status.expired
             ? "Session expired. Sign out and sign in again."
             : status.active
-              ? `Signed in as ${status.active}. ${status.planEnabled ? "Plan access enabled." : "Plan access not enabled."}`
+              ? `Signed in as ${status.active}. ${status.planEnabled ? "Required scopes granted; plan eligibility is not verified." : "Required scopes not granted; plan eligibility is not verified."}`
               : status.phase === "pending" || status.phase === "starting"
                 ? "Sign-in pending."
                 : status.phase === "failed"

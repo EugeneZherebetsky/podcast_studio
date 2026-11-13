@@ -66,7 +66,7 @@ export async function createChatGptSession(
   let signingOut = false;
   let remoteUncertain = false;
   async function discard(result: Success) {
-    let refreshRevoked = false;
+    let refreshRevoked = !result.refreshToken;
     let accessRevoked = false;
     if (result.refreshToken) {
       try {
