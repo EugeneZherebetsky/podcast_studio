@@ -1,4 +1,4 @@
-// Isolated protocol preparation only: not wired to a listener, UI, token exchange or provider.
+// Protocol preparation shared by the isolated login flow.
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 const resource = "https://api.openai.com/v1";

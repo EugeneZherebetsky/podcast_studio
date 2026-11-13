@@ -1,4 +1,4 @@
-// Identity verification is isolated and is not yet connected to a sign-in flow.
+// Verify identity before returning an in-memory login result.
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 
 const issuer = "https://auth.openai.com";
