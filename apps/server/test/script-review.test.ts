@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { parseConfig } from "shared";
@@ -57,25 +57,56 @@ const localParts = [
   {
     title: "One",
     summary: "Bees",
-    intro: "Welcome to the bees.",
-    content: [{ text: "Bees fly all around.", sourceIds: ["s1"] }],
+    intro: "Hi bees",
+    content: [{ text: "Bees always fly", sourceIds: ["s1"] }, { text: "Bees always fly", sourceIds: ["s1"] }],
   },
   {
     title: "Two",
     summary: "Bees",
     content: [
-      { text: "Bees fly all around.", sourceIds: ["s1"] },
-      { text: "Bees fly all around.", sourceIds: ["s1"] },
+      { text: "Bees always fly", sourceIds: ["s1"] },
+      { text: "Bees always fly", sourceIds: ["s1"] },
+      { text: "Bees flyyyyyyy", sourceIds: ["s1"] },
     ],
   },
   {
     title: "Three",
     summary: "Bees",
-    content: [{ text: "Bees fly.", sourceIds: ["s1"] }],
-    recap: "Bees can fly.",
-    outro: "Thanks for listening.",
+    content: [{ text: "Bees flyyyyyyy", sourceIds: ["s1"] }, { text: "Bees flyyyyyyy", sourceIds: ["s1"] }],
+    recap: "Bees fly",
+    outro: "Bye bees",
   },
 ];
+
+test("local script resumes validated chapters after a failure", async () => {
+  const input = { plan: { ...plan, targetWordCount: 24 }, notes, sources, lang: "en" as const, mode: "standard" as const };
+  const first = new LocalFake({ responses: [localParts[0]!] });
+  await expect(runScriptStage({ workDir: dir, llm: first }, input)).rejects.toThrow();
+  const second = new LocalFake({ responses: localParts.slice(1) });
+  const result = await runScriptStage({ workDir: dir, llm: second }, input);
+  expect(second.calls).toHaveLength(2);
+  expect(result.artifact.summary).toBe("Bees");
+});
+
+test.each(["{broken", JSON.stringify({ ...localParts[0], summary: "" })])("invalid chapter cache is regenerated: %s", async (corruption) => {
+  const input = { plan: { ...plan, targetWordCount: 24 }, notes, sources, lang: "en" as const, mode: "standard" as const };
+  await expect(runScriptStage({ workDir: dir, llm: new LocalFake({ responses: [localParts[0]!] }) }, input)).rejects.toThrow();
+  const file = path.join(dir, "script-chapters", readdirSync(path.join(dir, "script-chapters"))[0]!);
+  writeFileSync(file, corruption);
+  const llm = new LocalFake({ responses: localParts });
+  await runScriptStage({ workDir: dir, llm }, input);
+  expect(llm.calls).toHaveLength(3);
+});
+
+test.each(["source", "model"])("changed %s invalidates chapter cache", async (change) => {
+  const input = { plan: { ...plan, targetWordCount: 24 }, notes, sources, lang: "en" as const, mode: "standard" as const };
+  await expect(runScriptStage({ workDir: dir, llm: new LocalFake({ responses: [localParts[0]!] }) }, input)).rejects.toThrow();
+  class OtherModel extends FakeLlmProvider { readonly localCacheIdentity = "other-model"; }
+  const llm = change === "model" ? new OtherModel({ responses: localParts }) : new LocalFake({ responses: localParts });
+  const changed = change === "source" ? { ...input, sources: { sources: sources.sources.map((s) => ({ ...s, text: "Changed source." })) } } : input;
+  await runScriptStage({ workDir: dir, llm }, changed);
+  expect(llm.calls).toHaveLength(3);
+});
 
 test("local script computes indices, validates budget and caches", async () => {
   const llm = new LocalFake({ responses: localParts });
@@ -87,7 +118,7 @@ test("local script computes indices, validates budget and caches", async () => {
     mode: "standard" as const,
   };
   const result = await runScriptStage({ workDir: dir, llm }, input);
-  expect(result.artifact.chapters.map((c) => c.segmentIndex)).toEqual([1, 2, 4]);
+  expect(result.artifact.chapters.map((c) => c.segmentIndex)).toEqual([1, 3, 6]);
   expect(responseSchemaFor(input).safeParse(result.artifact).success).toBe(true);
   expect(result.usage).toHaveLength(3);
   expect((await runScriptStage({ workDir: dir, llm }, input)).skipped).toBe(true);

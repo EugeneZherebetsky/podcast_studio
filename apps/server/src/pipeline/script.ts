@@ -1,7 +1,10 @@
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { ScriptSegmentSchema, type Lang } from "shared";
 import { z } from "zod";
 import type { LlmProvider, Usage } from "../providers/llm/interface.ts";
-import { runCachedStage, type StageResult } from "./artifacts.ts";
+import { hashInputs, runCachedStage, type StageResult } from "./artifacts.ts";
 import { escapeSourceText, loadPrompt, renderPrompt, type PromptTemplate } from "./prompts.ts";
 import type { Notes, Plan, Sources } from "./schemas.ts";
 
@@ -108,15 +111,31 @@ async function runLocalScript(deps: ScriptDeps, input: ScriptInput, template: Pr
   let title = "";
   let summary = "";
   const target = input.plan.targetWordCount;
+  const groups = input.sources.sources.map((source) =>
+    input.notes.facts.filter((fact) => fact.sourceId === source.id),
+  );
+  const balancedFacts = Array.from({ length: Math.max(0, ...groups.map((g) => g.length)) }, (_, i) =>
+    groups.flatMap((g) => (g[i] ? [g[i]] : [])),
+  ).flat();
+  if (balancedFacts.length === 0) throw new Error("Local script requires source-backed facts");
   for (let i = 0; i < 3; i++) {
     const budget = Math.floor(target / 3) + (i < target % 3 ? 1 : 0);
+    const paragraphs = i === 1 ? 3 : 2;
+    const scale = budget / 140;
+    const minChars = Math.max(1, Math.floor(260 * scale));
+    const maxChars = Math.max(minChars, Math.ceil(450 * scale));
+    const shortMin = Math.max(1, Math.floor(50 * scale));
+    const shortMax = Math.max(shortMin, Math.ceil(150 * scale));
+    const facts = Array.from({ length: Math.min(8, balancedFacts.length) }, (_, n) =>
+      balancedFacts[(i * 8 + n) % balancedFacts.length]!,
+    );
+    const chapterIds = new Set(facts.map((fact) => fact.sourceId));
     const schema = z
       .object({
-        title: text,
-        summary: text,
-        ...(i === 0 ? { intro: text } : {}),
-        content: z.array(z.object({ text, sourceIds: z.array(text).min(1) })).min(1),
-        ...(i === 2 ? { recap: text, outro: text } : {}),
+        title: text.max(80),
+        ...(i === 0 ? { summary: text.max(450), intro: text.min(shortMin).max(shortMax) } : {}),
+        content: z.array(z.object({ text: text.min(minChars).max(maxChars), sourceIds: z.array(z.enum([...chapterIds])).min(1).max(2) })).length(paragraphs),
+        ...(i === 2 ? { recap: text.min(shortMin).max(shortMax), outro: text.min(shortMin).max(shortMax) } : {}),
       })
       .superRefine((part, ctx) => {
         const spoken = [
@@ -133,7 +152,7 @@ async function runLocalScript(deps: ScriptDeps, input: ScriptInput, template: Pr
           });
         part.content.forEach((segment, index) =>
           segment.sourceIds.forEach((id) => {
-            if (!ids.has(id))
+            if (!ids.has(id) || !chapterIds.has(id))
               ctx.addIssue({
                 code: "custom",
                 path: ["content", index, "sourceIds"],
@@ -148,28 +167,39 @@ async function runLocalScript(deps: ScriptDeps, input: ScriptInput, template: Pr
         lang: input.lang,
         part: String(i + 1),
         budget: String(budget),
-        boundary:
-          i === 0
-            ? "Include an intro before content."
-            : i === 2
-              ? "Include a recap and outro after content."
-              : "Only write chapter content.",
-        notes: escapeSourceText(JSON.stringify({ plan: input.plan, notes: input.notes })),
+        boundary: `${i === 0 ? "Include an intro and a nonempty episode summary." : i === 2 ? "Include a recap and outro." : "Only write chapter content."} Write exactly ${paragraphs} content paragraphs, each ${minChars}–${maxChars} characters. Intro, recap and outro, if present: ${shortMin}–${shortMax} characters.`,
+        notes: escapeSourceText(JSON.stringify({ facts, ...(i === 0 ? { angle: input.plan.angle, outline: input.notes.outline } : {}) })),
       },
       "local-script",
     );
-    const result = await deps.llm.generateObject({
-      slot: "main",
-      system,
-      prompt,
-      schema,
-      localTimeoutMs: 900_000,
-    });
-    usage.push(result.usage);
-    const part = result.object;
+    const key = hashInputs({ version: 2, model: deps.llm.localCacheIdentity, input, system, prompt, schema: z.toJSONSchema(schema) });
+    const cacheDir = path.join(deps.workDir, "script-chapters");
+    const file = path.join(cacheDir, `${key}.json`);
+    let part: z.infer<typeof schema> | undefined;
+    try {
+      const cached = schema.safeParse(JSON.parse(await readFile(file, "utf8")));
+      if (cached.success) part = cached.data;
+    } catch {
+      // A missing or damaged entry must be regenerated.
+    }
+    if (!part) {
+      const result = await deps.llm.generateObject({
+        slot: "main", system, prompt, schema, localTimeoutMs: 900_000,
+      });
+      part = schema.parse(result.object);
+      usage.push(result.usage);
+      await mkdir(cacheDir, { recursive: true });
+      const temp = `${file}.${randomUUID()}.tmp`;
+      try {
+        await writeFile(temp, JSON.stringify(part), "utf8");
+        await rename(temp, file);
+      } finally {
+        await rm(temp, { force: true });
+      }
+    }
     if (i === 0) {
       title = part.title;
-      summary = part.summary;
+      summary = typeof part.summary === "string" ? part.summary : "";
     }
     const segment = (kind: "intro" | "recap" | "outro", value: string) => ({
       kind,
@@ -207,7 +237,7 @@ export async function runScriptStage(
     inputs: {
       ...input,
       template,
-      ...(localTemplate ? { localTemplate, localModel: deps.llm.localCacheIdentity } : {}),
+      ...(localTemplate ? { localTemplate, localModel: deps.llm.localCacheIdentity, localScriptVersion: 2 } : {}),
     },
     schema: ScriptSchema,
     run: async () => {
