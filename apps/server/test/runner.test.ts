@@ -5,7 +5,28 @@ import { makeTempDir, removeTempDir } from "./temp-dir.ts";
 import { eq } from "drizzle-orm";
 import { openDatabase } from "../src/db/index.ts";
 import { episodes, jobs, jobStages, usage } from "../src/db/schema.ts";
-import { cancelJob, createJob, runJobStage, startJob } from "../src/pipeline/runner.ts";
+import {
+  cancelJob,
+  createJob,
+  markJobInterrupted,
+  runJobStage as executeJobStage,
+  startJob,
+} from "../src/pipeline/runner.ts";
+
+const runJobStage: OmitOwner = (db, id, stage, run) =>
+  executeJobStage(
+    db,
+    id,
+    stage,
+    run,
+    db.select().from(jobs).where(eq(jobs.id, id)).get()!.ownerToken!,
+  );
+type OmitOwner = <T>(
+  db: import("../src/db/index.ts").Db,
+  id: string,
+  stage: import("shared").StageName,
+  run: () => Promise<import("../src/pipeline/artifacts.ts").StageResult<T>>,
+) => Promise<import("../src/pipeline/artifacts.ts").StageResult<T>>;
 
 const db = openDatabase(":memory:");
 afterEach(() => db.$client.exec("DELETE FROM jobs; DELETE FROM usage"));
@@ -161,6 +182,94 @@ test("publication callback errors still fail the job", async () => {
   ).rejects.toThrow("publish failed");
   expect(getJob(job.id)).toMatchObject({ status: "failed", error: "publish failed" });
   expect(stage(job.id, "publish")).toMatchObject({ status: "failed", error: "publish failed" });
+});
+
+test("an interrupted executor cannot overwrite a restarted run", async () => {
+  const job = createJob(db, options, 20);
+  startJob(db, job.id, 20);
+  let finish!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const stale = runJobStage(db, job.id, "plan", async () => {
+    await waiting;
+    throw new Error("stale failure");
+  });
+  markJobInterrupted(db, job.id);
+  startJob(db, job.id, 20);
+  const current = runJobStage(db, job.id, "plan", () => new Promise<never>(() => {}));
+  void current;
+  finish();
+  await expect(stale).rejects.toThrow("stale failure");
+  expect(getJob(job.id).status).toBe("running");
+  expect(stage(job.id, "plan").status).toBe("running");
+});
+
+test("a stale executor cannot finish or start a stage after ownership changes", async () => {
+  const job = createJob(db, options, 20);
+  const oldOwner = startJob(db, job.id, 20);
+  let finish!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const stale = executeJobStage(
+    db,
+    job.id,
+    "plan",
+    async () => {
+      await waiting;
+      return { artifact: {}, skipped: false, inputHash: "old", usage: [] };
+    },
+    oldOwner,
+  );
+  markJobInterrupted(db, job.id);
+  const newOwner = startJob(db, job.id, 20);
+  expect(newOwner).not.toBe(oldOwner);
+  const current = executeJobStage(db, job.id, "plan", () => new Promise<never>(() => {}), newOwner);
+  void current;
+  finish();
+  await expect(stale).rejects.toThrow();
+  await expect(
+    executeJobStage(
+      db,
+      job.id,
+      "search",
+      async () => {
+        throw new Error("must not execute");
+      },
+      oldOwner,
+    ),
+  ).rejects.toThrow();
+  expect(getJob(job.id)).toMatchObject({
+    status: "running",
+    ownerToken: newOwner,
+    currentStage: "plan",
+  });
+  expect(stage(job.id, "plan").status).toBe("running");
+  expect(stage(job.id, "search").status).toBe("pending");
+});
+
+test("interruption is refused while publication may still be writing files", async () => {
+  const job = createJob(db, options, 20);
+  const owner = startJob(db, job.id, 20);
+  let finish!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const running = executeJobStage(
+    db,
+    job.id,
+    "publish",
+    async () => {
+      await waiting;
+      return { artifact: {}, skipped: false, inputHash: "ok", usage: [] };
+    },
+    owner,
+  );
+  expect(() => markJobInterrupted(db, job.id)).toThrow(/cannot interrupt during publish/i);
+  expect(getJob(job.id).status).toBe("running");
+  finish();
+  await running;
 });
 
 test("cancellation during a stage does not report its successful completion", async () => {

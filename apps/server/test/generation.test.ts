@@ -31,7 +31,7 @@ function respond(call: FakeLlmCall): unknown {
   };
 }
 
-test("resumes after script without model calls and publishes playable audio", async () => {
+test("a fresh job publishes playable audio", async () => {
   const dir = makeTempDir();
   const db = openDatabase(":memory:");
   try {
@@ -53,12 +53,7 @@ test("resumes after script without model calls and publishes playable audio", as
       ttsName: "fake",
       nativeLang: "en",
     };
-    await expect(generateJob(deps, job.id, { stopAfterScript: true })).rejects.toThrow(
-      /interrupt/i,
-    );
-    const calls = providers.llm.calls.length;
     await generateJob(deps, job.id);
-    expect(providers.llm.calls).toHaveLength(calls);
     expect(db.select().from(jobs).where(eq(jobs.id, job.id)).get()?.status).toBe("succeeded");
     const episode = db.select().from(episodes).get()!;
     expect(

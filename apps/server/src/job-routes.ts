@@ -19,7 +19,12 @@ export interface JobRunner {
   cancel(id: string): Promise<Job>;
 }
 
-export function registerJobRoutes(app: FastifyInstance, db: Db, runner?: JobRunner, config?: AppConfig): void {
+export function registerJobRoutes(
+  app: FastifyInstance,
+  db: Db,
+  runner?: JobRunner,
+  config?: AppConfig,
+): void {
   function learningBlocked(mode: string): boolean {
     if (!config || config.ALLOW_LOCAL_LEARNING || mode === "standard") return false;
     const row = db.select().from(settings).where(eq(settings.key, "api-settings")).get();
@@ -27,20 +32,29 @@ export function registerJobRoutes(app: FastifyInstance, db: Db, runner?: JobRunn
     // The runner's profile is not yet connected to saved settings; guard either profile.
     return config.PROFILE === "local" || saved?.profile === "local";
   }
-  app.get("/api/jobs", async () => ({ jobs: db.select().from(jobs).all() }));
+  const publicJob = ({ ownerToken, ...job }: typeof jobs.$inferSelect) => {
+    void ownerToken;
+    return job;
+  };
+  app.get("/api/jobs", async () => ({ jobs: db.select().from(jobs).all().map(publicJob) }));
   app.get<{ Params: { id: string } }>("/api/jobs/:id", async (request, reply) => {
     const job = db.select().from(jobs).where(eq(jobs.id, request.params.id)).get();
     if (!job) return reply.code(404).send({ error: "Job not found" });
-    return { ...job, stages: db.select().from(jobStages).where(eq(jobStages.jobId, job.id)).all() };
+    return {
+      ...publicJob(job),
+      stages: db.select().from(jobStages).where(eq(jobStages.jobId, job.id)).all(),
+    };
   });
   app.post("/api/jobs", async (request, reply) => {
     const body = CreateJobRequestSchema.safeParse(request.body);
     if (!body.success) return reply.code(400).send({ error: body.error.message });
-    const mode = "topicId" in body.data
-      ? db.select().from(topics).where(eq(topics.id, body.data.topicId)).get()?.mode
-      : body.data.mode;
+    const mode =
+      "topicId" in body.data
+        ? db.select().from(topics).where(eq(topics.id, body.data.topicId)).get()?.mode
+        : body.data.mode;
     if (!mode) return reply.code(404).send({ error: "Topic not found" });
-    if (learningBlocked(mode)) return reply.code(400).send({ error: "Local learning modes require ALLOW_LOCAL_LEARNING=1" });
+    if (learningBlocked(mode))
+      return reply.code(400).send({ error: "Local learning modes require ALLOW_LOCAL_LEARNING=1" });
     if (!runner) return reply.code(503).send({ error: "Job runner unavailable" });
     return reply.code(201).send(await runner.create(body.data));
   });

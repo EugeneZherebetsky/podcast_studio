@@ -5,7 +5,7 @@ import { loadConfig } from "../config.ts";
 import { ensureDataDirs } from "../data-dir.ts";
 import { openDatabase } from "../db/index.ts";
 import { jobs } from "../db/schema.ts";
-import { createJob, generateJob, markJobInterrupted } from "../pipeline/runner.ts";
+import { createJob, generateJob } from "../pipeline/runner.ts";
 import { createProviders } from "../providers/index.ts";
 
 async function main(): Promise<void> {
@@ -23,6 +23,8 @@ async function main(): Promise<void> {
       "no-review": { type: "boolean" },
     },
   });
+  if (args.values.resume)
+    throw new Error("Job recovery is disabled: filesystem publication is not fenced");
   const config = loadConfig();
   if (
     config.PROFILE !== "local" ||
@@ -66,12 +68,6 @@ async function main(): Promise<void> {
         ? config.TTS_VOICE_HU_HOST
         : config.TTS_VOICE_NATIVE_HOST);
     if (!voice) throw new Error("Set TTS_VOICE_NATIVE_HOST in .env or pass --voice");
-    if (args.values.interrupted) {
-      // The operator's word that the process which was running this job is gone; a job
-      // marked as running is never resumed without it.
-      markJobInterrupted(db, id);
-      console.log("Marked the previous run as interrupted");
-    }
     await generateJob(
       {
         db,

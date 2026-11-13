@@ -38,6 +38,7 @@ export const jobs = sqliteTable(
     topicId: text("topic_id").references(() => topics.id, { onDelete: "set null" }),
     status: text("status").$type<JobStatus>().notNull(),
     currentStage: text("current_stage").$type<StageName>(),
+    ownerToken: text("owner_token"),
     error: text("error"),
     options: text("options", { mode: "json" }).$type<JobOptions>().notNull(),
     createdAt: text("created_at").notNull(),

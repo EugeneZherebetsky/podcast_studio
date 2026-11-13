@@ -203,7 +203,7 @@ test("refuses an id that could leave the episodes directory", async () => {
 });
 
 test(
-  "a job that dies while publishing lists no episode and finishes when resumed",
+  "a job that dies while publishing cannot be resumed while publication is unfenced",
   async () => {
     const run = fakeGeneration();
     try {
@@ -217,14 +217,10 @@ test(
       expect(run.db.select().from(episodes).all()).toEqual([]);
       expect(existsSync(path.join(run.dir, "episodes", run.jobId))).toBe(false);
 
-      await generateJob(run.deps, run.jobId);
-      expect(run.job().status).toBe("succeeded");
-      const row = run.db.select().from(episodes).get()!;
-      const episode = EpisodeSchema.parse(
-        JSON.parse(readFileSync(path.join(row.path, "episode.json"), "utf8")),
-      );
-      expect(episode.audio.sha256).toBe(sha256(path.join(row.path, "audio.m4a")));
-      expect(readdirSync(path.join(run.dir, "episodes"))).toEqual([run.jobId]);
+      await expect(generateJob(run.deps, run.jobId)).rejects.toThrow(/recovery is disabled/i);
+      expect(run.job().status).toBe("failed");
+      expect(run.db.select().from(episodes).all()).toEqual([]);
+      expect(existsSync(path.join(run.dir, "episodes", run.jobId))).toBe(false);
     } finally {
       run.close();
     }

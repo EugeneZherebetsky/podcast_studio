@@ -9,8 +9,8 @@
 // a whole package nobody lists. Both are cleaned up or replaced by the next run. A crash
 // after 3 leaves a whole, listed episode, which the next run keeps as it is.
 //
-// The caller must be the only one publishing this id: the runner guarantees it, since a
-// job has at most one executor (see `startJob`).
+// The caller must be the only one publishing this id. Database owner tokens do not fence
+// filesystem writes; the runner disables recovery until publication can be fenced.
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { copyFile, mkdir, open, readdir, readFile, rename, rm, stat } from "node:fs/promises";

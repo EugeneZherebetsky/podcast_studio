@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { JobOptionsSchema, STAGE_NAMES, type JobOptions, type StageName } from "shared";
 import type { Db } from "../db/index.ts";
 import { episodes, jobs, jobStages } from "../db/schema.ts";
@@ -47,14 +47,16 @@ const INTERRUPTED = "Interrupted: the process running this job stopped";
  *   `failed` only when its executor gives up).
  * - A `cancelled` job can be started once no stage is marked `running`, i.e. once its
  *   executor has noticed the cancellation and stopped.
- * - A `running` job is never taken over. The database cannot tell an executor that is
- *   still working from one whose process died (nothing records who runs a job or when it
- *   was last alive), so that takes an explicit `markJobInterrupted` first.
+ * - A `running` job is never taken over without an explicit interruption. Each claim
+ *   receives a new token so an older executor cannot update its database state.
  */
-export function startJob(db: Db, id: string, budgetUsd: number): void {
+export function startJob(db: Db, id: string, budgetUsd: number, queuedOnly = false): string {
+  const ownerToken = randomUUID();
   db.transaction((tx) => {
     const job = tx.select().from(jobs).where(eq(jobs.id, id)).get();
     if (!job) throw new Error("Job not found");
+    if (queuedOnly && job.status !== "queued")
+      throw new Error("Job recovery is disabled: filesystem publication is not fenced");
     if (job.status === "running")
       throw new Error(
         "Job is already running; if its process has stopped, mark the job as interrupted first",
@@ -64,10 +66,11 @@ export function startJob(db: Db, id: string, budgetUsd: number): void {
       throw new Error("Job was cancelled but its current stage has not stopped yet");
     checkBudget(db, budgetUsd);
     tx.update(jobs)
-      .set({ status: "running", error: null, updatedAt: new Date().toISOString() })
+      .set({ status: "running", ownerToken, error: null, updatedAt: new Date().toISOString() })
       .where(eq(jobs.id, id))
       .run();
   });
+  return ownerToken;
 }
 
 function runningStages(tx: Pick<Db, "select">, id: string) {
@@ -89,6 +92,8 @@ export function markJobInterrupted(db: Db, id: string): void {
   db.transaction((tx) => {
     const job = tx.select().from(jobs).where(eq(jobs.id, id)).get();
     if (!job) throw new Error("Job not found");
+    if (job.currentStage === "publish" && job.status === "running")
+      throw new Error("Cannot interrupt during publish: filesystem publication is not fenced");
     const stuck = job.status === "cancelled" && runningStages(tx, id).length > 0;
     if (job.status !== "running" && !stuck)
       throw new Error(`Job is ${job.status}: there is no interrupted run to clear`);
@@ -97,25 +102,14 @@ export function markJobInterrupted(db: Db, id: string): void {
       .set({ status: "failed", finishedAt: now, error: INTERRUPTED })
       .where(and(eq(jobStages.jobId, id), eq(jobStages.status, "running")))
       .run();
+    if (job.status === "cancelled")
+      tx.update(jobs).set({ ownerToken: null }).where(eq(jobs.id, id)).run();
     if (job.status === "running")
       tx.update(jobs)
-        .set({ status: "failed", error: INTERRUPTED, updatedAt: now })
+        .set({ status: "failed", ownerToken: null, error: INTERRUPTED, updatedAt: now })
         .where(eq(jobs.id, id))
         .run();
   });
-}
-
-/** Retry-from-stage, database half: `fromStage` and every later stage are pending again. */
-function resetStagesFrom(db: Db, id: string, fromStage: StageName): void {
-  db.update(jobStages)
-    .set({ status: "pending", inputHash: null, startedAt: null, finishedAt: null, error: null })
-    .where(
-      and(
-        eq(jobStages.jobId, id),
-        inArray(jobStages.stage, STAGE_NAMES.slice(STAGE_NAMES.indexOf(fromStage))),
-      ),
-    )
-    .run();
 }
 
 export function cancelJob(db: Db, id: string): void {
@@ -139,11 +133,13 @@ export async function runJobStage<T>(
   id: string,
   stage: StageName,
   run: () => Promise<StageResult<T>>,
+  ownerToken: string,
 ): Promise<StageResult<T>> {
   const where = and(eq(jobStages.jobId, id), eq(jobStages.stage, stage));
   db.transaction((tx) => {
     const job = tx.select().from(jobs).where(eq(jobs.id, id)).get();
-    if (!job || job.status !== "running") throw new Error(`Job is ${job?.status ?? "not found"}`);
+    if (!job || job.status !== "running" || job.ownerToken !== ownerToken)
+      throw new Error(`Job is ${job?.status ?? "not found"}`);
     const now = new Date().toISOString();
     tx.update(jobs).set({ currentStage: stage, updatedAt: now }).where(eq(jobs.id, id)).run();
     tx.update(jobStages)
@@ -156,7 +152,7 @@ export async function runJobStage<T>(
     const cancelled = db.transaction((tx) => {
       for (const item of result.usage) recordLlmUsage(db, item, { jobId: id });
       const job = tx.select().from(jobs).where(eq(jobs.id, id)).get();
-      if (!job || job.status !== "running") return true;
+      if (!job || job.status !== "running" || job.ownerToken !== ownerToken) return true;
       tx.update(jobStages)
         .set({
           status: result.skipped ? "skipped" : "done",
@@ -173,6 +169,8 @@ export async function runJobStage<T>(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     db.transaction((tx) => {
+      const job = tx.select().from(jobs).where(eq(jobs.id, id)).get();
+      if (!job || job.ownerToken !== ownerToken) return;
       const now = new Date().toISOString();
       tx.update(jobStages)
         .set({ status: "failed", finishedAt: now, error: message })
@@ -223,10 +221,7 @@ export interface GenerateDeps {
 }
 
 export interface GenerateOptions {
-  /**
-   * Retry from this stage: it and every later stage run again even if their inputs are
-   * unchanged; earlier stages are reused from their cached artifacts.
-   */
+  /** Currently disabled until retry filesystem writes can be fenced. */
   fromStage?: StageName;
   /** Test seam: fail in place of the review stage, as an interruption after stage 5. */
   stopAfterScript?: boolean;
@@ -235,10 +230,8 @@ export interface GenerateOptions {
 }
 
 /**
- * Run the standard pipeline, or resume it: a stage whose artifact is there for the same
- * inputs is skipped, so a `failed` job continues where it stopped. Which jobs may be
- * started is decided by `startJob`. Providers must be free: paid usage is not safely
- * priced yet.
+ * Run a new standard pipeline. Recovery is disabled until filesystem writes are fenced.
+ * Providers must be free: paid usage is not safely priced yet.
  */
 export async function generateJob(
   deps: GenerateDeps,
@@ -265,11 +258,11 @@ export async function generateJob(
   const { runNotesStage } = await import("./notes.ts");
   const { runScriptStage } = await import("./script.ts");
   const { runReviewStage } = await import("./review.ts");
-  const { hashInputs, invalidateStageFiles, SCRATCH_FILES } = await import("./artifacts.ts");
+  const { hashInputs, SCRATCH_FILES } = await import("./artifacts.ts");
   const workDir = path.join(deps.dataDir, "jobs", id);
   // The meter has already recorded the stage's usage, so it must not be recorded again.
   const stage = <T>(name: StageName, fn: () => Promise<StageResult<T>>) =>
-    runJobStage(db, id, name, async () => ({ ...(await fn()), usage: [] }));
+    runJobStage(db, id, name, async () => ({ ...(await fn()), usage: [] }), ownerToken);
   const uncached = <T>(artifact: T): StageResult<T> => ({
     artifact,
     usage: [],
@@ -287,21 +280,11 @@ export async function generateJob(
         "Job has already published its episode; resume it without a stage to finish it",
       );
   }
-  startJob(db, id, deps.budgetUsd);
-  if (fromStage !== undefined) {
-    // Only now that the job is ours: nothing of a job someone else runs is ever removed.
-    try {
-      await invalidateStageFiles(workDir, fromStage);
-      resetStagesFrom(db, id, fromStage);
-    } catch (error) {
-      const message = `Cannot retry from ${fromStage}: ${error instanceof Error ? error.message : String(error)}`;
-      db.update(jobs)
-        .set({ status: "failed", error: message, updatedAt: new Date().toISOString() })
-        .where(and(eq(jobs.id, id), eq(jobs.status, "running")))
-        .run();
-      throw new Error(message, { cause: error });
-    }
-  }
+  if (fromStage !== undefined)
+    throw new Error("Retry is disabled: filesystem publication is not fenced");
+  if (job.status !== "queued")
+    throw new Error("Job recovery is disabled: filesystem publication is not fenced");
+  const ownerToken = startJob(db, id, deps.budgetUsd, true);
   const plan = (
     await stage("plan", () => runPlanStage({ workDir, llm: providers.llm }, job.options))
   ).artifact;
@@ -320,7 +303,13 @@ export async function generateJob(
           workDir,
           llm: providers.llm,
           shouldContinue: () =>
-            db.select().from(jobs).where(eq(jobs.id, id)).get()?.status === "running",
+            db
+              .select()
+              .from(jobs)
+              .where(
+                and(eq(jobs.id, id), eq(jobs.status, "running"), eq(jobs.ownerToken, ownerToken)),
+              )
+              .get() !== undefined,
         },
         { title: job.options.title, plan, sources },
       ),
@@ -412,6 +401,6 @@ export async function generateJob(
   });
   db.update(jobs)
     .set({ status: "succeeded", updatedAt: new Date().toISOString() })
-    .where(and(eq(jobs.id, id), eq(jobs.status, "running")))
+    .where(and(eq(jobs.id, id), eq(jobs.status, "running"), eq(jobs.ownerToken, ownerToken)))
     .run();
 }

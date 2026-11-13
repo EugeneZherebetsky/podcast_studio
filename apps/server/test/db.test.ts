@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import Database from "better-sqlite3";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
@@ -123,6 +124,43 @@ describe("openDatabase", () => {
     ]);
   });
 
+  test("migration adds an empty owner to existing jobs without changing stages", () => {
+    const file = path.join(dir, "old.db");
+    const old = new Database(file);
+    old.exec(readFileSync(new URL("../src/db/migrations/0000_init.sql", import.meta.url), "utf8"));
+    old.exec(
+      "CREATE TABLE __drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)",
+    );
+    old
+      .prepare("INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)")
+      .run("old", 1794434452572);
+    old
+      .prepare(
+        "INSERT INTO jobs (id, status, options, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("existing", "running", JSON.stringify(job.options), NOW, LATER);
+    old
+      .prepare("INSERT INTO job_stages (job_id, stage, status) VALUES (?, ?, ?)")
+      .run("existing", "plan", "running");
+    old.close();
+    const migrated = openDatabase(file);
+    try {
+      expect(migrated.select().from(t.jobs).get()).toMatchObject({
+        id: "existing",
+        status: "running",
+        ownerToken: null,
+        options: job.options,
+      });
+      expect(migrated.select().from(t.jobStages).get()).toMatchObject({
+        jobId: "existing",
+        stage: "plan",
+        status: "running",
+      });
+    } finally {
+      migrated.$client.close();
+    }
+  });
+
   test("enables WAL mode and foreign keys", () => {
     expect(db.$client.pragma("journal_mode", { simple: true })).toBe("wal");
     expect(db.$client.pragma("foreign_keys", { simple: true })).toBe(1);
@@ -172,14 +210,14 @@ describe("round trip, one row per table", () => {
     db.insert(t.topics).values(topic).run();
     db.insert(t.jobs).values(job).run();
     const rows = db.select().from(t.jobs).all();
-    expect(rows).toEqual([job]);
+    expect(rows).toEqual([{ ...job, ownerToken: null }]);
     expect(JobSchema.parse(rows[0])).toEqual(job);
   });
 
   test("jobs: an ad-hoc job has no topic", () => {
     const adHoc = { ...job, id: "job-02", topicId: null, currentStage: null };
     db.insert(t.jobs).values(adHoc).run();
-    expect(db.select().from(t.jobs).all()).toEqual([adHoc]);
+    expect(db.select().from(t.jobs).all()).toEqual([{ ...adHoc, ownerToken: null }]);
   });
 
   test("job_stages", () => {

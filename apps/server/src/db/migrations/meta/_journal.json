@@ -8,6 +8,13 @@
       "when": 1794434452572,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1794567187331,
+      "tag": "0001_long_bruce_banner",
+      "breakpoints": true
     }
   ]
 }

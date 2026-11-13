@@ -47,7 +47,7 @@ test(
       run.llm.costUsd = 0.5;
       // `notes` asks once per source and then once more to merge; let the merge call fail.
       const original = run.deps.providers.llm;
-      let failMerge = true;
+      const failMerge = true;
       run.deps.providers.llm = {
         generateObject(request) {
           if (failMerge && request.prompt.includes("<facts>"))
@@ -70,12 +70,8 @@ test(
       expect(monthTotalCostUsd(run.db)).toBeCloseTo(spent, 10);
       expect(() => createJob(run.db, run.job().options, spent - 0.1)).toThrow(/budget/i);
 
-      // Resuming bills only the calls it really makes, and each of them exactly once.
-      failMerge = false;
-      await generateJob(run.deps, run.jobId);
-      expect(run.job().status).toBe("succeeded");
-      expect(run.db.select().from(usage).all()).toHaveLength(run.llm.stages.length + 1);
-      expect(monthTotalCostUsd(run.db)).toBeCloseTo(run.llm.stages.length * 0.5 + 0.25, 10);
+      await expect(generateJob(run.deps, run.jobId)).rejects.toThrow(/recovery is disabled/i);
+      expect(run.db.select().from(usage).all()).toHaveLength(answered + 1);
     } finally {
       run.close();
     }
