@@ -13,6 +13,9 @@ test("rejects rebinding hosts and cross-origin browser requests", async () => {
       { host: "localhost:4747", origin: "null" },
     ]) {
       expect((await app.inject({ method: "POST", url: "/api/topics", headers, payload: { name: "blocked" } })).statusCode).toBe(403);
+      for (const file of ["episode.json", "audio.m4a"]) {
+        expect((await app.inject({ url: `/api/episodes/example/usb/${file}`, headers })).statusCode).toBe(403);
+      }
     }
     expect((await app.inject({ url: "/api/topics", headers: { host: "localhost:4747", origin: "http://localhost:4747" } })).statusCode).toBe(200);
   } finally {
