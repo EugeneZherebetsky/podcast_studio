@@ -23,7 +23,7 @@ type LoginResult =
 
 /**
  * How a token exchange ended when its credentials were not handed to the caller.
- * "no-tokens": the request was never sent or OpenAI answered with an error, so nothing was issued.
+ * "no-tokens": the request was never sent or a trusted OAuth error confirms no issuance.
  * "unknown": the request may have reached OpenAI but no response was read (network, timeout, abort).
  * "discard": tokens were received but rejected or arrived too late; the caller must revoke them.
  */
@@ -36,6 +36,7 @@ export type ExchangeEnd =
       refreshToken?: string;
       accessToken?: string;
       accessExpiresAt?: number;
+      refreshUnusable?: boolean;
     };
 
 export async function beginChatGptLogin(options: {
@@ -131,6 +132,7 @@ export async function beginChatGptLogin(options: {
       let refreshToken: string | undefined;
       let accessToken: string | undefined;
       let accessExpiresAt: number | undefined;
+      let refreshUnusable = false;
       let delivered = false;
       let outcome: "no-tokens" | "unknown" = "unknown";
       try {
@@ -157,13 +159,7 @@ export async function beginChatGptLogin(options: {
           body: body.toString(),
           signal: abort.signal,
         });
-        if (response.status >= 400 && response.status < 500) {
-          // An OAuth error response: OpenAI issued nothing.
-          outcome = "no-tokens";
-          await response.body?.cancel().catch(() => {});
-          throw new Error("Exchange refused");
-        }
-        if (!response.ok || response.redirected || !response.body)
+        if ((!response.ok && response.status !== 400) || response.redirected || !response.body)
           throw new Error("Exchange failed");
         const reader = response.body.getReader();
         const chunks: Uint8Array[] = [];
@@ -181,6 +177,34 @@ export async function beginChatGptLogin(options: {
         const data: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
         if (!data || typeof data !== "object") throw new Error("Invalid response");
         const token = data as Record<string, unknown>;
+        if (response.status === 400) {
+          const allowed = [
+            "invalid_request",
+            "invalid_client",
+            "invalid_grant",
+            "unauthorized_client",
+            "unsupported_grant_type",
+            "invalid_scope",
+          ];
+          if (
+            response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ===
+              "application/json" &&
+            typeof token.error === "string" &&
+            allowed.includes(token.error) &&
+            Object.keys(token).every((key) =>
+              ["error", "error_description", "error_uri"].includes(key),
+            ) &&
+            Object.values(token).every((value) => typeof value === "string")
+          )
+            outcome = "no-tokens";
+          throw new Error("Exchange refused");
+        }
+        refreshUnusable =
+          Object.hasOwn(token, "refresh_token") &&
+          (typeof token.refresh_token !== "string" ||
+            !token.refresh_token ||
+            token.refresh_token.length > 32768);
+
         if (
           typeof token.access_token === "string" &&
           token.access_token.length > 0 &&
@@ -247,6 +271,7 @@ export async function beginChatGptLogin(options: {
                   kind: "discard",
                   clientId: callback.clientId,
                   ...(refreshToken ? { refreshToken } : {}),
+                  ...(refreshUnusable ? { refreshUnusable: true } : {}),
                   ...(accessToken ? { accessToken } : {}),
                   ...(accessExpiresAt !== undefined ? { accessExpiresAt } : {}),
                 }

@@ -19,6 +19,7 @@ type Credentials = {
   refreshToken?: string;
   accessToken?: string;
   accessExpiresAt?: number;
+  refreshUnusable?: boolean;
 };
 export type UncertainGrant = {
   label: string;
@@ -184,9 +185,8 @@ export async function createChatGptSession(
     return false;
   }
   /**
-   * Revokes discarded or signed-out credentials and records the outcome. Confirmation rests on
-   * the refresh token when one was issued; otherwise on the access token, whose expiry bounds
-   * the record when revocation is not confirmed.
+   * Both credentials must be resolved; access expiry bounds only access uncertainty.
+   * A missing usable refresh token cannot resolve malformed refresh issuance.
    */
   async function discard(
     credentials: Credentials,
@@ -210,14 +210,19 @@ export async function createChatGptSession(
           )
         : Promise.resolve(false),
     ]);
-    const confirmed = refreshToken ? refreshRevoked : accessRevoked || !accessToken;
+    const refreshResolved = !credentials.refreshUnusable && (!refreshToken || refreshRevoked);
+    const accessResolved =
+      !accessToken ||
+      accessRevoked ||
+      (credentials.accessExpiresAt !== undefined && credentials.accessExpiresAt <= Date.now());
+    const confirmed = refreshResolved && accessResolved;
     if (confirmed) await removeGrant(grantId);
     else
       await markUnconfirmed(
         grantId,
         label,
         clientId,
-        refreshToken ? undefined : credentials.accessExpiresAt,
+        refreshResolved ? credentials.accessExpiresAt : undefined,
       );
     return confirmed;
   }
@@ -317,11 +322,14 @@ export async function createChatGptSession(
           },
           onExchangeEnd: async (end: ExchangeEnd) => {
             const id = current.grantId;
-            if (id) exchanging.delete(id);
-            if (end.kind === "no-tokens") await removeGrant(id);
-            else if (end.kind === "unknown") {
-              if (id && current.clientId) await markUnconfirmed(id, label, current.clientId);
-            } else await discard(end, id, label);
+            try {
+              if (end.kind === "no-tokens") await removeGrant(id);
+              else if (end.kind === "unknown") {
+                if (id && current.clientId) await markUnconfirmed(id, label, current.clientId);
+              } else await discard(end, id, label);
+            } finally {
+              if (id) exchanging.delete(id);
+            }
           },
           ...(account ? { clientId: account.clientId, expectedSubject: account.subject } : {}),
         });
@@ -337,8 +345,11 @@ export async function createChatGptSession(
               .then(
                 async (result) => {
                   if (result.kind === "success") {
-                    settle();
-                    await discard(fromSuccess(result), current.grantId, label);
+                    try {
+                      await discard(fromSuccess(result), current.grantId, label);
+                    } finally {
+                      settle();
+                    }
                   }
                 },
                 () => {},
@@ -361,11 +372,12 @@ export async function createChatGptSession(
             if (consumed) throw new Error("Login already completed");
             consumed = true;
             let acquired: Success | undefined;
+            let received = false;
             try {
               const result = await attempt.result;
               if (result.kind === "success") {
                 acquired = result;
-                settle();
+                received = true;
               }
               if (current.cancelled) throw new Error("Login cancelled");
               if (result.kind === "denied") return false;
@@ -385,6 +397,7 @@ export async function createChatGptSession(
               if (acquired) await discard(fromSuccess(acquired), current.grantId, label);
               throw error;
             } finally {
+              if (received) settle();
               cleanup();
             }
           },

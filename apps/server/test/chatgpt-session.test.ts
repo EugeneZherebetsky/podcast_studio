@@ -866,3 +866,103 @@ it("never writes tokens, codes, verifiers or the authorization URL to disk", () 
       expect(signedOut).not.toContain(secret);
     }
   }));
+
+it("keeps malformed refresh issuance uncertain even after access revocation and expiry", () =>
+  withDir(async (dir) => {
+    for (const value of [null, "", "x".repeat(32769)]) {
+      const session = await createChatGptSession(
+        dir,
+        (options) =>
+          beginChatGptLogin({
+            ...options,
+            transport: async () =>
+              Response.json({ access_token: "access", refresh_token: value, expires_in: 1 }),
+            keys,
+          }),
+        async () => "revoked",
+        fast,
+      );
+      const attempt = await session.login("work");
+      const done = expect(attempt.complete()).rejects.toThrow();
+      await approve(attempt.authorizationUrl);
+      await done;
+      expect((await records(dir)).at(-1)).not.toHaveProperty("accessExpiresAt");
+      expect(session.status().remoteUncertain).toBe(true);
+    }
+  }));
+
+it("retains access uncertainty after refresh revocation until access expiry", () =>
+  withDir(async (dir) => {
+    const expiresAt = Date.now() + 60000;
+    const session = await createChatGptSession(
+      dir,
+      fakeLogin({ expiresAt }),
+      async (token) => (token === "refresh" ? "revoked" : "refused"),
+      fast,
+    );
+    await (await session.login("work")).complete();
+    expect(await session.signout()).toBe(false);
+    expect(await records(dir)).toMatchObject([{ accessExpiresAt: expiresAt }]);
+    expect((await createChatGptSession(dir)).status().remoteUncertain).toBe(true);
+  }));
+
+it("keeps unknown token endpoint failures uncertain", () =>
+  withDir(async (dir) => {
+    for (const response of [
+      new Response("rate limited", { status: 429 }),
+      Response.json({ error: "other" }, { status: 400 }),
+      Response.json({ error: "invalid_grant", access_token: "unexpected" }, { status: 400 }),
+    ]) {
+      const session = await createChatGptSession(dir, (options) =>
+        beginChatGptLogin({ ...options, transport: async () => response, keys }),
+      );
+      const attempt = await session.login("work");
+      const done = expect(attempt.complete()).rejects.toThrow();
+      await approve(attempt.authorizationUrl);
+      await done;
+      expect(session.status().remoteUncertain).toBe(true);
+      await session.acknowledgeRemoteDisconnect();
+    }
+  }));
+
+it("blocks acknowledgement during late exchange cleanup", () =>
+  withDir(async (dir) => {
+    let releaseResponse!: (response: Response) => void;
+    let releaseRevoke!: () => void;
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      releaseRevoke = resolve;
+    });
+    const session = await createChatGptSession(
+      dir,
+      (options) =>
+        beginChatGptLogin({
+          ...options,
+          keys,
+          transport: async () =>
+            new Promise<Response>((resolve) => {
+              releaseResponse = resolve;
+              started();
+            }),
+        }),
+      async () => {
+        await gate;
+        return "revoked";
+      },
+      fast,
+    );
+    const attempt = await session.login("work");
+    const done = expect(attempt.complete()).rejects.toThrow();
+    await approve(attempt.authorizationUrl);
+    await ready;
+    await session.signout();
+    await done;
+    releaseResponse(Response.json({ access_token: "access", refresh_token: "refresh" }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await expect(session.acknowledgeRemoteDisconnect()).rejects.toThrow();
+    releaseRevoke();
+    await vi.waitFor(() => expect(session.status().remoteUncertain).toBe(false));
+  }));
