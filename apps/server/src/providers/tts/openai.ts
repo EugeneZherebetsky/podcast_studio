@@ -44,7 +44,7 @@ export class OpenAiTtsProvider implements TtsProvider {
   private readonly fetchFn: typeof fetch;
   readonly cache: TtsCache;
 
-  constructor(options: OpenAiTtsOptions) {
+  constructor(private readonly options: OpenAiTtsOptions) {
     if (!options.apiKey) {
       throw new Error("OpenAiTtsProvider requires apiKey");
     }
@@ -61,6 +61,10 @@ export class OpenAiTtsProvider implements TtsProvider {
       sleep: options.sleep,
     };
     this.cache = new TtsCache(cacheOpts);
+  }
+
+  forRun(dir: string): TtsProvider {
+    return new OpenAiTtsProvider({ ...this.options, cacheDir: dir });
   }
 
   async voices(lang: Lang): Promise<Voice[]> {

@@ -66,7 +66,7 @@ export class AzureTtsProvider implements TtsProvider {
   private readonly fetchFn: typeof fetch;
   readonly cache: TtsCache;
 
-  constructor(options: AzureTtsOptions) {
+  constructor(private readonly options: AzureTtsOptions) {
     if (!options.subscriptionKey) {
       throw new Error("AzureTtsProvider requires subscriptionKey");
     }
@@ -82,6 +82,10 @@ export class AzureTtsProvider implements TtsProvider {
       sleep: options.sleep,
     };
     this.cache = new TtsCache(cacheOpts);
+  }
+
+  forRun(dir: string): TtsProvider {
+    return new AzureTtsProvider({ ...this.options, cacheDir: dir });
   }
 
   async voices(lang: Lang): Promise<Voice[]> {

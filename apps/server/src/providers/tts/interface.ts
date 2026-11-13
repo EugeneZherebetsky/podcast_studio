@@ -28,6 +28,8 @@ export interface SynthesizeResult {
 }
 
 export interface TtsProvider {
+  /** A provider whose synthesis writes only under this run's directory. */
+  forRun?(dir: string): TtsProvider;
   voices(lang: Lang): Promise<Voice[]>;
   synthesize(request: SynthesizeRequest): Promise<SynthesizeResult>;
 }

@@ -35,6 +35,10 @@ export class FakeTtsProvider implements TtsProvider {
     if (!(this.msPerChar > 0)) throw new Error("FakeTtsProvider: msPerChar must be positive");
   }
 
+  forRun(dir: string): TtsProvider {
+    return new FakeTtsProvider({ outDir: dir, msPerChar: this.msPerChar, frequencyHz: this.frequencyHz });
+  }
+
   /** Number of samples `synthesize` writes for this text. */
   expectedSamples(text: string): number {
     return Math.round((countChars(text) * this.msPerChar * WAV_SAMPLE_RATE) / 1000);

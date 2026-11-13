@@ -49,6 +49,9 @@ export class PiperTtsProvider implements TtsProvider {
     this.cache = new TtsCache(options);
     this.run = options.run ?? runPiper;
   }
+  forRun(dir: string): TtsProvider {
+    return new PiperTtsProvider({ ...this.options, cacheDir: dir });
+  }
   async voices(lang: Lang): Promise<Voice[]> {
     const files = await readdir(this.options.voicesDir).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return [] as string[];

@@ -5,7 +5,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  renameSync,
+  linkSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -281,8 +281,18 @@ export class TtsCache {
       const targetPath = path.join(this.cacheDir, key);
       const tempPath = path.join(this.cacheDir, `temp-${randomUUID()}-${key}`);
 
-      await ensureMono24k16BitPcmWav(result.audio, tempPath);
-      renameSync(tempPath, targetPath);
+      try {
+        await ensureMono24k16BitPcmWav(result.audio, tempPath);
+        if (!isMono24k16BitPcmWav(readFileSync(tempPath))) throw new Error("Invalid synthesized WAV");
+        try {
+          linkSync(tempPath, targetPath);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+          if (!this.getCached(provider, request)) throw new Error("Existing TTS cache entry is invalid", { cause: error });
+        }
+      } finally {
+        if (existsSync(tempPath)) unlinkSync(tempPath);
+      }
 
       const chars = result.chars ?? countChars(request.text);
       return { wavPath: targetPath, chars };

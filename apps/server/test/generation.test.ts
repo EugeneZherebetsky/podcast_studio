@@ -61,6 +61,9 @@ test("a fresh job publishes playable audio", async () => {
       JSON.parse(readFileSync(path.join(episode.path, "episode.json"), "utf8")).segments,
     ).toHaveLength(6);
     expect(readFileSync(path.join(episode.path, "audio.m4a")).length).toBeGreaterThan(0);
+    expect(existsSync(path.join(dir, "wav"))).toBe(false);
+    const runRoot = path.join(dir, "jobs", job.id, "runs");
+    expect(readdirSync(path.join(runRoot, readdirSync(runRoot)[0]!, "tts")).length).toBeGreaterThan(0);
   } finally {
     db.$client.close();
     removeTempDir(dir);
@@ -102,6 +105,48 @@ test("a stale executor cannot overwrite a newer owner's canonical artifacts", as
     expect(readFileSync(path.join(newDir, "plan.json"), "utf8")).toBe("new run");
     expect(readFileSync(canonical, "utf8")).toBe("new owner");
   } finally {
+    f.close();
+  }
+});
+
+test("a stale TTS call writes only to its abandoned run", async () => {
+  const f = fakeGeneration();
+  let release!: () => void;
+  let entered!: () => void;
+  const blocked = new Promise<void>((resolve) => { entered = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const original = f.deps.providers.tts;
+  f.deps.providers.tts = {
+    ...original,
+    voices: original.voices.bind(original),
+    synthesize: original.synthesize.bind(original),
+    forRun(dir) {
+      const isolated = original.forRun!(dir);
+      return {
+        voices: isolated.voices.bind(isolated),
+        async synthesize(request) {
+          entered();
+          await gate;
+          return isolated.synthesize(request);
+        },
+      };
+    },
+  };
+  try {
+    const result = generateJob(f.deps, f.jobId).catch((error: Error) => error);
+    await blocked;
+    markJobInterrupted(f.db, f.jobId);
+    const owner = startJob(f.db, f.jobId, 20);
+    release();
+    expect(await result).toBeInstanceOf(Error);
+    expect(f.job().ownerToken).toBe(owner);
+    expect(f.job().status).toBe("running");
+    expect(existsSync(path.join(f.dir, "wav"))).toBe(false);
+    expect(existsSync(path.join(f.dir, "cache", "tts"))).toBe(false);
+    expect(f.db.select().from(episodes).all()).toHaveLength(0);
+    expect(existsSync(path.join(f.dir, "episodes", f.jobId))).toBe(false);
+  } finally {
+    release();
     f.close();
   }
 });

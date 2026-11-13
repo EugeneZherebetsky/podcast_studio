@@ -378,13 +378,15 @@ export async function generateJob(
     )
   ).artifact.script;
   const wavPaths = (
-    await stage("tts", async () =>
-      uncached(
+    await stage("tts", async () => {
+      const tts = providers.tts.forRun?.(path.join(workDir, "tts"));
+      if (!tts) throw new Error("TTS provider does not support run isolation");
+      return uncached(
         await Promise.all(
           reviewed.segments.map(
             async (segment) =>
               (
-                await providers.tts.synthesize({
+                await tts.synthesize({
                   text: segment.text,
                   lang: segment.lang,
                   voice: deps.voice,
@@ -393,8 +395,8 @@ export async function generateJob(
               ).wavPath,
           ),
         ),
-      ),
-    )
+      );
+    })
   ).artifact;
   const audioPath = path.join(workDir, SCRATCH_FILES.assembledAudio);
   const audio = (
