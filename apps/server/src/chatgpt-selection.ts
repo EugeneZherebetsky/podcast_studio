@@ -14,6 +14,7 @@ const Selection = z.discriminatedUnion("provider", [
 type Session = Pick<Awaited<ReturnType<typeof createChatGptSession>>, "status" | "models" | "generateStructured">;
 
 export class ScriptPreflightError extends Error {}
+export class ChatGptOutputError extends Error {}
 
 export function createScriptSelection(directory: string, session?: Session) {
   const file = path.join(directory, "script-selection.json");
@@ -54,7 +55,19 @@ export function createScriptSelection(directory: string, session?: Session) {
       throw new Error("Sign in to the selected ChatGPT account with plan access before generating");
     return status.active;
   }
+  function snapshot() {
+    return locked(() => {
+      const selectedRevision = intent();
+      if (selectedRevision !== readRevision(committedFile)) throw new Error("Selection incomplete; select a provider again");
+      return { selected: readSelection(), selectedRevision };
+    });
+  }
   return {
+    capture() {
+      const current = snapshot();
+      const allStages = current.selected.provider === "chatgpt" && current.selected.scope === "all-stages";
+      return { chatgptProvider: allStages ? this.provider(current) : undefined, scriptGenerator: allStages ? undefined : this.generator(current) };
+    },
     get() {
       return locked(() => intent() !== readRevision(committedFile) ? { provider: "incomplete" as const } : readSelection());
     },
@@ -78,12 +91,8 @@ export function createScriptSelection(directory: string, session?: Session) {
       });
       return value;
     },
-    provider() {
-      const { selected, selectedRevision } = locked(() => {
-        const selectedRevision = intent();
-        if (selectedRevision !== readRevision(committedFile)) throw new Error("Selection incomplete; select a provider again");
-        return { selected: readSelection(), selectedRevision };
-      });
+    provider(current = snapshot()) {
+      const { selected, selectedRevision } = current;
       if (selected.provider === "local") return undefined;
       if (selected.scope !== "all-stages") throw new ScriptPreflightError("Select ChatGPT for all stages again after reviewing the privacy notice");
       requireAccount(selected.account);
@@ -106,9 +115,10 @@ export function createScriptSelection(directory: string, session?: Session) {
                   return session!.generateStructured(selected.model, request.system, request.prompt, z.toJSONSchema(request.schema), signal);
                 });
                 const text = await pending;
-                requireAccount(selected.account);
+                try { requireAccount(selected.account); }
+                catch (error) { throw new ScriptPreflightError(error instanceof Error ? error.message : String(error), { cause: error }); }
                 try { return { object: request.schema.parse(JSON.parse(text)) }; }
-                catch { if (attempt === 1) throw new Error("ChatGPT returned invalid structured output after two attempts"); }
+                catch { if (attempt === 1) throw new ChatGptOutputError("ChatGPT returned invalid structured output after two attempts"); }
               }
               throw new Error("Unreachable");
             },
@@ -116,12 +126,8 @@ export function createScriptSelection(directory: string, session?: Session) {
         },
       };
     },
-    generator() {
-      const { selected, selectedRevision } = locked(() => {
-        const selectedRevision = intent();
-        if (selectedRevision !== readRevision(committedFile)) throw new Error("Script selection incomplete; select a provider again");
-        return { selected: readSelection(), selectedRevision };
-      });
+    generator(current = snapshot()) {
+      const { selected, selectedRevision } = current;
       if (selected.provider === "local") return undefined;
       requireAccount(selected.account);
       return {

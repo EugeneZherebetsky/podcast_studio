@@ -10,7 +10,7 @@ import { monthTotalCostUsd, recordLlmUsage } from "../usage.ts";
 import type { StageResult } from "./artifacts.ts";
 import type { PublishStep } from "./publish.ts";
 import { CancelledAfterStage } from "./cancellation.ts";
-import { ScriptPreflightError } from "../chatgpt-selection.ts";
+import { ChatGptOutputError, ScriptPreflightError } from "../chatgpt-selection.ts";
 import { LlmOutputError } from "../providers/llm/ai-sdk.ts";
 export { CancelledAfterStage } from "./cancellation.ts";
 
@@ -24,7 +24,7 @@ export class ExternalWorkUncertain extends Error {
 async function externalCall<T>(run: () => Promise<T>): Promise<T> {
   try { return await run(); }
   catch (error) {
-    if (error instanceof CancelledAfterStage || error instanceof ScriptPreflightError || error instanceof LlmOutputError) throw error;
+    if (error instanceof CancelledAfterStage || error instanceof ScriptPreflightError || error instanceof LlmOutputError || error instanceof ChatGptOutputError) throw error;
     throw new ExternalWorkUncertain(error);
   }
 }
