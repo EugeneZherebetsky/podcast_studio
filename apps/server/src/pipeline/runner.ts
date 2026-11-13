@@ -11,7 +11,7 @@ import { monthTotalCostUsd, recordLlmUsage } from "../usage.ts";
 import type { StageResult } from "./artifacts.ts";
 import type { PublishStep } from "./publish.ts";
 import { CancelledAfterStage } from "./cancellation.ts";
-import { ChatGptOutputError, ScriptPreflightError } from "../chatgpt-selection.ts";
+import { ChatGptOutputError, ScriptPreflightError, chatGptDeadline } from "../chatgpt-selection.ts";
 import { LlmOutputError } from "../providers/llm/ai-sdk.ts";
 export { CancelledAfterStage } from "./cancellation.ts";
 
@@ -288,7 +288,12 @@ export async function generateJob(
       throw new Error("Job cancelled or ownership lost");
   };
   // Every LLM call is written to `usage` as it completes; see `meterLlm`.
-  const llm: LlmProvider = deps.chatgptProvider?.create(deps.signal) ?? deps.providers.llm;
+  let currentStage: StageName = "plan";
+  const requestOptions = () => ({
+    timeoutMs: chatGptDeadline(currentStage),
+    onProgress: (progress: import("../providers/llm/chatgpt-inference.ts").RequestProgress) => deps.onProgress?.({ kind: "chatgpt", stage: currentStage, ...progress }),
+  });
+  const llm: LlmProvider = deps.chatgptProvider?.create(deps.signal, requestOptions) ?? deps.providers.llm;
   let requestIndex = 0;
   async function diagnosticCall<T>(provider: string | undefined, model: string | undefined, run: () => Promise<T>): Promise<T> {
     const stage = db.select({ stage: jobs.currentStage }).from(jobs).where(eq(jobs.id, id)).get()?.stage;
@@ -343,6 +348,7 @@ export async function generateJob(
   const canonicalDir = path.join(deps.dataDir, "jobs", id);
   // The meter has already recorded the stage's usage, so it must not be recorded again.
   const stage = async <T>(name: StageName, fn: () => Promise<StageResult<T>>) => {
+    currentStage = name;
     try {
       const result = await runJobStage(db, id, name, async () => {
         deps.onEvent?.({ type: "job-stage", jobId: id, stage: name, status: "running" });
@@ -438,7 +444,7 @@ export async function generateJob(
           ...(deps.scriptGenerator
             ? { scriptGenerator: { ...deps.scriptGenerator, run: (input) => {
                 assertOwner();
-                return externalCall(() => diagnosticCall(deps.scriptGenerator!.diagnostic?.provider, deps.scriptGenerator!.diagnostic?.model, () => deps.scriptGenerator!.run(input, deps.signal)));
+                return externalCall(() => diagnosticCall(deps.scriptGenerator!.diagnostic?.provider, deps.scriptGenerator!.diagnostic?.model, () => deps.scriptGenerator!.run(input, deps.signal, requestOptions())));
               } } }
             : {}),
         },

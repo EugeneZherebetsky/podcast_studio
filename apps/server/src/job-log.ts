@@ -25,7 +25,8 @@ export type Progress =
       elapsedMs?: number;
     }
   | { kind: "merge"; status: "started" | "done" | "failed"; elapsedMs?: number }
-  | ({ kind: "request" } & RequestDiagnostic);
+  | ({ kind: "request" } & RequestDiagnostic)
+  | { kind: "chatgpt"; stage: StageName; bytes: number; events: number; elapsedMs: number };
 
 type RequestDiagnostic = { stage: StageName; status: "sent" | "completed" | "failed" | "timed out" | "cancelled"; provider: string; model: string | null; index: number; elapsedMs?: number };
 const providers = new Set(["ollama", "openai", "anthropic", "gemini", "chatgpt", "fake", "unknown"]);
@@ -33,9 +34,10 @@ export function safeModel(value: unknown): string | null {
   return typeof value === "string" && value.length <= 100 && /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/.test(value) && !/^(?:sk|key|token)[-_]/i.test(value) ? value : null;
 }
 
+
 export function publicJobError(error: string | null): string | null {
   if (error === null) return null;
-  if (error === "Timeout" || error === "Request cancelled or timed out") return error;
+  if (["Timeout", "Request cancelled or timed out", "ChatGPT request timed out; remote work may still be running", "ChatGPT request cancelled; remote work may still be running"].includes(error)) return error;
   return "Job failed.";
 }
 
@@ -70,6 +72,9 @@ function describe(progress: Progress): string {
     case "request":
       if (!STAGE_NAMES.includes(progress.stage) || !["sent", "completed", "failed", "timed out", "cancelled"].includes(progress.status) || !providers.has(progress.provider) || (progress.model !== null && safeModel(progress.model) !== progress.model) || !Number.isSafeInteger(progress.index) || progress.index < 1 || progress.index > 100000 || (progress.elapsedMs !== undefined && (!Number.isSafeInteger(progress.elapsedMs) || progress.elapsedMs < 0))) throw new Error("Invalid request diagnostic");
       return `${progress.stage} request ${progress.index} ${progress.status}: ${progress.provider}${progress.model ? ` / ${progress.model}` : ""}${safeDuration(progress.elapsedMs)}`;
+    case "chatgpt":
+      if (!STAGE_NAMES.includes(progress.stage) || [progress.bytes, progress.events, progress.elapsedMs].some((n) => !Number.isSafeInteger(n) || n < 0)) throw new Error("Invalid progress");
+      return `ChatGPT ${progress.stage}: ${progress.events} events, ${progress.bytes} bytes received${safeDuration(progress.elapsedMs)}`;
     case "merge":
       if (!["started", "done", "failed"].includes(progress.status))
         throw new Error("Invalid progress");

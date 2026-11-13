@@ -6,6 +6,14 @@ import { z } from "zod";
 import { generatePodcastScript } from "./cli/chatgpt-script.ts";
 
 import type { createChatGptSession } from "./providers/llm/chatgpt-session.ts";
+import type { GenerateOptions } from "./providers/llm/chatgpt-inference.ts";
+
+export function chatGptDeadline(stage: string): number {
+  const raw = stage === "script" ? process.env.CHATGPT_SCRIPT_TIMEOUT_MS : process.env.CHATGPT_STAGE_TIMEOUT_MS;
+  const value = raw === undefined ? (stage === "script" ? 300_000 : 120_000) : Number(raw);
+  if (!Number.isSafeInteger(value) || value < 1_000 || value > 900_000) throw new Error("Invalid ChatGPT stage timeout");
+  return value;
+}
 
 const Selection = z.discriminatedUnion("provider", [
   z.object({ provider: z.literal("local") }).strict(),
@@ -99,7 +107,7 @@ export function createScriptSelection(directory: string, session?: Session) {
       return {
         identity: `chatgpt:${selected.account}:${selected.model}`,
         description: `ChatGPT: ${selected.model} (subscription usage unavailable; costUsd 0 is a placeholder)`,
-        create(signal?: AbortSignal) {
+        create(signal?: AbortSignal, options?: () => GenerateOptions) {
           return {
             cacheIdentity: `chatgpt:${selected.account}:${selected.model}`,
             diagnostic: { provider: "chatgpt", models: { main: selected.model, fast: selected.model } },
@@ -113,7 +121,7 @@ export function createScriptSelection(directory: string, session?: Session) {
                     throw new ScriptPreflightError("Selection changed before generation");
                   try { requireAccount(selected.account); signal?.throwIfAborted(); }
                   catch (error) { throw new ScriptPreflightError(error instanceof Error ? error.message : String(error)); }
-                  return session!.generateStructured(selected.model, request.system, request.prompt, z.toJSONSchema(request.schema), signal);
+                  return session!.generateStructured(selected.model, request.system, request.prompt, z.toJSONSchema(request.schema), signal, options?.() ?? { timeoutMs: chatGptDeadline("other") });
                 });
                 const text = await pending;
                 try { requireAccount(selected.account); }
@@ -135,7 +143,7 @@ export function createScriptSelection(directory: string, session?: Session) {
         identity: `chatgpt:${selected.account}:${selected.model}`,
         description: `ChatGPT script: ${selected.model}`,
         diagnostic: { provider: "chatgpt", model: selected.model },
-        async run(input: Parameters<typeof generatePodcastScript>[2], signal?: AbortSignal) {
+        async run(input: Parameters<typeof generatePodcastScript>[2], signal?: AbortSignal, options?: GenerateOptions) {
           let started = false;
           let inFlight = false;
           let pending: ReturnType<typeof generatePodcastScript>;
@@ -149,7 +157,7 @@ export function createScriptSelection(directory: string, session?: Session) {
               started = true;
               return generatePodcastScript({ async generateStructured(...args) {
                 inFlight = true;
-                const response = await session!.generateStructured(...args);
+                const response = await session!.generateStructured(...args, options ?? { timeoutMs: chatGptDeadline("script") });
                 inFlight = false;
                 return response;
               } }, selected.model, input, signal);

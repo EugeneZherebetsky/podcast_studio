@@ -2,8 +2,14 @@ import { expect, test } from "vitest";
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync, readFileSync, readdirSync, appendFileSync } from "node:fs";
 import path from "node:path";
-import { createJobLog } from "../src/job-log.ts";
+import { createJobLog, publicJobError } from "../src/job-log.ts";
 import { makeTempDir, removeTempDir } from "./temp-dir.ts";
+
+test("exposes distinct safe ChatGPT timeout and cancellation messages", () => {
+  expect(publicJobError("ChatGPT request timed out; remote work may still be running")).toContain("timed out");
+  expect(publicJobError("ChatGPT request cancelled; remote work may still be running")).toContain("cancelled");
+  expect(publicJobError("private response")).toBe("Job failed.");
+});
 
 test("persists isolated, bounded, safe job progress across store instances", () => {
   const dir = makeTempDir();

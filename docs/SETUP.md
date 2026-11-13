@@ -29,6 +29,8 @@ Copy `.env.example` to `.env` and fill in:
 
 Never paste keys into a chat with an agent; put them in `.env` yourself.
 
+ChatGPT generation has a hard per-request deadline of 300 seconds for scripts and 120 seconds for other stages. To change these, set the server process environment variables `CHATGPT_SCRIPT_TIMEOUT_MS` and `CHATGPT_STAGE_TIMEOUT_MS` before starting it (these two overrides are not read from `.env`). Values must be integer milliseconds between 1000 and 900000. A timeout or cancellation does not prove remote generation stopped; do not automatically retry. Follow the manual recovery instructions below and leave the recovery marker in place if remote work cannot be confirmed stopped. The progress log reports only event and byte counts, not response content.
+
 ### 2. Phone (before task T18)
 
 1. Settings → About phone → tap **Build number** seven times.

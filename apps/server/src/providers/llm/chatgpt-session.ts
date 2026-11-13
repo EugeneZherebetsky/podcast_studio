@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { generate, listModels } from "./chatgpt-inference.ts";
+import { generate, listModels, type GenerateOptions } from "./chatgpt-inference.ts";
 import { beginChatGptLogin, type ExchangeEnd } from "./chatgpt-login.ts";
 import { openRegistrationStore, type GrantRecord } from "./chatgpt-registration.ts";
 
@@ -441,8 +441,10 @@ export async function createChatGptSession(
       prompt: string,
       schema: object,
       signal?: AbortSignal,
+      options: GenerateOptions = { timeoutMs: 300_000 },
     ) {
       return generate(requireAccess(), model, prompt, {
+        ...options,
         signal,
         structured: { system, schema },
       });
