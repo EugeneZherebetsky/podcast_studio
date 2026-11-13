@@ -6,6 +6,7 @@ import { jobs, jobStages } from "../db/schema.ts";
 import { usageOfFailedCall, type LlmProvider, type Usage } from "../providers/llm/interface.ts";
 import { monthTotalCostUsd, recordLlmUsage } from "../usage.ts";
 import type { StageResult } from "./artifacts.ts";
+import type { PublishStep } from "./publish.ts";
 
 function checkBudget(db: Db, budgetUsd: number): void {
   if (!Number.isFinite(budgetUsd) || budgetUsd < 0) throw new Error("Invalid budget");
@@ -156,11 +157,18 @@ export interface GenerateDeps {
   nativeLang: string;
 }
 
+export interface GenerateOptions {
+  /** Test seam: fail in place of the review stage, as an interruption after stage 5. */
+  stopAfterScript?: boolean;
+  /** Test seam: see `PublishOptions.afterStep`. */
+  afterPublishStep?: (step: PublishStep) => void | Promise<void>;
+}
+
 /** Run the standard pipeline. Providers must be free: paid usage is not safely priced yet. */
 export async function generateJob(
   deps: GenerateDeps,
   id: string,
-  options: { stopAfterScript?: boolean } = {},
+  options: GenerateOptions = {},
 ): Promise<void> {
   const { db } = deps;
   // Every LLM call is written to `usage` as it completes; see `meterLlm`.
@@ -172,11 +180,9 @@ export async function generateJob(
   if (!job) throw new Error("Job not found");
   if (job.options.mode !== "standard")
     throw new Error("Only standard mode is supported by this runner");
-  const { mkdir, readFile, copyFile, writeFile } = await import("node:fs/promises");
   const path = await import("node:path");
-  const { createHash } = await import("node:crypto");
-  const { EpisodeSchema, EPISODE_SCHEMA_VERSION } = await import("shared");
-  const { episodes } = await import("../db/schema.ts");
+  const { EPISODE_SCHEMA_VERSION } = await import("shared");
+  const { publishEpisode } = await import("./publish.ts");
   const { assembleAudio } = await import("../audio/assemble.ts");
   const { runPlanStage } = await import("./plan.ts");
   const { runSearchStage } = await import("./search.ts");
@@ -273,58 +279,36 @@ export async function generateJob(
       ),
     )
   ).artifact;
+  // Files first, the `episodes` row second, the stage and job status last: see publish.ts.
   await stage("publish", async () => {
-    const dir = path.join(deps.dataDir, "episodes", id);
-    await mkdir(dir, { recursive: true });
-    const buffer = await readFile(audioPath);
-    const createdAt = job.createdAt;
-    const episode = EpisodeSchema.parse({
-      schemaVersion: EPISODE_SCHEMA_VERSION,
-      id,
-      title: reviewed.title,
-      summary: reviewed.summary,
-      createdAt,
-      durationMs: audio.durationMs,
-      mode: "standard",
-      lang: job.options.lang,
-      nativeLang: deps.nativeLang,
-      audio: {
-        file: "audio.m4a",
-        bytes: buffer.length,
-        sha256: createHash("sha256").update(buffer).digest("hex"),
-      },
-      segments: audio.segments,
-      chapters: audio.chapters,
-      sources: sources.sources,
-      generation: {
-        profile: deps.profile,
-        llm: deps.llmName,
-        tts: deps.ttsName,
-        voice: deps.voice,
-        costUsd: 0,
-      },
-    });
-    await copyFile(audioPath, path.join(dir, "audio.m4a"));
-    await writeFile(
-      path.join(dir, "episode.json"),
-      `${JSON.stringify(episode, null, 2)}
-`,
-    );
-    db.insert(episodes)
-      .values({
+    const published = await publishEpisode({
+      db,
+      dataDir: deps.dataDir,
+      audioPath,
+      episode: {
+        schemaVersion: EPISODE_SCHEMA_VERSION,
         id,
-        topicId: null,
-        title: episode.title,
-        summary: episode.summary,
-        mode: episode.mode,
-        lang: episode.lang,
-        durationMs: episode.durationMs,
-        createdAt,
-        path: dir,
-      })
-      .onConflictDoNothing()
-      .run();
-    return uncached({ id });
+        title: reviewed.title,
+        summary: reviewed.summary,
+        createdAt: job.createdAt,
+        durationMs: audio.durationMs,
+        mode: "standard",
+        lang: job.options.lang,
+        nativeLang: deps.nativeLang,
+        segments: audio.segments,
+        chapters: audio.chapters,
+        sources: sources.sources,
+        generation: {
+          profile: deps.profile,
+          llm: deps.llmName,
+          tts: deps.ttsName,
+          voice: deps.voice,
+          costUsd: 0,
+        },
+      },
+      ...(options.afterPublishStep ? { afterStep: options.afterPublishStep } : {}),
+    });
+    return uncached({ id, reused: published.reused });
   });
   db.update(jobs)
     .set({ status: "succeeded", updatedAt: new Date().toISOString() })
