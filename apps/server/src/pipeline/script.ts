@@ -38,7 +38,7 @@ export interface ScriptInput {
 export interface ScriptDeps {
   workDir: string;
   llm: LlmProvider;
-  scriptGenerator?: { identity: string; description?: string; run(input: ScriptInput, signal?: AbortSignal): Promise<Script> };
+  scriptGenerator?: { identity: string; description?: string; run(input: ScriptInput, signal?: AbortSignal, options?: import("../providers/llm/chatgpt-inference.ts").GenerateOptions): Promise<Script> };
 }
 
 export function responseSchemaFor(input: ScriptInput) {

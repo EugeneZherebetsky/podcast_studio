@@ -1,4 +1,12 @@
-type Options = {
+export type RequestProgress = { bytes: number; events: number; elapsedMs: number };
+export type GenerateOptions = { timeoutMs?: number; onProgress?: (progress: RequestProgress) => void };
+export class ChatGptTimeoutError extends Error {
+  constructor() { super("ChatGPT request timed out; remote work may still be running"); }
+}
+export class ChatGptCancelledError extends Error {
+  constructor() { super("ChatGPT request cancelled; remote work may still be running"); }
+}
+type Options = GenerateOptions & {
   transport?: typeof fetch;
   signal?: AbortSignal;
   maxBytes?: number;
@@ -11,22 +19,21 @@ async function request<T>(
   endpoint: string,
   body: object | undefined,
   options: Options,
-  consume: (text: string) => T,
+  consume: { push(text: string): void; finish(): T },
 ): Promise<T> {
+  const timeoutMs = options.timeoutMs ?? 60_000;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 900_000) throw new Error("Invalid ChatGPT request timeout");
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 60_000);
-  const signal = options.signal
-    ? AbortSignal.any([controller.signal, options.signal])
-    : controller.signal;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const signal = options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal;
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
-  const aborted = new Promise<never>((_, reject) => {
-    if (signal.aborted) reject(new Error("Request cancelled or timed out"));
-    else
-      signal.addEventListener("abort", () => reject(new Error("Request cancelled or timed out")), {
-        once: true,
-      });
-  });
+  let rejectAbort!: (error: Error) => void;
+  const aborted = new Promise<never>((_, reject) => { rejectAbort = reject; });
+  const onAbort = () => rejectAbort(controller.signal.aborted ? new ChatGptTimeoutError() : new ChatGptCancelledError());
+  if (signal.aborted) onAbort();
+  else signal.addEventListener("abort", onAbort, { once: true });
   try {
+    if (signal.aborted) return await aborted;
     const response = await Promise.race([
       (options.transport ?? fetch)(`https://api.openai.com/v1/${endpoint}`, {
         method: body ? "POST" : "GET",
@@ -42,34 +49,34 @@ async function request<T>(
     ]);
     if (!response.ok || response.status >= 300 || !response.body) throw new Error("Request failed");
     reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
+    const decoder = new TextDecoder("utf-8", { fatal: true });
     let size = 0;
     for (;;) {
       const part = await Promise.race([reader.read(), aborted]);
       if (part.done) break;
       size += part.value.byteLength;
       if (size > (options.maxBytes ?? 1_000_000)) throw new Error("Response exceeds byte limit");
-      chunks.push(part.value);
+      consume.push(decoder.decode(part.value, { stream: true }));
     }
-    return consume(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)));
+    consume.push(decoder.decode());
+    return consume.finish();
   } catch (error) {
     if (reader) void reader.cancel().catch(() => {});
-    controller.abort();
-    if (
-      error instanceof Error &&
-      ["Response exceeds byte limit", "Request cancelled or timed out"].includes(error.message)
-    )
-      throw error;
+    if (error instanceof ChatGptTimeoutError || error instanceof ChatGptCancelledError ||
+      (error instanceof Error && error.message === "Response exceeds byte limit")) throw error;
     // Do not attach the original error: transports may include authorization details.
     // eslint-disable-next-line preserve-caught-error
     throw new Error("ChatGPT request failed or response was invalid");
   } finally {
     clearTimeout(timeout);
+    signal.removeEventListener("abort", onAbort);
+    controller.abort();
   }
 }
 
 export async function listModels(token: string, options: Options = {}) {
-  return request(token, "models", undefined, options, (text) => {
+  let text = "";
+  return request(token, "models", undefined, options, { push(chunk) { text += chunk; }, finish() {
     const data = JSON.parse(text) as {
       models: { visibility: string; slug: string; display_name: string }[];
     };
@@ -82,7 +89,7 @@ export async function listModels(token: string, options: Options = {}) {
           typeof m.display_name === "string",
       )
       .map(({ slug, display_name }) => ({ slug, display_name }));
-  });
+  } });
 }
 
 export async function generate(
@@ -92,6 +99,9 @@ export async function generate(
   options: Options = {},
 ) {
   if (!model.trim() || !prompt.trim()) throw new Error("Model and prompt are required");
+  let buffer = "", output = "", completed = false, bytes = 0, events = 0;
+  const started = Date.now();
+  let lastProgress = started - 5_000;
   return request(
     token,
     "responses",
@@ -103,11 +113,13 @@ export async function generate(
       ...(options.structured ? { text: { format: { type: "json_schema", name: "podcast_script", strict: false, schema: options.structured.schema } } } : {}),
     },
     options,
-    (text) => {
-      if (!/\r?\n\r?\n$/.test(text)) throw new Error("Incomplete stream framing");
-      let output = "";
-      let completed = false;
-      for (const event of text.split(/\r?\n\r?\n/)) {
+    { push(chunk) {
+      buffer += chunk;
+      bytes += Buffer.byteLength(chunk);
+      let separator: RegExpExecArray | null;
+      while ((separator = /\r?\n\r?\n/.exec(buffer))) {
+        const event = buffer.slice(0, separator.index);
+        buffer = buffer.slice(separator.index + separator[0].length);
         const data = event
           .split(/\r?\n/)
           .filter((line) => line.startsWith("data:"))
@@ -126,9 +138,16 @@ export async function generate(
           output += value.delta;
         }
         if (value.type === "response.completed") completed = true;
+        events++;
       }
-      if (!completed) throw new Error("Incomplete response");
+      const now = Date.now();
+      if (events && now - lastProgress >= 5_000) {
+        options.onProgress?.({ bytes, events, elapsedMs: now - started });
+        lastProgress = now;
+      }
+    }, finish() {
+      if (buffer || !completed) throw new Error("Incomplete response");
       return output;
-    },
+    } },
   );
 }

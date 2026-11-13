@@ -6,11 +6,22 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { eq } from "drizzle-orm";
 import { parseConfig } from "shared";
 import { buildApp } from "../src/app.ts";
-import { createScriptSelection } from "../src/chatgpt-selection.ts";
+import { createScriptSelection, chatGptDeadline } from "../src/chatgpt-selection.ts";
 import { createDesktopRunner } from "../src/desktop-runner.ts";
 import { createChatGptSession } from "../src/providers/llm/chatgpt-session.ts";
 import { episodes, jobs, usage } from "../src/db/schema.ts";
 import { fakeGeneration, GENERATION_TIMEOUT_MS, respond } from "./generation-fakes.ts";
+
+it("uses bounded configurable stage deadlines", () => {
+  vi.stubEnv("CHATGPT_SCRIPT_TIMEOUT_MS", "300001");
+  vi.stubEnv("CHATGPT_STAGE_TIMEOUT_MS", "180000");
+  try {
+    expect(chatGptDeadline("script")).toBe(300001);
+    expect(chatGptDeadline("notes")).toBe(180000);
+    vi.stubEnv("CHATGPT_SCRIPT_TIMEOUT_MS", "900001");
+    expect(() => chatGptDeadline("script")).toThrow("Invalid ChatGPT stage timeout");
+  } finally { vi.unstubAllEnvs(); }
+});
 
 it("retries a failed job as new using all-stage ChatGPT, preserving old artifacts and exporting the new episode", async () => {
   const f = fakeGeneration({ review: true });
@@ -85,6 +96,7 @@ it("retries a failed job as new using all-stage ChatGPT, preserving old artifact
     expect(log.entries.map((entry: { message: string }) => entry.message)).toEqual(expect.arrayContaining([
       expect.stringMatching(/^Map 1\/\d+ completed/),
       expect.stringMatching(/^Merge completed/),
+      expect.stringMatching(/^ChatGPT script: \d+ events, \d+ bytes received/),
     ]));
     for (const name of ["episode.json", "audio.m4a"]) {
       const response = await app.inject({ url: `/api/episodes/${job.id}/usb/${name}` });

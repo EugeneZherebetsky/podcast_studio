@@ -24,11 +24,12 @@ export type Progress =
       total: number;
       elapsedMs?: number;
     }
+  | { kind: "chatgpt"; stage: StageName; bytes: number; events: number; elapsedMs: number }
   | { kind: "merge"; status: "started" | "done" | "failed"; elapsedMs?: number };
 
 export function publicJobError(error: string | null): string | null {
   if (error === null) return null;
-  if (error === "Timeout" || error === "Request cancelled or timed out") return error;
+  if (["Timeout", "Request cancelled or timed out", "ChatGPT request timed out; remote work may still be running", "ChatGPT request cancelled; remote work may still be running"].includes(error)) return error;
   return "Job failed.";
 }
 
@@ -60,6 +61,9 @@ function describe(progress: Progress): string {
       )
         throw new Error("Invalid progress");
       return `Map ${progress.index}/${progress.total} ${{ started: "started", done: "completed", failed: "failed", cached: "used cache" }[progress.status]}${safeDuration(progress.elapsedMs)}`;
+    case "chatgpt":
+      if (!STAGE_NAMES.includes(progress.stage) || [progress.bytes, progress.events, progress.elapsedMs].some((n) => !Number.isSafeInteger(n) || n < 0)) throw new Error("Invalid progress");
+      return `ChatGPT ${progress.stage}: ${progress.events} events, ${progress.bytes} bytes received${safeDuration(progress.elapsedMs)}`;
     case "merge":
       if (!["started", "done", "failed"].includes(progress.status))
         throw new Error("Invalid progress");
