@@ -5,10 +5,6 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
 } from "node:fs";
 import path from "node:path";
 import { STAGE_NAMES, type StageName } from "shared";
@@ -29,6 +25,12 @@ export type Progress =
       elapsedMs?: number;
     }
   | { kind: "merge"; status: "started" | "done" | "failed"; elapsedMs?: number };
+
+export function publicJobError(error: string | null): string | null {
+  if (error === null) return null;
+  if (error === "Timeout" || error === "Request cancelled or timed out") return error;
+  return "Job failed.";
+}
 
 type Entry = { timestamp: string; message: string };
 const limit = 500;
@@ -73,7 +75,7 @@ export function createJobLog(dataDir: string) {
     if (existsSync(target) && lstatSync(target).isSymbolicLink())
       throw new Error("Log storage unavailable");
   };
-  function read(id: string): { available: boolean; entries: Entry[] } {
+  function read(id: string): { available: boolean; partial?: boolean; entries: Entry[] } {
     check(dir);
     if (existsSync(dir) && !lstatSync(dir).isDirectory())
       throw new Error("Log storage unavailable");
@@ -87,7 +89,8 @@ export function createJobLog(dataDir: string) {
       .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line) as Entry);
-    return { available: true, entries: entries.slice(-limit) };
+    // A failed write or an older evicted log cannot be detected after restart.
+    return { available: true, partial: true, entries: entries.slice(-limit) };
   }
   return {
     read,
@@ -99,20 +102,7 @@ export function createJobLog(dataDir: string) {
       check(target);
       const previous = read(id).entries;
       const line = JSON.stringify({ timestamp: new Date().toISOString(), message }) + "\n";
-      if (previous.length >= limit)
-        writeFileSync(
-          target,
-          previous
-            .slice(-limit + 1)
-            .map((entry) => JSON.stringify(entry) + "\n")
-            .join("") + line,
-        );
-      else appendFileSync(target, line);
-      const files = readdirSync(dir)
-        .filter((name) => /^[a-f0-9]{64}\.jsonl$/.test(name) && name !== path.basename(target))
-        .map((name) => ({ name, time: statSync(path.join(dir, name)).mtimeMs }))
-        .sort((a, b) => b.time - a.time);
-      for (const old of files.slice(199)) unlinkSync(path.join(dir, old.name));
+      if (previous.length < limit) appendFileSync(target, line);
     },
   };
 }

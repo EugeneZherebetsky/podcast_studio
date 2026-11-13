@@ -11,6 +11,7 @@ import {
 } from "shared";
 import type { Db } from "./db/index.ts";
 import { jobs, jobStages, settings, topics } from "./db/schema.ts";
+import { publicJobError } from "./job-log.ts";
 
 // T12 owns job execution and its state transitions; HTTP must not simulate them.
 export interface JobRunner {
@@ -34,7 +35,7 @@ export function registerJobRoutes(
   }
   const publicJob = ({ ownerToken, ...job }: typeof jobs.$inferSelect) => {
     void ownerToken;
-    return job;
+    return { ...job, error: publicJobError(job.error) };
   };
   app.get("/api/jobs", async () => ({ jobs: db.select().from(jobs).all().map(publicJob) }));
   app.get<{ Params: { id: string } }>("/api/jobs/:id", async (request, reply) => {
@@ -42,7 +43,7 @@ export function registerJobRoutes(
     if (!job) return reply.code(404).send({ error: "Job not found" });
     return {
       ...publicJob(job),
-      stages: db.select().from(jobStages).where(eq(jobStages.jobId, job.id)).all(),
+      stages: db.select().from(jobStages).where(eq(jobStages.jobId, job.id)).all().map((stage) => ({ ...stage, error: publicJobError(stage.error) })),
     };
   });
   app.post("/api/jobs", async (request, reply) => {

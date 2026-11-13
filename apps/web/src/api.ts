@@ -63,10 +63,11 @@ export const api = {
   jobLog: (id: string) =>
     request(`/jobs/${idPath(id)}/log`, {
       parse(value: unknown) {
-        const data = value as { available?: unknown; entries?: unknown };
+        const data = value as { available?: unknown; partial?: unknown; entries?: unknown };
         if (
           !data ||
           typeof data.available !== "boolean" ||
+          (data.available && typeof data.partial !== "boolean") ||
           !Array.isArray(data.entries) ||
           !data.entries.every(
             (e: unknown) =>
@@ -77,7 +78,7 @@ export const api = {
           )
         )
           throw new Error("Invalid progress log");
-        return data as { available: boolean; entries: { timestamp: string; message: string }[] };
+        return data as { available: boolean; partial?: boolean; entries: { timestamp: string; message: string }[] };
       },
     }),
   createJob: (body: CreateJobRequestInput) =>

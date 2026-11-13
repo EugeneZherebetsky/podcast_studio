@@ -46,6 +46,14 @@ test("settings reject unexpected secret fields in responses", async () => {
   await expect(api.settings()).rejects.toThrow();
 });
 
+test("progress log requires and retains partial history state", async () => {
+  vi.stubGlobal("fetch", vi.fn()
+    .mockResolvedValueOnce(new Response(JSON.stringify({ available: true, partial: true, entries: [] })))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ available: true, entries: [] }))));
+  expect((await api.jobLog("one")).partial).toBe(true);
+  await expect(api.jobLog("one")).rejects.toThrow("Invalid progress log");
+});
+
 test("encodes episode identifiers", () => {
   expect(api.audioUrl("a/b")).toBe("/api/episodes/a%2Fb/audio");
 });

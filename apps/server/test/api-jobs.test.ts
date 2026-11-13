@@ -19,7 +19,7 @@ test("existing jobs are readable but job creation fails closed without a runner"
       updatedAt: "2026-01-01T00:00:00.000Z",
     } as const;
     db.insert(jobs).values(job).run();
-    expect((await app.inject({ url: "/api/jobs" })).json().jobs).toEqual([job]);
+    expect((await app.inject({ url: "/api/jobs" })).json().jobs).toEqual([{ ...job, error: "Job failed." }]);
     expect((await app.inject({ url: "/api/jobs/job" })).json().stages).toEqual([]);
     expect(
       (await app.inject({ method: "POST", url: "/api/jobs", payload: job.options })).statusCode,

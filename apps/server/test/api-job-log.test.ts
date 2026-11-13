@@ -5,7 +5,7 @@ import { expect, test } from "vitest";
 import { parseConfig } from "shared";
 import { buildApp } from "../src/app.ts";
 import { openDatabase } from "../src/db/index.ts";
-import { jobs } from "../src/db/schema.ts";
+import { jobs, jobStages } from "../src/db/schema.ts";
 import { makeTempDir, removeTempDir } from "./temp-dir.ts";
 
 test("job logs survive app restart, filter jobs and never persist provider errors", async () => {
@@ -70,6 +70,35 @@ test("job logs survive app restart, filter jobs and never persist provider error
     db.$client.close();
     removeTempDir(dir);
   }
+});
+
+test("public job errors and SSE never expose provider text", async () => {
+  const db = openDatabase(":memory:");
+  const events = new EventEmitter();
+  const secret = "SECRET prompt C:\\private\\file\nforged event";
+  db.insert(jobs).values({ id: "one", topicId: null, status: "failed", currentStage: "notes", error: secret,
+    options: { title: "Example", brief: "", mode: "standard", lang: "en", minutes: 8 },
+    createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }).run();
+  db.insert(jobStages).values({ jobId: "one", stage: "notes", status: "failed", error: secret }).run();
+  const app = buildApp({ db, events });
+  try {
+    const job = (await app.inject({ url: "/api/jobs/one" })).json();
+    expect(job.stages[0].error).toBe("Job failed.");
+    expect(db.select().from(jobStages).get()?.error).toBe(secret);
+    expect(job.error).toBe("Job failed.");
+    expect(db.select().from(jobs).get()?.error).toBe(secret);
+    const address = await app.listen({ host: "127.0.0.1", port: 0 });
+    const response = await fetch(`${address}/api/events`);
+    const reader = response.body!.getReader();
+    await reader.read();
+    events.emit("event", { type: "job-stage", jobId: "one", stage: "notes", status: "failed", error: secret });
+    const event = new TextDecoder().decode((await reader.read()).value);
+    expect(event).not.toMatch(/SECRET|prompt|private|forged/);
+    expect(event).toContain("Job failed.");
+    events.emit("event", { type: "job-stage", jobId: "one", stage: "notes", status: "failed", error: "Request cancelled or timed out" });
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain("Request cancelled or timed out");
+    await reader.cancel();
+  } finally { await app.close(); db.$client.close(); }
 });
 
 test("log storage failure does not throw from progress event and reports unavailable", async () => {

@@ -27,7 +27,7 @@ import { registerWebAssets } from "./web-static.ts";
 import { registerChatGptManagement } from "./chatgpt-management.ts";
 import type { createChatGptSession } from "./providers/llm/chatgpt-session.ts";
 import type { createScriptSelection } from "./chatgpt-selection.ts";
-import { createJobLog, type Progress } from "./job-log.ts";
+import { createJobLog, publicJobError, type Progress } from "./job-log.ts";
 import { jobs } from "./db/schema.ts";
 
 const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
@@ -148,7 +148,11 @@ export function buildApp(options?: {
     streams.add(stream);
     const listener = (event: unknown) => {
       const parsed = ServerEventSchema.safeParse(event);
-      if (parsed.success && !stream.write(`data: ${JSON.stringify(parsed.data)}\n\n`)) stream.destroy();
+      if (!parsed.success) return;
+      const safe = parsed.data.type === "job-stage" && parsed.data.error !== undefined
+        ? { ...parsed.data, error: publicJobError(parsed.data.error) ?? undefined }
+        : parsed.data;
+      if (!stream.write(`data: ${JSON.stringify(safe)}\n\n`)) stream.destroy();
     };
     events.on("event", listener);
     const progressListener = (jobId: string) => {

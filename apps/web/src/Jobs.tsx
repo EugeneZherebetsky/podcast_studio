@@ -148,7 +148,8 @@ export function Jobs() {
               {selected === job.id && (
                 <section aria-label="Progress log">
                   <h3>Progress log</h3>
-                  <p>Up to 500 recent entries are kept; older job logs may be removed.</p>
+                  <p>Up to 500 entries are recorded. Existing logs are not deleted.</p>
+                  {log?.available && log.partial && <p role="status">This history may be incomplete or truncated, including if storage failed.</p>}
                   {logError ? (
                     <p role="alert">{logError}</p>
                   ) : !log ? (
