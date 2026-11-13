@@ -171,16 +171,23 @@ describe("AiSdkLlmProvider.generateObject", () => {
     );
   });
 
-  test("an unknown model costs 0 and warns once", async () => {
-    const { provider, warnings } = setup({ main: [VALID, VALID], prices: {} });
+  test.each([
+    ["missing", {}],
+    ["inherited", Object.create(PRICES) as LlmPriceTable],
+    ["negative input", { "model-main": { inputUsdPerMTok: -1, outputUsdPerMTok: 1 } }],
+    ["negative output", { "model-main": { inputUsdPerMTok: 1, outputUsdPerMTok: -1 } }],
+    ["nonfinite input", { "model-main": { inputUsdPerMTok: NaN, outputUsdPerMTok: 1 } }],
+    ["nonfinite output", { "model-main": { inputUsdPerMTok: 1, outputUsdPerMTok: Infinity } }],
+  ])("refuses %s pricing before a provider call", async (_name, prices) => {
+    const { provider, main } = setup({ prices });
+    await expect(provider.generateObject({ slot: "main", ...request })).rejects.toThrow(/No price configured.*model-main/);
+    expect(main.doGenerateCalls).toHaveLength(0);
+  });
 
-    const first = await provider.generateObject({ slot: "main", ...request });
-    await provider.generateObject({ slot: "main", ...request });
-
-    expect(first.usage.costUsd).toBe(0);
-    expect(first.usage.inputTokens).toBe(100);
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("model-main");
+  test("allows explicit zero rates", async () => {
+    const { provider, main } = setup({ prices: { "model-main": { inputUsdPerMTok: 0, outputUsdPerMTok: 0 } } });
+    expect((await provider.generateObject({ slot: "main", ...request })).usage.costUsd).toBe(0);
+    expect(main.doGenerateCalls).toHaveLength(1);
   });
 
   test("errors that are not about the output (e.g. the API is down) are not retried here", async () => {

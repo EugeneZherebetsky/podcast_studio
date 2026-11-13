@@ -42,7 +42,7 @@ export interface AiSdkLlmProviderOptions {
   models: Record<LlmSlot, SlotModel>;
   /** USD per million tokens by model id, or "free" for local models. */
   prices: LlmPriceTable | "free";
-  /** Receives the "no price for model" warning; defaults to `console.warn`. */
+  /** Reserved for compatibility with existing callers. */
   warn?: (message: string) => void;
   boundedOllama?: boolean;
   localCacheIdentity?: string;
@@ -67,8 +67,6 @@ export class AiSdkLlmProvider implements LlmProvider {
   readonly localCacheIdentity?: string;
   private readonly models: Record<LlmSlot, SlotModel>;
   private readonly prices: LlmPriceTable | "free";
-  private readonly warn: (message: string) => void;
-  private readonly warnedModels = new Set<string>();
   private readonly boundedOllama: boolean;
 
   constructor(options: AiSdkLlmProviderOptions) {
@@ -77,7 +75,6 @@ export class AiSdkLlmProvider implements LlmProvider {
     this.models = options.models;
     this.prices = options.prices;
     this.boundedOllama = options.boundedOllama === true;
-    this.warn = options.warn ?? ((message) => console.warn(message));
   }
 
   get diagnostic() { return { provider: this.providerName, models: this.modelIds }; }
@@ -89,6 +86,13 @@ export class AiSdkLlmProvider implements LlmProvider {
 
   async generateObject<T>(request: GenerateObjectRequest<T>): Promise<GenerateObjectResult<T> & { usage: Usage }> {
     const { id, model } = this.models[request.slot];
+    if (this.prices !== "free") {
+      const price = Object.hasOwn(this.prices, id) ? this.prices[id] : undefined;
+      if (!price || !Number.isFinite(price.inputUsdPerMTok) || price.inputUsdPerMTok < 0 ||
+          !Number.isFinite(price.outputUsdPerMTok) || price.outputUsdPerMTok < 0) {
+        throw new Error(`No price configured for LLM model "${id}"; add valid rates to LLM_PRICES before calling it`);
+      }
+    }
     let inputTokens = 0;
     let outputTokens = 0;
     let lastProblem = "";
@@ -185,14 +189,7 @@ export class AiSdkLlmProvider implements LlmProvider {
     if (this.prices === "free") return 0;
     const cost = computeLlmCostUsd(this.prices, model, inputTokens, outputTokens);
     if (cost !== undefined) return cost;
-    if (!this.warnedModels.has(model)) {
-      this.warnedModels.add(model);
-      this.warn(
-        `No price configured for LLM model "${model}": its cost is recorded as 0. ` +
-          `Add it to LLM_PRICES in apps/server/src/config.ts.`,
-      );
-    }
-    return 0;
+    throw new Error(`No price configured for LLM model "${model}"`);
   }
 }
 
