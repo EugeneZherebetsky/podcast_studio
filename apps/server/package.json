@@ -9,6 +9,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "db:generate": "drizzle-kit generate",
+    "chatgpt": "tsx src/cli/chatgpt.ts",
     "gen": "tsx src/cli/gen.ts",
     "usb:export": "tsx src/cli/usb-export.ts",
     "smoke": "tsx src/cli/smoke.ts"
