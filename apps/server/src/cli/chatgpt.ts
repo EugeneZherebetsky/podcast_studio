@@ -11,6 +11,10 @@ const terminal = createInterface({
   output: process.stdout,
   terminal: !!process.stdin.isTTY,
 });
+terminal.on("close", () => {
+  void session.shutdown();
+});
+terminal.on("SIGINT", () => terminal.close());
 console.log(
   "ChatGPT local session. Commands: login <label>, status, models, ask <model> <prompt>, script <model> <research.json>, signout, quit",
 );
@@ -28,7 +32,10 @@ for await (const line of terminal) {
       console.log((await attempt.complete()) ? "Signed in." : "Authorization denied.");
     } else if (command === "status" && !label) {
       console.log(JSON.stringify(session.status()));
-    } else if ((command === "models" && !label) || ((command === "ask" || command === "script") && label && extra)) {
+    } else if (
+      (command === "models" && !label) ||
+      ((command === "ask" || command === "script") && label && extra)
+    ) {
       const controller = new AbortController();
       const cancel = () => controller.abort();
       terminal.once("SIGINT", cancel);
@@ -38,7 +45,13 @@ for await (const line of terminal) {
         else if (command === "script") {
           const file = line.trim().replace(/^script\s+\S+\s+/, "");
           const input = JSON.parse(await readFile(file, "utf8")) as unknown;
-          console.log(JSON.stringify(await generatePodcastScript(session, label!, input, controller.signal), null, 2));
+          console.log(
+            JSON.stringify(
+              await generatePodcastScript(session, label!, input, controller.signal),
+              null,
+              2,
+            ),
+          );
         } else
           console.log(
             await session.generate(
@@ -59,7 +72,9 @@ for await (const line of terminal) {
     } else if (command === "quit" && !label) {
       break;
     } else
-      console.log("Commands: login <label>, status, models, ask <model> <prompt>, script <model> <research.json>, signout, quit");
+      console.log(
+        "Commands: login <label>, status, models, ask <model> <prompt>, script <model> <research.json>, signout, quit",
+      );
   } catch {
     console.error(
       command === "script"
@@ -73,3 +88,4 @@ if (session.status().active)
     "Session cleared locally on exit; remote revocation not confirmed. Use signout before quitting or disconnect in ChatGPT Settings.",
   );
 terminal.close();
+await session.shutdown();

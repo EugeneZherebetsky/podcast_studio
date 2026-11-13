@@ -46,3 +46,101 @@ it("keeps tokens in memory and reuses the selected account after signout", async
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+it("cancels a pending login on signout and allows a new attempt", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "chatgpt-session-"));
+  try {
+    const session = await createChatGptSession(dir);
+    const attempt = await session.login("work");
+    const callback = new URL(new URL(attempt.authorizationUrl).searchParams.get("redirect_uri")!);
+    const completion = expect(attempt.complete()).rejects.toThrow();
+    await expect(session.login("other")).rejects.toThrow("pending");
+    expect(await session.signout()).toBe(true);
+    await completion;
+    await expect(fetch(callback)).rejects.toThrow();
+    const next = await session.login("other");
+    const nextCompletion = expect(next.complete()).rejects.toThrow();
+    await session.shutdown();
+    await nextCompletion;
+    expect(session.status().active).toBe(null);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+it("cancels a login that is still starting and never activates its late result", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "chatgpt-session-"));
+  try {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let closed = false;
+    const start = async () => {
+      await gate;
+      return {
+        authorizationUrl: "https://example.test",
+        close() {
+          closed = true;
+        },
+        result: Promise.resolve({
+          kind: "success" as const,
+          subject: "sub",
+          clientId: "client",
+          accessToken: "access",
+          idToken: "id",
+          expiresIn: 60,
+          scopes: [],
+          planEnabled: false,
+        }),
+      };
+    };
+    const session = await createChatGptSession(dir, start);
+    const login = session.login("work");
+    const failed = expect(login).rejects.toThrow("cancelled");
+    const stopping = session.shutdown();
+    release();
+    await stopping;
+    await failed;
+    expect(closed).toBe(true);
+    expect(session.status().active).toBe(null);
+    await expect(session.login("other")).rejects.toThrow("closed");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+it("cannot complete a cancelled attempt and reports successful revocation", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "chatgpt-session-"));
+  try {
+    const result = {
+      kind: "success" as const,
+      subject: "sub",
+      clientId: "client",
+      accessToken: "access",
+      refreshToken: "refresh",
+      idToken: "id",
+      expiresIn: 60,
+      scopes: [],
+      planEnabled: false,
+    };
+    const session = await createChatGptSession(
+      dir,
+      async () => ({
+        authorizationUrl: "https://example.test",
+        close() {},
+        result: Promise.resolve(result),
+      }),
+      async (token, client) => token === "refresh" && client === "client",
+    );
+    const stale = await session.login("old");
+    await session.signout();
+    await expect(stale.complete()).rejects.toThrow("cancelled");
+    expect(session.status().accounts).toEqual([]);
+    await (await session.login("new")).complete();
+    expect(await session.signout()).toBe(true);
+    expect(session.status().active).toBe(null);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

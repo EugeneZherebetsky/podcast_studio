@@ -60,7 +60,17 @@ export async function createChatGptSession(
 ) {
   const store = await openRegistrationStore(directory);
   let active: { label: string; credentials: Success } | undefined;
-  let pending = false;
+  let pending:
+    { cancelled: boolean; close?: () => void; done: Promise<void>; finish: () => void } | undefined;
+  let closed = false;
+  let signingOut = false;
+  async function cancelPending() {
+    const current = pending;
+    if (!current) return;
+    current.cancelled = true;
+    current.close?.();
+    await current.done;
+  }
   return {
     status() {
       return {
@@ -71,9 +81,25 @@ export async function createChatGptSession(
     },
     async login(label: string) {
       if (!/^[a-zA-Z0-9_-]{1,40}$/.test(label)) throw new Error("Invalid account label");
+      if (closed) throw new Error("Session closed");
+      if (signingOut) throw new Error("Signout pending");
       if (pending) throw new Error("Login already pending");
       if (active) throw new Error("Sign out before starting another login");
-      pending = true;
+      let finish!: () => void;
+      const done = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      const current = {
+        cancelled: false,
+        close: undefined as (() => void) | undefined,
+        done,
+        finish,
+      };
+      pending = current;
+      const cleanup = () => {
+        if (pending === current) pending = undefined;
+        current.finish();
+      };
       try {
         const accounts = store.accounts;
         const account = Object.hasOwn(accounts, label) ? accounts[label] : undefined;
@@ -82,6 +108,17 @@ export async function createChatGptSession(
           ...(account ? { clientId: account.clientId, expectedSubject: account.subject } : {}),
         });
         let consumed = false;
+        current.close = () => {
+          attempt.close();
+          if (!consumed) cleanup();
+        };
+        void attempt.result.catch(() => {
+          if (!consumed) cleanup();
+        });
+        if (current.cancelled) {
+          attempt.close();
+          throw new Error("Login cancelled");
+        }
         return {
           authorizationUrl: attempt.authorizationUrl,
           async complete() {
@@ -89,17 +126,19 @@ export async function createChatGptSession(
             consumed = true;
             try {
               const result = await attempt.result;
+              if (current.cancelled) throw new Error("Login cancelled");
               if (result.kind === "denied") return false;
               await store.save(label, result.clientId, result.subject);
+              if (current.cancelled) throw new Error("Login cancelled");
               active = { label, credentials: result };
               return true;
             } finally {
-              pending = false;
+              cleanup();
             }
           },
         };
       } catch (error) {
-        pending = false;
+        cleanup();
         throw error;
       }
     },
@@ -111,16 +150,36 @@ export async function createChatGptSession(
       if (!active?.credentials.planEnabled) throw new Error("A plan-enabled session is required");
       return generate(active.credentials.accessToken, model, prompt, { signal });
     },
-    async generateStructured(model: string, system: string, prompt: string, schema: object, signal?: AbortSignal) {
+    async generateStructured(
+      model: string,
+      system: string,
+      prompt: string,
+      schema: object,
+      signal?: AbortSignal,
+    ) {
       if (!active?.credentials.planEnabled) throw new Error("A plan-enabled session is required");
-      return generate(active.credentials.accessToken, model, prompt, { signal, structured: { system, schema } });
+      return generate(active.credentials.accessToken, model, prompt, {
+        signal,
+        structured: { system, schema },
+      });
+    },
+    async shutdown() {
+      closed = true;
+      await cancelPending();
+      active = undefined;
     },
     async signout() {
-      if (pending) throw new Error("Login pending");
-      const session = active;
-      active = undefined;
-      if (!session?.credentials.refreshToken) return true;
-      return revokeSession(session.credentials.refreshToken, session.credentials.clientId);
+      if (signingOut) throw new Error("Signout pending");
+      signingOut = true;
+      try {
+        await cancelPending();
+        const session = active;
+        active = undefined;
+        if (!session?.credentials.refreshToken) return true;
+        return await revokeSession(session.credentials.refreshToken, session.credentials.clientId);
+      } finally {
+        signingOut = false;
+      }
     },
   };
 }

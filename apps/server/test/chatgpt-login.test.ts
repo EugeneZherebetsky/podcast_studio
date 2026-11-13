@@ -61,3 +61,30 @@ describe("loopback ChatGPT login", () => {
     }
   });
 });
+
+it("aborts an in-flight token exchange and closes the callback listener", async () => {
+  let started!: (signal: AbortSignal) => void;
+  const exchange = new Promise<AbortSignal>((resolve) => {
+    started = resolve;
+  });
+  const transport: typeof fetch = async (_url, init) => {
+    const signal = init!.signal!;
+    started(signal);
+    return new Promise<Response>((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    });
+  };
+  const login = await beginChatGptLogin({ hostId, transport });
+  const url = new URL(login.authorizationUrl);
+  const callback = new URL(url.searchParams.get("redirect_uri")!);
+  callback.searchParams.set("state", url.searchParams.get("state")!);
+  callback.searchParams.set("client_id", "issued");
+  callback.searchParams.set("code", "example-code");
+  await fetch(callback);
+  const signal = await exchange;
+  const failed = expect(login.result).rejects.toThrow("ChatGPT login failed");
+  login.close();
+  await failed;
+  expect(signal.aborted).toBe(true);
+  await expect(fetch(callback)).rejects.toThrow();
+});
