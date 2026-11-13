@@ -129,6 +129,32 @@ describe("offline filesystem adapter", () => {
     expect((await listOfflineEpisodes()).map((row) => row.episode.id)).toEqual([episode.id]);
     expect(existsSync(partial)).toBe(true);
   });
+  it("retries a partial legacy import without altering its files or progress", async () => {
+    const partial = join(String(Paths.document), "offline-episodes-v1", "episode-interrupted");
+    mkdirSync(partial, { recursive: true });
+    const metadata = JSON.stringify(episode);
+    const truncated = audio.subarray(0, 2);
+    writeFileSync(join(partial, "episode.json"), metadata);
+    writeFileSync(join(partial, "audio.m4a"), truncated);
+    const storage = new Map<string, string>();
+    const kv = { getItemSync: (key: string) => storage.get(key) ?? null, setItemSync: (key: string, value: string) => { storage.set(key, value); } };
+    offlinePlayback(kv, episode.id).record(42, false);
+    expect(await listOfflineEpisodes()).toEqual([]);
+    await importUsbEpisode({ json: async () => episode }, { copy: async (file) => file.write(audio) });
+    expect((await listOfflineEpisodes()).map((row) => row.episode.id)).toEqual([episode.id]);
+    expect(readFileSync(join(partial, "episode.json"), "utf8")).toBe(metadata);
+    expect(readFileSync(join(partial, "audio.m4a"))).toEqual(truncated);
+    expect(offlinePlayback(kv, episode.id).position()).toBe(42);
+  });
+  it("refuses duplicates of intact legacy imports", async () => {
+    const legacy = join(String(Paths.document), "offline-episodes-v1", "episode-intact");
+    mkdirSync(legacy, { recursive: true });
+    writeFileSync(join(legacy, "episode.json"), JSON.stringify(episode));
+    writeFileSync(join(legacy, "audio.m4a"), audio);
+    expect(await listOfflineEpisodes()).toHaveLength(1);
+    await expect(importUsbEpisode({ json: async () => episode }, { copy: async (file) => file.write(audio) })).rejects.toThrow("already exists");
+    expect(readFileSync(join(legacy, "audio.m4a"))).toEqual(audio);
+  });
   it("does not expose a fully copied destination before its commit marker", async () => {
     const partial = join(String(Paths.document), "offline-episodes-v1", "published-interrupted");
     mkdirSync(partial, { recursive: true });

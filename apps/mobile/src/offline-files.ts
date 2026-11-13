@@ -52,6 +52,11 @@ export async function storeOfflineEpisode(input: unknown, transfer: (destination
   });
 }
 
+async function hasVerifiedAudio(item: Directory, episode: Episode): Promise<boolean> {
+  const audio = new File(item, "audio.m4a");
+  return audio.exists && audio.size === episode.audio.bytes && await audio.digest("SHA-256") === episode.audio.sha256;
+}
+
 async function hasOfflineEpisodeId(id: string): Promise<boolean> {
   const directory = root();
   if (!directory.exists) return false;
@@ -62,7 +67,9 @@ async function hasOfflineEpisodeId(id: string): Promise<boolean> {
         const marker = new File(item, "commit.json");
         if (!marker.exists || (await marker.json() as { committed?: unknown }).committed !== true) continue;
       }
-      if (EpisodeSchema.parse(await new File(item, "episode.json").json()).id === id) return true;
+      const episode = EpisodeSchema.parse(await new File(item, "episode.json").json());
+      // A marker reserves a published ID even if audio is damaged; legacy entries have no marker.
+      if (episode.id === id && (item.name.startsWith("published-") || await hasVerifiedAudio(item, episode))) return true;
     } catch {
       // Preserve unreadable entries; do not infer an ID from invalid metadata.
     }
@@ -82,9 +89,8 @@ export async function listOfflineEpisodes(): Promise<{ episode: Episode; audioUr
         if (!marker.exists || (await marker.json() as { committed?: unknown }).committed !== true) continue;
       }
       const episode = EpisodeSchema.parse(await new File(item, "episode.json").json());
-      const audio = new File(item, "audio.m4a");
-      if (!audio.exists || audio.size !== episode.audio.bytes || await audio.digest("SHA-256") !== episode.audio.sha256) continue;
-      result.push({ episode, audioUri: audio.uri });
+      if (!await hasVerifiedAudio(item, episode)) continue;
+      result.push({ episode, audioUri: new File(item, "audio.m4a").uri });
     } catch {
       // Preserve and ignore incomplete or corrupt directories, including legacy imports.
     }
