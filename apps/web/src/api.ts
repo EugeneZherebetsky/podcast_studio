@@ -59,6 +59,16 @@ export const api = {
     request("/settings", SettingsSchema, UpdateSettingsRequestSchema.parse(body), "PUT"),
   jobs: () => request("/jobs", ListJobsResponseSchema),
   job: (id: string) => request(`/jobs/${idPath(id)}`, JobDetailSchema),
+  deleteJob: (id: string) => request(`/jobs/${idPath(id)}`, OkResponseSchema, undefined, "DELETE"),
+  jobDetails: (id: string) => request(`/jobs/${idPath(id)}/details`, {
+    parse(value: unknown) {
+      const data = value as { script?: unknown; providers?: unknown; model?: unknown };
+      if (!data || !(data.script === null || typeof data.script === "string") ||
+          !Array.isArray(data.providers) || !data.providers.every((p: unknown) => typeof p === "string") ||
+          !(data.model === null || typeof data.model === "string")) throw new Error("Invalid job details");
+      return data as { script: string | null; providers: string[]; model: string | null };
+    },
+  }),
   jobLog: (id: string) =>
     request(`/jobs/${idPath(id)}/log`, {
       parse(value: unknown) {

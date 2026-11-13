@@ -76,6 +76,7 @@ export function createDesktopRunner(
       });
   }
   return {
+    isBusy(id) { return id === activeId || queue.some((item) => item.id === id); },
     async create(request: CreateJobRequest) {
       if (closing) throw new Error("Runner is shutting down");
       if (uncertain) throw new Error("External work may still be running; stop the server and follow manual recovery in SETUP.md");

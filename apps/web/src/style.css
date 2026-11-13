@@ -235,6 +235,11 @@ p {
   font-size: 0.85rem;
   text-transform: capitalize;
 }
+.job-script {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
 .empty {
   padding: 2rem;
 }

@@ -7,6 +7,10 @@ export function Jobs() {
   const [error, setError] = useState("");
   const [connection, setConnection] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [details, setDetails] = useState<Awaited<ReturnType<typeof api.jobDetails>> | null>(null);
+  const [detailError, setDetailError] = useState("");
+  const [deleting, setDeleting] = useState(false);
   const [log, setLog] = useState<Awaited<ReturnType<typeof api.jobLog>> | null>(null);
   const [logError, setLogError] = useState("");
   const [revision, setRevision] = useState(0);
@@ -14,6 +18,18 @@ export function Jobs() {
   const retryBusy = useRef(false);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState("");
+  async function deleteJob(id: string) {
+    if (deleting || !window.confirm("Delete this job and its stage history? Published episodes, audio, logs and artifact files are kept. Usage records remain but are unlinked from this job.")) return;
+    setDeleting(true);
+    setRetryError("");
+    try {
+      await api.deleteJob(id);
+      if (selected === id) setSelected(null);
+      if (detailId === id) setDetailId(null);
+      await load();
+    } catch (cause) { setRetryError(cause instanceof Error ? cause.message : "Could not delete job"); }
+    finally { setDeleting(false); }
+  }
   async function retryAsNew(id: string) {
     if (retryBusy.current) return;
     retryBusy.current = true;
@@ -47,6 +63,11 @@ export function Jobs() {
         setError(cause instanceof Error ? cause.message : "Could not load jobs");
     }
   }, []);
+  useEffect(() => {
+    let active = true;
+    if (detailId) void api.jobDetails(detailId).then((value) => { if (active) { setDetails(value); setDetailError(""); } }).catch(() => { if (active) setDetailError("Could not load job details."); });
+    return () => { active = false; };
+  }, [detailId, revision]);
   useEffect(() => {
     const requests = sequence;
     let active = true;
@@ -150,6 +171,8 @@ export function Jobs() {
                     <li key={stage.stage}>
                       <span>{stage.stage}</span>
                       <strong>{stage.status}</strong>
+                      {stage.startedAt && <span>Started: {new Date(stage.startedAt).toLocaleString()}</span>}
+                      {stage.finishedAt && <span>Finished: {new Date(stage.finishedAt).toLocaleString()}</span>}
                       {stage.error && <span className="error">{stage.error}</span>}
                     </li>
                   ))}
@@ -160,6 +183,28 @@ export function Jobs() {
               {job.status === "failed" && (
                 <button disabled={retrying} onClick={() => void retryAsNew(job.id)}>Retry as new job</button>
               )}
+              {["succeeded", "failed", "cancelled"].includes(job.status) && (
+                <button disabled={deleting} onClick={() => void deleteJob(job.id)}>Delete job</button>
+              )}
+              <button aria-expanded={detailId === job.id} onClick={() => { setDetails(null); setDetailError(""); setDetailId(detailId === job.id ? null : job.id); }}>
+                {detailId === job.id ? "Hide details" : "Show details"}
+              </button>
+              {detailId === job.id && <section aria-label="Job details">
+                <h3>Request details</h3>
+                <dl>
+                  <dt>Topic</dt><dd>{job.options.title}</dd>
+                  <dt>Brief</dt><dd>{job.options.brief || "No brief provided"}</dd>
+                  <dt>Language</dt><dd>{job.options.lang}</dd>
+                  <dt>Duration requested</dt><dd>{job.options.minutes} minutes</dd>
+                  <dt>Mode</dt><dd>{job.options.mode}</dd>
+                  <dt>Outcome</dt><dd>{job.status}</dd>
+                  <dt>Recorded providers</dt><dd>{details?.providers.length ? details.providers.join(", ") : "Not recorded or unavailable"}</dd>
+                  <dt>Model</dt><dd>{details?.model ?? "Not recorded or unavailable"}</dd>
+                </dl>
+                <p>Raw requests, credentials and source articles are not displayed. Older jobs may not have request diagnostics.</p>
+                <h3>Saved script</h3>
+                {detailError ? <p role="alert">{detailError}</p> : !details ? <p role="status">Loading details…</p> : details.script ? <pre className="job-script">{details.script}</pre> : <p>No successfully saved script is available for this job.</p>}
+              </section>}
               <button
                 aria-expanded={selected === job.id}
                 onClick={() => {
