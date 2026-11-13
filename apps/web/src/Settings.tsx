@@ -41,6 +41,10 @@ export function Settings() {
         <h1>Settings</h1>
         <p>Profile is saved as a preference but does not switch providers yet. Set PROFILE in .env and restart to configure the server. Other preferences are not yet connected to generation or budget enforcement.</p>
       </header>
+      <section className="panel" aria-labelledby="chatgpt-plan-status">
+        <h2 id="chatgpt-plan-status">ChatGPT plan</h2>
+        <p>ChatGPT plan sign-in and script generation are not available yet. The local profile continues to use Ollama.</p>
+      </section>
       <PairingStatus />
       {error && (
         <p role="alert" className="error">
