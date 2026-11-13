@@ -202,6 +202,52 @@ test("desktop runner refuses non-local provider settings before creating a job",
   }
 });
 
+test("cancellation stops additional search queries", async () => {
+  const f = fakeGeneration();
+  let release!: () => void;
+  let entered!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  let calls = 0;
+  const search = f.deps.providers.search;
+  f.deps.providers.search = { async search(query, options) {
+    calls++;
+    entered();
+    await gate;
+    return search.search(query, options);
+  } };
+  const runner = createDesktopRunner(f.deps, new EventEmitter());
+  try {
+    const job = await runner.create({ title: "Bees", brief: "", mode: "standard", lang: "en", minutes: 1 });
+    await started;
+    await runner.cancel(job.id);
+    release();
+    await viWait(async () => (await runner.close()));
+    expect(calls).toBe(1);
+  } finally {
+    release();
+    await runner.close();
+    f.close();
+  }
+}, GENERATION_TIMEOUT_MS);
+
+test("does not announce a running stage when its database transition fails", async () => {
+  const f = fakeGeneration();
+  const events = new EventEmitter();
+  const received: unknown[] = [];
+  events.on("event", (event) => received.push(event));
+  const runner = createDesktopRunner(f.deps, events);
+  try {
+    f.db.$client.exec("CREATE TRIGGER reject_stage BEFORE UPDATE ON job_stages BEGIN SELECT RAISE(ABORT, 'stage rejected'); END");
+    const job = await runner.create({ title: "Bees", brief: "", mode: "standard", lang: "en", minutes: 1 });
+    await viWait(async () => (f.db.$client.prepare("select status from jobs where id = ?").get(job.id) as { status: string }).status === "failed");
+    expect(received).not.toContainEqual(expect.objectContaining({ type: "job-stage", status: "running" }));
+  } finally {
+    await runner.close();
+    f.close();
+  }
+});
+
 async function viWait(check: () => Promise<boolean>): Promise<void> {
   const end = Date.now() + 60_000;
   while (!(await check())) {

@@ -251,10 +251,30 @@ export async function generateJob(
   options: GenerateOptions = {},
 ): Promise<void> {
   const { db } = deps;
+  const assertOwner = () => {
+    const owner = db.select().from(jobs).where(eq(jobs.id, id)).get();
+    if (owner?.status !== "running" || owner.ownerToken !== ownerToken)
+      throw new Error("Job cancelled or ownership lost");
+  };
   // Every LLM call is written to `usage` as it completes; see `meterLlm`.
-  const providers = {
+  const llm = deps.providers.llm;
+  const providers: import("../providers/index.ts").Providers = {
     ...deps.providers,
-    llm: meterLlm(deps.providers.llm, (usage) => recordLlmUsage(db, usage, { jobId: id })),
+    llm: meterLlm({
+      ...(llm.localCacheIdentity === undefined ? {} : { localCacheIdentity: llm.localCacheIdentity }),
+      generateObject(request) {
+        assertOwner();
+        return llm.generateObject(request);
+      },
+    }, (usage) => recordLlmUsage(db, usage, { jobId: id })),
+    search: { search(query, options) {
+      assertOwner();
+      return deps.providers.search.search(query, options);
+    } },
+    extractor: { extract(url) {
+      assertOwner();
+      return deps.providers.extractor.extract(url);
+    } },
   };
   const job = db.select().from(jobs).where(eq(jobs.id, id)).get();
   if (!job) throw new Error("Job not found");
@@ -274,9 +294,11 @@ export async function generateJob(
   const canonicalDir = path.join(deps.dataDir, "jobs", id);
   // The meter has already recorded the stage's usage, so it must not be recorded again.
   const stage = async <T>(name: StageName, fn: () => Promise<StageResult<T>>) => {
-    deps.onEvent?.({ type: "job-stage", jobId: id, stage: name, status: "running" });
     try {
-      const result = await runJobStage(db, id, name, async () => ({ ...(await fn()), usage: [] }), ownerToken);
+      const result = await runJobStage(db, id, name, async () => {
+        deps.onEvent?.({ type: "job-stage", jobId: id, stage: name, status: "running" });
+        return { ...(await fn()), usage: [] };
+      }, ownerToken);
       deps.onEvent?.({ type: "job-stage", jobId: id, stage: name, status: result.skipped ? "skipped" : "done" });
       return result;
     } catch (error) {
