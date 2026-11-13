@@ -39,6 +39,7 @@ export function safeModel(value: unknown): string | null {
 
 export function publicJobError(error: string | null): string | null {
   if (error === null) return null;
+  if (["Cloud TTS failed; the provider may have billed this request", "Cloud TTS may have billed this request; stop the server and follow manual recovery in SETUP.md"].includes(error)) return error;
   if (["Timeout", "Request cancelled or timed out", "ChatGPT request timed out; remote work may still be running", "ChatGPT request cancelled; remote work may still be running"].includes(error)) return error;
   return "Job failed.";
 }

@@ -46,3 +46,41 @@ test("uncertain cloud failure retains the desktop recovery guard", async () => {
     await expect(runner.create({ title: "Again", brief: "", mode: "standard", lang: "en", minutes: 1 })).rejects.toThrow("External work may still be running");
   } finally { await app.close(); await runner.close(); vi.unstubAllGlobals(); f.close(); }
 }, GENERATION_TIMEOUT_MS);
+
+
+test("malformed provider WAV stops before a second paid request", async () => {
+  const f = fakeGeneration();
+  const audio = await readFile((await f.providers.tts.synthesize({ text: "sample", lang: "en", voice: "fake", rate: 1 })).wavPath);
+  audio.writeUInt32LE(audio.length + 100, 40);
+  const fetcher = vi.fn(async () => new Response(audio));
+  vi.stubGlobal("fetch", fetcher);
+  const config = parseConfig({ PROFILE: "local", FISH_AUDIO_API_KEY: "test-key" });
+  const runner = createDesktopRunner(f.deps, new EventEmitter(), config);
+  const app = buildApp({ db: f.db, config, runner });
+  try {
+    await app.inject({ method: "PUT", url: "/api/settings", payload: { cloudTts: { provider: "fish", model: "s2.1-pro-free", voice: "voice-id", inputLimit: 5000 } } });
+    const id = (await app.inject({ method: "POST", url: "/api/jobs", payload: { title: "Bees", mode: "standard", lang: "en", minutes: 1, review: false } })).json().id as string;
+    await vi.waitFor(async () => expect((await app.inject({ url: `/api/jobs/${id}` })).json().status).toBe("failed"), { timeout: 30000 });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  } finally { await app.close(); await runner.close(); vi.unstubAllGlobals(); f.close(); }
+}, GENERATION_TIMEOUT_MS);
+
+test("cancellation during cloud request exposes billing uncertainty and retains guard", async () => {
+  const f = fakeGeneration();
+  const fetcher = vi.fn((_url: unknown, init: RequestInit) => new Promise<Response>((_resolve, reject) => init.signal!.addEventListener("abort", () => reject(new Error("aborted")))));
+  vi.stubGlobal("fetch", fetcher);
+  const config = parseConfig({ PROFILE: "local", FISH_AUDIO_API_KEY: "test-key" });
+  const runner = createDesktopRunner(f.deps, new EventEmitter(), config);
+  const app = buildApp({ db: f.db, config, runner });
+  try {
+    await app.inject({ method: "PUT", url: "/api/settings", payload: { cloudTts: { provider: "fish", model: "s2.1-pro-free", voice: "voice-id", inputLimit: 5000 } } });
+    const id = (await app.inject({ method: "POST", url: "/api/jobs", payload: { title: "Bees", mode: "standard", lang: "en", minutes: 1, review: false } })).json().id as string;
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1), { timeout: 30000 });
+    const cancelled = (await app.inject({ method: "POST", url: `/api/jobs/${id}/cancel` })).json();
+    expect(cancelled.status).toBe("cancelled");
+    expect(cancelled.error).toContain("may have billed");
+    await vi.waitFor(async () => expect((await app.inject({ url: `/api/jobs/${id}` })).json().error).toContain("may have billed"));
+    await vi.waitFor(async () => await expect(runner.create({ title: "Again", brief: "", mode: "standard", lang: "en", minutes: 1 })).rejects.toThrow("External work may still be running"));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  } finally { await app.close(); await runner.close(); vi.unstubAllGlobals(); f.close(); }
+}, GENERATION_TIMEOUT_MS);

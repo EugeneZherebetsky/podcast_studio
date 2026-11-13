@@ -230,7 +230,7 @@ export function ChatGptSettings() {
       <p>
         Choosing ChatGPT for all stages sends source article text, topic and plan, research notes,
         scripts and review material to OpenAI and uses your ChatGPT subscription allowance.
-        Speech remains local. ChatGPT usage is unavailable in this app; recorded totals exclude it
+        Speech defaults to local unless cloud TTS is selected. ChatGPT usage is unavailable in this app; recorded totals exclude it
         and do not indicate zero usage. There is no automatic paid API fallback.
       </p>
       <h3>How to connect your ChatGPT subscription</h3>

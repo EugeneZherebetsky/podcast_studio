@@ -5,7 +5,7 @@ import path from "node:path";
 import { and, eq } from "drizzle-orm";
 import { JobOptionsSchema, STAGE_NAMES, type JobOptions, type StageName, type ServerEvent } from "shared";
 import type { Db } from "../db/index.ts";
-import { episodes, jobs, jobStages } from "../db/schema.ts";
+import { episodes, jobs, jobStages, usage as usageTable } from "../db/schema.ts";
 import { usageOfFailedCall, type LlmProvider, type Usage } from "../providers/llm/interface.ts";
 import { monthTotalCostUsd, recordLlmUsage } from "../usage.ts";
 import type { StageResult } from "./artifacts.ts";
@@ -518,7 +518,7 @@ export async function generateJob(
           llm: deps.chatgptProvider?.description ?? (deps.scriptGenerator?.description ? `${deps.llmName}; ${deps.scriptGenerator.description}` : deps.llmName),
           tts: deps.ttsName,
           voice: deps.voice,
-          costUsd: 0,
+          costUsd: db.select().from(usageTable).where(and(eq(usageTable.jobId, id), eq(usageTable.kind, "llm"))).all().reduce((total, row) => total + row.costUsd, 0),
         },
       },
       ...(options.afterPublishStep ? { afterStep: options.afterPublishStep } : {}),

@@ -19,6 +19,7 @@ export function UsageTotal({ totalUsd }: { totalUsd: number | null }) {
         <p>Recorded cost this month (UTC): ${totalUsd.toLocaleString("en-US", { maximumSignificantDigits: 12 })}</p>
       )}
       <p>ChatGPT subscription usage is unavailable and is excluded from recorded totals.</p>
+      <p>Cloud TTS charges are excluded; recorded usage is not total cost.</p>
     </section>
   );
 }

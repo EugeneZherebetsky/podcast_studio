@@ -1,4 +1,6 @@
 import { expect, test } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { usage } from "../src/db/schema.ts";
 import { createJob, generateJob, meterLlm } from "../src/pipeline/runner.ts";
 import { LlmOutputError } from "../src/providers/llm/ai-sdk.ts";
@@ -13,6 +15,18 @@ const billed: Usage = {
   outputTokens: 12,
   costUsd: 0.5,
 };
+
+test("episode metadata records tracked LLM usage, not a hardcoded zero", async () => {
+  const run = fakeGeneration();
+  try {
+    run.llm.costUsd = 0.5;
+    await generateJob(run.deps, run.jobId);
+    const episode = JSON.parse(readFileSync(path.join(run.dir, "episodes", run.jobId, "episode.json"), "utf8"));
+    const rows = run.db.select().from(usage).all().filter((row) => row.jobId === run.jobId);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(episode.generation.costUsd).toBeCloseTo(rows.reduce((sum, row) => sum + row.costUsd, 0));
+  } finally { run.close(); }
+}, GENERATION_TIMEOUT_MS);
 
 test("the meter reports answered calls and failed calls that were still billed", async () => {
   const seen: Usage[] = [];

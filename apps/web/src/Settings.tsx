@@ -129,6 +129,7 @@ export function Settings() {
               onChange={(e) => setValue({ ...value, monthlyBudgetUsd: Number(e.target.value) })}
             />
           </label>
+          <p>The budget excludes cloud TTS and ChatGPT subscription usage; it is not a total-cost limit.</p>
           <h2>Voice IDs</h2>
           <p>Voice previews are not available yet.</p>
           {(

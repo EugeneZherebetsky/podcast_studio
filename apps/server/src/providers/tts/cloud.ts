@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { ensureMono24k16BitPcmWav } from "./cache.ts";
 import { countChars, type SynthesizeRequest, type SynthesizeResult, type TtsProvider, type Voice } from "./interface.ts";
-import { isMono24k16BitPcmWav } from "./wav.ts";
+import { isMono24k16BitPcmWav, isWellFormedPcmWav } from "./wav.ts";
 
 export interface CloudTtsOptions {
   provider: "elevenlabs" | "fish";
@@ -41,7 +41,9 @@ export class CloudTtsProvider implements TtsProvider {
       }
       await mkdir(dir, { recursive: true });
       const wavPath = path.join(dir, `${randomUUID()}.wav`);
-      await ensureMono24k16BitPcmWav(Buffer.concat(chunks), wavPath);
+      const audio = Buffer.concat(chunks);
+      if (audio.toString("ascii", 0, 4) === "RIFF" && !isWellFormedPcmWav(audio)) throw new Error("Invalid provider WAV");
+      await ensureMono24k16BitPcmWav(audio, wavPath);
       if (!isMono24k16BitPcmWav(await readFile(wavPath))) throw new Error("Invalid synthesized WAV");
       return { wavPath, chars: countChars(request.text) };
     } catch {

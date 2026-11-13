@@ -7,7 +7,7 @@ export function CloudTts({ status, value, onChange }: { status: CloudTtsStatus |
   return <section aria-labelledby="cloud-tts-heading">
     <h2 id="cloud-tts-heading">Cloud text-to-speech</h2>
     <p>Piper is the default. Cloud script text is sent to the provider and speech is separately billed. No automatic fallback.</p>
-    <p>The input limit bounds total characters and UTF-8 bytes, not money. Cloud charges are not included in recorded usage or the monthly budget.</p>
+    <p>The input limit bounds total characters and UTF-8 bytes, not money. Cloud TTS charges are excluded from recorded usage, episode cost and the monthly budget; these are not total cost.</p>
     <p role="status">{status ? `ElevenLabs: key ${status.elevenlabsConfigured ? "present" : "not present"}; Fish Audio: key ${status.fishConfigured ? "present" : "not present"}. Key presence does not verify a connection.` : "Key status unavailable or loading."}</p>
     <p>Set provider keys in the server .env and restart; never enter keys here.</p>
     <label>Speech provider<select value={value?.provider ?? "piper"} onChange={(e) => {

@@ -26,6 +26,7 @@ export function createDesktopRunner(
   const queue: { id: string; deps: GenerateDeps }[] = [];
   let active: Promise<void> | undefined;
   let activeId: string | undefined;
+  let activeCloud = false;
   let abort: AbortController | undefined;
   let closing = false;
   let uncertain = false;
@@ -36,6 +37,12 @@ export function createDesktopRunner(
     void ownerToken;
     return job;
   };
+  function cancelOwned(id: string): void {
+    cancelJob(deps.db, id);
+    if (id === activeId && activeCloud && get(id).currentStage === "tts") {
+      deps.db.update(jobs).set({ error: "Cloud TTS may have billed this request; stop the server and follow manual recovery in SETUP.md" }).where(eq(jobs.id, id)).run();
+    }
+  }
   function pump(): void {
     if (closing || active || uncertain) return;
     const item = queue.shift();
@@ -43,6 +50,7 @@ export function createDesktopRunner(
     const { id } = item;
     if (get(id).status !== "queued") return pump();
     activeId = id;
+    activeCloud = item.deps.providers.tts instanceof CloudTtsProvider;
     abort = new AbortController();
     events.emit("job-progress", id, { kind: "job", status: "started" });
     active = generateJob({ ...item.deps, signal: abort.signal, onEvent: (event) => events.emit("event", event), onProgress: (progress) => events.emit("job-progress", id, progress) }, id)
@@ -73,6 +81,7 @@ export function createDesktopRunner(
       .finally(() => {
         active = undefined;
         activeId = undefined;
+        activeCloud = false;
         abort = undefined;
         pump();
       });
@@ -147,7 +156,7 @@ export function createDesktopRunner(
     async cancel(id) {
       if (id !== activeId && !queue.some((item) => item.id === id))
         throw new Error("Job is not owned by this runner");
-      cancelJob(deps.db, id);
+      cancelOwned(id);
       if (id !== activeId) events.emit("job-progress", id, { kind: "job", status: "cancelled" });
       if (id === activeId) abort?.abort();
       return get(id);
@@ -159,7 +168,7 @@ export function createDesktopRunner(
         events.emit("job-progress", id, { kind: "job", status: "cancelled" });
       }
       if (activeId && get(activeId).currentStage !== "publish") {
-        cancelJob(deps.db, activeId);
+        cancelOwned(activeId);
         abort?.abort();
       }
       if (!active) {

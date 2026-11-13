@@ -41,11 +41,35 @@ export function sineTone(frequencyHz: number, sampleCount: number): Int16Array {
   return samples;
 }
 
+/** Validates a PCM container before conversion, without repairing damaged audio. */
+export function isWellFormedPcmWav(buf: Buffer): boolean {
+  if (buf.length < 44 || buf.toString("ascii", 0, 4) !== "RIFF" || buf.toString("ascii", 8, 12) !== "WAVE" || buf.readUInt32LE(4) + 8 !== buf.length) return false;
+  let offset = 12, align = 0, dataSize = -1;
+  while (offset + 8 <= buf.length) {
+    const id = buf.toString("ascii", offset, offset + 4);
+    const size = buf.readUInt32LE(offset + 4);
+    offset += 8;
+    if (offset + size + size % 2 > buf.length) return false;
+    if (id === "fmt ") {
+      if (align || size < 16 || buf.readUInt16LE(offset) !== 1) return false;
+      const channels = buf.readUInt16LE(offset + 2), bits = buf.readUInt16LE(offset + 14);
+      align = buf.readUInt16LE(offset + 12);
+      if (!channels || !bits || bits % 8 || align !== channels * bits / 8) return false;
+    } else if (id === "data") {
+      if (dataSize !== -1) return false;
+      dataSize = size;
+    }
+    offset += size + size % 2;
+  }
+  return offset === buf.length && align > 0 && dataSize > 0 && dataSize % align === 0;
+}
+
 /** Checks if a buffer represents a valid mono 24 kHz 16-bit PCM WAV. */
 export function isMono24k16BitPcmWav(buf: Buffer): boolean {
   if (buf.length < WAV_HEADER_BYTES) return false;
   if (buf.toString("ascii", 0, 4) !== "RIFF") return false;
   if (buf.toString("ascii", 8, 12) !== "WAVE") return false;
+  if (buf.readUInt32LE(4) + 8 !== buf.length) return false;
 
   let offset = 12;
   let hasFmt = false;
@@ -55,6 +79,7 @@ export function isMono24k16BitPcmWav(buf: Buffer): boolean {
     const chunkId = buf.toString("ascii", offset, offset + 4);
     const chunkSize = buf.readUInt32LE(offset + 4);
     offset += 8;
+    if (offset + chunkSize + (chunkSize % 2) > buf.length) return false;
 
     if (chunkId === "fmt ") {
       if (chunkSize < 16 || offset + 16 > buf.length) return false;
@@ -66,12 +91,14 @@ export function isMono24k16BitPcmWav(buf: Buffer): boolean {
         format !== 1 ||
         channels !== WAV_CHANNELS ||
         sampleRate !== WAV_SAMPLE_RATE ||
+        buf.readUInt16LE(offset + 12) !== 2 ||
         bitsPerSample !== WAV_BITS_PER_SAMPLE
       ) {
         return false;
       }
       hasFmt = true;
     } else if (chunkId === "data") {
+      if (hasData || chunkSize === 0 || chunkSize % 2 !== 0) return false;
       hasData = true;
     }
 
@@ -81,6 +108,6 @@ export function isMono24k16BitPcmWav(buf: Buffer): boolean {
     }
   }
 
-  return hasFmt && hasData;
+  return offset === buf.length && hasFmt && hasData;
 }
 

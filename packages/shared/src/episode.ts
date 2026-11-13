@@ -107,6 +107,8 @@ export const GenerationInfoSchema = z.object({
   llm: z.string(),
   tts: z.string(),
   voice: z.string(),
+  // Tracked LLM estimates only; excludes TTS and unmetered usage, not total cost.
+  // Older episodes may contain a zero placeholder rather than tracked estimates.
   costUsd: z.number().min(0),
 });
 export type GenerationInfo = z.infer<typeof GenerationInfoSchema>;

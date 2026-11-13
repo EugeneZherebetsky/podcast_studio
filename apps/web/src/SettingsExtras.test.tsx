@@ -12,6 +12,7 @@ test("pairing status explains why a phone QR is unavailable without exposing a c
 });
 
 test("usage displays the recorded UTC month total without rounding small costs to zero", () => {
+  expect(renderToString(<UsageTotal totalUsd={1} />)).toContain("Cloud TTS charges are excluded; recorded usage is not total cost.");
   expect(renderToString(<UsageTotal totalUsd={0.0012} />)).toContain("0.0012");
   expect(renderToString(<UsageTotal totalUsd={0.00000001} />)).toContain("0.00000001");
   expect(renderToString(<UsageTotal totalUsd={null} />)).toContain("not available");
