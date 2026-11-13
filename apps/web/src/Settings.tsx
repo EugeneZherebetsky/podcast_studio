@@ -16,8 +16,8 @@ export function Settings() {
       .then(async (response) => {
         if (!response.ok) throw new Error("Status unavailable");
         const data: unknown = await response.json();
-        if (typeof data !== "object" || data === null || !("openaiConfigured" in data) || !("azureConfigured" in data) || typeof data.openaiConfigured !== "boolean" || typeof data.azureConfigured !== "boolean") throw new Error("Invalid status");
-        setCloudTts({ openaiConfigured: data.openaiConfigured, azureConfigured: data.azureConfigured });
+        if (typeof data !== "object" || data === null || !("elevenlabsConfigured" in data) || !("fishConfigured" in data) || typeof data.elevenlabsConfigured !== "boolean" || typeof data.fishConfigured !== "boolean") throw new Error("Invalid status");
+        setCloudTts({ elevenlabsConfigured: data.elevenlabsConfigured, fishConfigured: data.fishConfigured });
       })
       .catch(() => setCloudTts(null));
   }, []);
@@ -52,7 +52,7 @@ export function Settings() {
       <header className="page-heading">
         <p className="eyebrow">Preferences</p>
         <h1>Settings</h1>
-        <p>Profile is saved as a preference but does not switch providers yet. Set PROFILE in .env and restart to configure the server. Other preferences are not yet connected to generation or budget enforcement.</p>
+        <p>Profile is saved as a preference but does not switch research providers. Set PROFILE in .env and restart to configure the server. Cloud speech is an explicit separate choice below.</p>
       </header>
       <ChatGptSettings />
       <section className="panel" aria-labelledby="gemini-status">
@@ -61,7 +61,7 @@ export function Settings() {
         <p>An experimental command-line manual draft workflow exists, but it requires prepared research and is not connected to review, audio, or publication. See docs/MANUAL-GEMINI.md in the project for its safety restrictions.</p>
       </section>
       <PairingStatus />
-      <CloudTts status={cloudTts} />
+
       {error && (
         <p role="alert" className="error">
           {error}
@@ -75,6 +75,7 @@ export function Settings() {
           onSubmit={(event) => void submit(event)}
           onChange={() => setSaved(false)}
         >
+          <CloudTts status={cloudTts} value={value.cloudTts} onChange={(cloudTts) => setValue({ ...value, cloudTts })} />
           <label>
             Profile
             <select

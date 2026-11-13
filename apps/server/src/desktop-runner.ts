@@ -13,6 +13,7 @@ import { cancelJob, ExternalWorkUncertain, createJob, generateJob, type Generate
 import { openDesktopGuard } from "./desktop-guard.ts";
 import type { createScriptSelection } from "./chatgpt-selection.ts";
 import { safeModel } from "./job-log.ts";
+import { CloudTtsProvider } from "./providers/tts/cloud.ts";
 
 /** Owns only jobs created in this process; never scans persisted jobs for work. */
 export function createDesktopRunner(
@@ -96,6 +97,7 @@ export function createDesktopRunner(
         .where(eq(settings.key, "api-settings"))
         .get();
       const saved = savedRow ? SettingsSchema.parse(savedRow.value) : undefined;
+      const cloud = saved?.cloudTts;
       if (
         config &&
         (config.PROFILE !== "local" ||
@@ -104,15 +106,23 @@ export function createDesktopRunner(
           (saved && saved.profile !== "local"))
       )
         throw new Error("Generation requires local Ollama, SearXNG and Piper");
-      const voice = config
+      const voice = cloud?.voice ?? (config
         ? options.lang.toLowerCase().startsWith("hu")
           ? (saved?.voices.huHost ?? config.TTS_VOICE_HU_HOST)
           : (saved?.voices.nativeHost ?? config.TTS_VOICE_NATIVE_HOST)
-        : deps.voice;
+        : deps.voice);
       if (!voice) throw new Error("Configure a local Piper voice before generating");
+      const key = cloud && config ? (cloud.provider === "fish" ? config.FISH_AUDIO_API_KEY : config.ELEVENLABS_API_KEY) : undefined;
+      if (cloud && (!key?.trim() || !/^[A-Za-z0-9_-]{1,128}$/.test(voice)))
+        throw new Error("Configure a valid cloud voice and provider key in .env before generating");
       const jobDeps = {
         ...deps,
         ...(selection ? selection.capture() : {}),
+        ...(cloud && key ? {
+          providers: { ...deps.providers, tts: new CloudTtsProvider({ provider: cloud.provider, model: cloud.model, apiKey: key }) },
+          ttsName: `${cloud.provider}:${cloud.model}`,
+          cloudTtsInputLimit: cloud.inputLimit,
+        } : {}),
         voice,
         budgetUsd: saved?.monthlyBudgetUsd ?? deps.budgetUsd,
         nativeLang: saved?.nativeLang ?? deps.nativeLang,

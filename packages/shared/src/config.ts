@@ -66,6 +66,7 @@ const EnvSchema = z.object({
   TTS_VOICE_NATIVE_HOST: optionalString,
   TTS_VOICE_NATIVE_TEACHER: optionalString,
   ELEVENLABS_API_KEY: optionalString,
+  FISH_AUDIO_API_KEY: optionalString,
   PIPER_DIR: z.string().default("./infra/piper"),
 });
 

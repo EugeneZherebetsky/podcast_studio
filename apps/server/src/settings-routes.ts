@@ -29,6 +29,8 @@ export function registerSettingsRoutes(app: FastifyInstance, db: Db, config: App
     return reply.header("cache-control", "no-store").send({
       openaiConfigured: Boolean(config.OPENAI_API_KEY?.trim()),
       azureConfigured: Boolean(config.AZURE_SPEECH_KEY?.trim()),
+      elevenlabsConfigured: Boolean(config.ELEVENLABS_API_KEY?.trim()),
+      fishConfigured: Boolean(config.FISH_AUDIO_API_KEY?.trim()),
     });
   });
   app.get("/api/settings", async () => current());

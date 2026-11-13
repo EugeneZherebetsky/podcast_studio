@@ -9,7 +9,7 @@ test("cloud TTS status only reports key presence and stays local", async () => {
   try {
     const response = await app.inject({ url: "/api/settings/cloud-tts" });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ openaiConfigured: true, azureConfigured: false });
+    expect(response.json()).toEqual({ openaiConfigured: true, azureConfigured: false, elevenlabsConfigured: false, fishConfigured: false });
     expect(response.body).not.toContain("example-secret");
     expect(response.headers["cache-control"]).toBe("no-store");
     expect((await app.inject({ url: "/api/settings/cloud-tts", headers: { host: "evil.example" } })).statusCode).toBe(403);

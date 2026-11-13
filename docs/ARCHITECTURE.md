@@ -76,7 +76,7 @@ New jobs use `jobs/<jobId>/runs/<ownerToken>/` for artifacts, partial caches, TT
 | 4 | `notes` | each source → fact bullets tagged with source id; then merged outline → `notes.json` | Map step can use the cheap model; conflicting facts are kept with both sources noted |
 | 5 | `script` | outline + notes + mode + level + optional PC-provided vocabulary → `script.json` (see §4 `ScriptSegment`) | Structured output validated by zod. Word budget = minutes × 140 (English) or minutes × 90 (graded Hungarian) |
 | 6 | `review` | script + notes → corrected `script.json` + `review.json` | Checks every factual claim maps to a note; for Hungarian also a proofreading and level pass (see LEARNING-MODE.md §5). Skippable with `--no-review` |
-| 7 | `tts` | each segment → one WAV file in the run's `tts/` directory | Run-isolated cache; generation retry is disabled |
+| 7 | `tts` | each segment → one WAV file in the run's `tts/` directory | Local run-isolated cache; opted-in paid speech bypasses cache and retries |
 | 8 | `assemble` | WAVs + pauses → `audio.m4a` (AAC, mono, 64 kbps) + timings | Concatenate **PCM**, insert silence per `pauseAfterMs`, loudness-normalise to −16 LUFS, encode once. `startMs`/`endMs` are computed from sample counts before encoding |
 | 9 | `publish` | everything → `data/episodes/<id>/{audio.m4a, episode.json}`, then DB row | Stages a hidden sibling package and renames it before recording the episode; a crash can leave an unlisted package. Run directories are retained and recovery is disabled. |
 
@@ -199,7 +199,7 @@ This table records existing and planned API surface, not authorization to expose
 | `POST /sync/playback` | Existing legacy endpoint; not used for phone progress |
 | `POST /sync/vocab` | Existing legacy endpoint; not used for phone vocabulary |
 | `GET/PUT /settings` | profile, voices, native language, level, budget; never returns secrets |
-| `GET /settings/cloud-tts` | loopback-only, non-cacheable OpenAI/Azure key-presence flags; no connection test or activation. PC cloud TTS selection remains disabled until generation and cost controls are safe. |
+| `GET /settings/cloud-tts` | loopback-only, non-cacheable provider key-presence flags; no connection test. Settings opt in to ElevenLabs or Fish Audio for desktop speech; Piper remains the default. |
 | `GET /feed.xml?token=` | optional RSS feed of episodes for third-party podcast apps |
 
 ## 7. Mobile app

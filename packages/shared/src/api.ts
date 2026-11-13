@@ -326,6 +326,10 @@ const settingsFields = {
   targetLang: LangSchema,
   level: LevelSchema,
   monthlyBudgetUsd: z.number().min(0),
+  cloudTts: z.discriminatedUnion("provider", [
+    z.strictObject({ provider: z.literal("elevenlabs"), model: z.enum(["eleven_multilingual_v2", "eleven_flash_v2_5", "eleven_turbo_v2_5", "eleven_v3"]), voice: z.string().trim().min(1).max(128), inputLimit: z.number().int().min(1).max(100000) }),
+    z.strictObject({ provider: z.literal("fish"), model: z.enum(["s1", "s2-pro", "s2.1-pro", "s2.1-pro-free", "drama-3"]), voice: z.string().trim().min(1).max(128), inputLimit: z.number().int().min(1).max(100000) }),
+  ]).nullable().optional(),
 };
 
 /**

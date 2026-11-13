@@ -13,6 +13,7 @@ import type { PublishStep } from "./publish.ts";
 import { CancelledAfterStage } from "./cancellation.ts";
 import { ChatGptOutputError, ScriptPreflightError, chatGptDeadline } from "../chatgpt-selection.ts";
 import { LlmOutputError } from "../providers/llm/ai-sdk.ts";
+import { checkTtsInputLimit } from "../providers/tts/input-limit.ts";
 export { CancelledAfterStage } from "./cancellation.ts";
 
 export class ExternalWorkUncertain extends Error {
@@ -253,6 +254,7 @@ export interface GenerateDeps {
   profile: string;
   llmName: string;
   ttsName: string;
+  cloudTtsInputLimit?: number;
   nativeLang: string;
   scriptGenerator?: import("./script.ts").ScriptDeps["scriptGenerator"];
   chatgptProvider?: ReturnType<ReturnType<typeof import("../chatgpt-selection.ts").createScriptSelection>["provider"]>;
@@ -467,7 +469,8 @@ export async function generateJob(
   ).artifact.script;
   const wavPaths = (
     await stage("tts", async () => {
-      const tts = providers.tts.forRun?.(path.join(workDir, "tts"));
+      if (deps.cloudTtsInputLimit !== undefined) checkTtsInputLimit(reviewed.segments.map((segment) => segment.text), deps.cloudTtsInputLimit);
+      const tts = providers.tts.forRun?.(path.join(workDir, "tts"), deps.signal);
       if (!tts) throw new Error("TTS provider does not support run isolation");
       const paths: string[] = [];
       for (const segment of reviewed.segments) {
