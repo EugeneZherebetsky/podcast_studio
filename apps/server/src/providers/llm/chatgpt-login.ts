@@ -21,6 +21,23 @@ type LoginResult =
       planEnabled: boolean;
     };
 
+/**
+ * How a token exchange ended when its credentials were not handed to the caller.
+ * "no-tokens": the request was never sent or OpenAI answered with an error, so nothing was issued.
+ * "unknown": the request may have reached OpenAI but no response was read (network, timeout, abort).
+ * "discard": tokens were received but rejected or arrived too late; the caller must revoke them.
+ */
+export type ExchangeEnd =
+  | { kind: "no-tokens" }
+  | { kind: "unknown" }
+  | {
+      kind: "discard";
+      clientId: string;
+      refreshToken?: string;
+      accessToken?: string;
+      accessExpiresAt?: number;
+    };
+
 export async function beginChatGptLogin(options: {
   hostId: string;
   clientId?: string;
@@ -28,8 +45,10 @@ export async function beginChatGptLogin(options: {
   transport?: typeof fetch;
   keys?: JWTVerifyGetKey;
   timeoutMs?: number;
-  onExchange?: () => void;
-  onDiscard?: (token: string, clientId: string, hint: string) => Promise<void>;
+  /** Awaited before the authorization code is sent; if it throws, the code is never sent. */
+  onExchange?: (clientId: string) => Promise<void>;
+  /** Awaited once when an exchange that passed onExchange ends without delivering a result. */
+  onExchangeEnd?: (end: ExchangeEnd) => Promise<void>;
 }): Promise<{ authorizationUrl: string; result: Promise<LoginResult>; close: () => void }> {
   const timeoutMs = options.timeoutMs ?? 120_000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 600_000)
@@ -102,10 +121,23 @@ export async function beginChatGptLogin(options: {
       return;
     }
     void (async () => {
+      try {
+        await options.onExchange?.(callback.clientId);
+      } catch {
+        // The durable record could not be written: never send the code; it simply expires.
+        finish();
+        return;
+      }
       let refreshToken: string | undefined;
       let accessToken: string | undefined;
+      let accessExpiresAt: number | undefined;
       let delivered = false;
+      let outcome: "no-tokens" | "unknown" = "unknown";
       try {
+        if (finished) {
+          outcome = "no-tokens";
+          throw new Error("Login cancelled");
+        }
         const body = new URLSearchParams({
           grant_type: "authorization_code",
           client_id: callback.clientId,
@@ -115,7 +147,6 @@ export async function beginChatGptLogin(options: {
           resource,
         });
         const exchangeStartedAt = Date.now();
-        options.onExchange?.();
         const response = await (options.transport ?? fetch)(endpoint, {
           method: "POST",
           redirect: "error",
@@ -126,6 +157,12 @@ export async function beginChatGptLogin(options: {
           body: body.toString(),
           signal: abort.signal,
         });
+        if (response.status >= 400 && response.status < 500) {
+          // An OAuth error response: OpenAI issued nothing.
+          outcome = "no-tokens";
+          await response.body?.cancel().catch(() => {});
+          throw new Error("Exchange refused");
+        }
         if (!response.ok || response.redirected || !response.body)
           throw new Error("Exchange failed");
         const reader = response.body.getReader();
@@ -156,6 +193,12 @@ export async function beginChatGptLogin(options: {
           token.refresh_token.length <= 32768
         )
           refreshToken = token.refresh_token;
+        if (
+          typeof token.expires_in === "number" &&
+          Number.isSafeInteger(token.expires_in) &&
+          token.expires_in > 0
+        )
+          accessExpiresAt = exchangeStartedAt + token.expires_in * 1000;
         if (
           typeof token.access_token !== "string" ||
           !token.access_token ||
@@ -198,10 +241,17 @@ export async function beginChatGptLogin(options: {
         });
       } finally {
         if (!delivered) {
-          if (refreshToken)
-            await options.onDiscard?.(refreshToken, callback.clientId, "refresh_token");
-          if (accessToken)
-            await options.onDiscard?.(accessToken, callback.clientId, "access_token");
+          const end: ExchangeEnd =
+            refreshToken || accessToken
+              ? {
+                  kind: "discard",
+                  clientId: callback.clientId,
+                  ...(refreshToken ? { refreshToken } : {}),
+                  ...(accessToken ? { accessToken } : {}),
+                  ...(accessExpiresAt !== undefined ? { accessExpiresAt } : {}),
+                }
+              : { kind: outcome };
+          await options.onExchangeEnd?.(end).catch(() => {});
         }
       }
     })().catch(() => finish());

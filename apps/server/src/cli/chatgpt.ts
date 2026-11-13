@@ -83,9 +83,10 @@ for await (const line of terminal) {
     );
   }
 }
-if (session.status().active)
-  console.log(
-    "Session cleared locally on exit; remote revocation not confirmed. Use signout before quitting or disconnect in ChatGPT Settings.",
-  );
 terminal.close();
+// Shutdown attempts revocation once; anything unconfirmed stays recorded for Settings.
 await session.shutdown();
+if (session.status().remoteUncertain)
+  console.log(
+    "Remote sign-out not confirmed. Disconnect Podcast Studio in ChatGPT Settings, then confirm in Podcast Studio Settings.",
+  );

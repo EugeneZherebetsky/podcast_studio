@@ -30,7 +30,7 @@ it("uses the in-memory plan token for models and inference", async () => {
         planEnabled: true,
       }),
     });
-    const session = await createChatGptSession(dir, login, async () => true);
+    const session = await createChatGptSession(dir, login, async () => "revoked" as const);
     await (await session.login("work")).complete();
     expect(await session.models()).toEqual([{ slug: "m", display_name: "M" }]);
     expect(await session.generate("m", "hello")).toBe("ok");

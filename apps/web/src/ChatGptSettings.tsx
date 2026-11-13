@@ -1,12 +1,20 @@
 import { useEffect, useState } from "react";
 
-type Status = {
+export type UncertainGrant = {
+  label: string;
+  cause: "stopped-while-signed-in" | "signout-not-confirmed";
+};
+export type Status = {
   active: string | null;
   planEnabled: boolean;
   expired: boolean;
   remoteUncertain: boolean;
+  uncertain: UncertainGrant[];
   phase: "idle" | "starting" | "pending" | "failed";
 };
+// OpenAI's documentation names ChatGPT Settings → Usage as where users manage each app's access.
+export const CHATGPT_SETTINGS_URL = "https://chatgpt.com/settings/usage";
+type Post = (path: string, body?: object) => Promise<unknown>;
 async function call(path: string, body: object = {}) {
   const response = await fetch(`/api/chatgpt/${path}`, {
     method: "POST",
@@ -19,12 +27,74 @@ async function call(path: string, body: object = {}) {
     );
   return response.json();
 }
+/** The user's statement, sent with explicit confirmation; the server cannot verify it. */
+export async function acknowledgeDisconnect(post: Post): Promise<Status> {
+  return (await post("acknowledge", { disconnectedInChatGptSettings: true })) as Status;
+}
+
+export function ChatGptDisconnectNotice(props: {
+  status: Status | null;
+  confirming: boolean;
+  busy: boolean;
+  onBegin: () => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const { status } = props;
+  if (!status?.remoteUncertain) return null;
+  const labels = [...new Set(status.uncertain.map((item) => item.label))];
+  const blocked =
+    props.busy || !!status.active || status.phase === "pending" || status.phase === "starting";
+  return (
+    <div role="alert">
+      <p>
+        Podcast Studio could not confirm that OpenAI ended its access for{" "}
+        {labels.length ? labels.join(", ") : "a ChatGPT account"}. This does not mean anyone has
+        used your account. To be sure, disconnect Podcast Studio in ChatGPT Settings, then confirm
+        below.
+      </p>
+      <ul>
+        {status.uncertain.map((item) => (
+          <li key={`${item.label}:${item.cause}`}>
+            {item.label}:{" "}
+            {item.cause === "stopped-while-signed-in"
+              ? "Podcast Studio stopped while signed in."
+              : "Sign-out could not be confirmed."}
+          </li>
+        ))}
+      </ul>
+      <p>
+        <a href={CHATGPT_SETTINGS_URL} target="_blank" rel="noopener noreferrer">
+          Open ChatGPT Settings
+        </a>
+      </p>
+      {props.confirming ? (
+        <p>
+          Podcast Studio cannot check this for you. Only continue if you disconnected Podcast Studio
+          in ChatGPT Settings.{" "}
+          <button type="button" disabled={blocked} onClick={props.onConfirm}>
+            Yes, I disconnected it
+          </button>{" "}
+          <button type="button" onClick={props.onCancel}>
+            Cancel
+          </button>
+        </p>
+      ) : (
+        <button type="button" disabled={blocked} onClick={props.onBegin}>
+          I&apos;ve disconnected Podcast Studio in ChatGPT Settings
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function ChatGptSettings() {
   const [status, setStatus] = useState<Status | null>(null);
   const [label, setLabel] = useState("default");
   const [link, setLink] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   async function refresh() {
     const next = (await call("status")) as Status;
     setStatus(next);
@@ -87,6 +157,7 @@ export function ChatGptSettings() {
     }
   }
   async function signout() {
+    const cancelling = status?.phase === "pending" || status?.phase === "starting";
     setBusy(true);
     setMessage("");
     try {
@@ -95,13 +166,27 @@ export function ChatGptSettings() {
       await refresh();
       setMessage(
         result.revoked
-          ? "Signed out locally."
-          : "Signed out locally, but remote revocation was not confirmed. Disconnect the app in ChatGPT Settings.",
+          ? cancelling
+            ? "Sign-in cancelled."
+            : "Signed out. The session with OpenAI was ended."
+          : "Signed out locally, but OpenAI did not confirm that the session ended. See the warning above.",
       );
     } catch {
       setMessage(
         "Sign-out could not be confirmed. Try again or disconnect the app in ChatGPT Settings.",
       );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function acknowledge() {
+    setBusy(true);
+    setMessage("");
+    try {
+      setStatus(await acknowledgeDisconnect(call));
+      setConfirming(false);
+    } catch {
+      setMessage("Could not record your confirmation. Sign out or cancel sign-in first.");
     } finally {
       setBusy(false);
     }
@@ -114,8 +199,8 @@ export function ChatGptSettings() {
         unchanged; there is no automatic paid API fallback.
       </p>
       <p>
-        Sessions are held in memory and cleared on server exit, but exiting does not confirm remote
-        revocation. Sign out first. Plan eligibility depends on OpenAI.
+        Sessions are held in memory only. Stopping the server tries to end the session with OpenAI
+        but cannot always confirm it, so sign out first. Plan eligibility depends on OpenAI.
       </p>
       <p role="status">
         {status
@@ -130,12 +215,14 @@ export function ChatGptSettings() {
                   : "Not signed in."
           : "Checking sign-in status…"}
       </p>
-      {status?.remoteUncertain && (
-        <p role="alert">
-          Remote authorization or revocation could not be confirmed. Disconnect the app in ChatGPT
-          Settings.
-        </p>
-      )}
+      <ChatGptDisconnectNotice
+        status={status}
+        confirming={confirming}
+        busy={busy}
+        onBegin={() => setConfirming(true)}
+        onConfirm={() => void acknowledge()}
+        onCancel={() => setConfirming(false)}
+      />
       <label>
         Account label{" "}
         <input

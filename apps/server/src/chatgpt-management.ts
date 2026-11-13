@@ -3,7 +3,7 @@ import type { createChatGptSession } from "./providers/llm/chatgpt-session.ts";
 
 type Session = Pick<
   Awaited<ReturnType<typeof createChatGptSession>>,
-  "status" | "login" | "signout" | "shutdown"
+  "status" | "login" | "signout" | "shutdown" | "acknowledgeRemoteDisconnect"
 >;
 
 export function registerChatGptManagement(app: FastifyInstance, session: Session) {
@@ -48,6 +48,8 @@ export function registerChatGptManagement(app: FastifyInstance, session: Session
       planEnabled: value.planEnabled,
       expired: value.expired,
       remoteUncertain: value.remoteUncertain,
+      // Labels and causes only: no client IDs or token material.
+      uncertain: value.uncertain.map(({ label, cause }) => ({ label, cause })),
       phase,
     };
   };
@@ -103,5 +105,19 @@ export function registerChatGptManagement(app: FastifyInstance, session: Session
     } catch {
       return reply.code(409).send({ error: "Sign-out is already in progress" });
     }
+  });
+  // The user's statement that they disconnected the app in ChatGPT Settings; not verification.
+  app.post("/api/chatgpt/acknowledge", async (request, reply) => {
+    const body = request.body as { disconnectedInChatGptSettings?: unknown } | null;
+    if (!body || body.disconnectedInChatGptSettings !== true)
+      return reply.code(400).send({ error: "Confirmation required" });
+    if (phase === "pending" || phase === "starting" || closing)
+      return reply.code(409).send({ error: "Sign out or cancel sign-in first" });
+    try {
+      await session.acknowledgeRemoteDisconnect();
+    } catch {
+      return reply.code(409).send({ error: "Sign out or cancel sign-in first" });
+    }
+    return status();
   });
 }
