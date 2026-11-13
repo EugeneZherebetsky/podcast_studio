@@ -5,6 +5,21 @@ import { expect, it, vi } from "vitest";
 import { createChatGptSession } from "../src/providers/llm/chatgpt-session.ts";
 import { beginChatGptLogin } from "../src/providers/llm/chatgpt-login.ts";
 
+it("persists uncertainty before login starts and restores it after restart", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "chatgpt-session-"));
+  try {
+    const session = await createChatGptSession(dir, async () => {
+      const restarted = await createChatGptSession(dir);
+      expect(restarted.status().remoteUncertain).toBe(true);
+      throw new Error("interrupted");
+    });
+    await expect(session.login("work")).rejects.toThrow("interrupted");
+    expect((await createChatGptSession(dir)).status().remoteUncertain).toBe(true);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 it("treats an absent optional refresh token as nothing to revoke", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "chatgpt-session-"));
   try {
@@ -224,7 +239,8 @@ it("cancels a pending login on signout and allows a new attempt", async () => {
     const callback = new URL(new URL(attempt.authorizationUrl).searchParams.get("redirect_uri")!);
     const completion = expect(attempt.complete()).rejects.toThrow();
     await expect(session.login("other")).rejects.toThrow("pending");
-    expect(await session.signout()).toBe(true);
+    // The durable marker conservatively retains uncertainty after cancellation.
+    expect(await session.signout()).toBe(false);
     await completion;
     await expect(fetch(callback)).rejects.toThrow();
     const next = await session.login("other");

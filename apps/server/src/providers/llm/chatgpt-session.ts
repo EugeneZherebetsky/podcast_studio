@@ -1,9 +1,15 @@
+import { randomUUID } from "node:crypto";
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { generate, listModels } from "./chatgpt-inference.ts";
 import { beginChatGptLogin } from "./chatgpt-login.ts";
 import { openRegistrationStore } from "./chatgpt-registration.ts";
 
 type Result = Awaited<Awaited<ReturnType<typeof beginChatGptLogin>>["result"]>;
 type Success = Extract<Result, { kind: "success" }>;
+
+const liveMarkers = new Set<string>();
+const markerPrefix = "remote-uncertain-";
 
 async function revoke(token: string, clientId: string, hint = "refresh_token"): Promise<boolean> {
   try {
@@ -59,6 +65,33 @@ export async function createChatGptSession(
   revokeSession = revoke,
 ) {
   const store = await openRegistrationStore(directory);
+  const markers = () => readdirSync(directory).filter((name) => name.startsWith(markerPrefix)).map((name) => path.join(directory, name));
+  let marker: string | undefined;
+  function mark() {
+    const file = path.join(directory, `${markerPrefix}${randomUUID()}`);
+    const temp = path.join(directory, `.uncertain-${randomUUID()}.tmp`);
+    let fd: number | undefined;
+    try {
+      fd = openSync(temp, "wx", 0o600);
+      writeFileSync(fd, String(process.pid));
+      fsyncSync(fd);
+      closeSync(fd);
+      fd = undefined;
+      renameSync(temp, file);
+      marker = file;
+      liveMarkers.add(file);
+    } finally {
+      if (fd !== undefined) closeSync(fd);
+      if (existsSync(temp)) unlinkSync(temp);
+    }
+  }
+  function releaseMarker(revoked: boolean, keepLive = false) {
+    if (!marker) return;
+    const file = marker;
+    if (revoked) unlinkSync(file);
+    if (!keepLive) liveMarkers.delete(file);
+    marker = undefined;
+  }
   let active: { label: string; credentials: Success; expiresAt: number } | undefined;
   let pending:
     { cancelled: boolean; close?: () => void; done: Promise<void>; finish: () => void } | undefined;
@@ -82,6 +115,7 @@ export async function createChatGptSession(
     }
     const revoked = refreshRevoked && accessRevoked;
     if (!revoked) remoteUncertain = true;
+    releaseMarker(revoked);
     return revoked;
   }
   const expired = () => !!active && Date.now() >= active.expiresAt;
@@ -104,7 +138,7 @@ export async function createChatGptSession(
         accounts: Object.keys(store.accounts).sort(),
         planEnabled: !expired() && (active?.credentials.planEnabled ?? false),
         expired: expired(),
-        remoteUncertain,
+        remoteUncertain: remoteUncertain || markers().length > 0,
       };
     },
     async login(label: string) {
@@ -126,10 +160,14 @@ export async function createChatGptSession(
       };
       pending = current;
       const cleanup = () => {
-        if (pending === current) pending = undefined;
+        if (pending !== current) return;
+        pending = undefined;
+        // Cancelled exchanges can continue after their result promise settles.
+        if (!active) releaseMarker(false, current.exchanging);
         current.finish();
       };
       try {
+        mark();
         const accounts = store.accounts;
         const account = Object.hasOwn(accounts, label) ? accounts[label] : undefined;
         const attempt = await start({
@@ -232,6 +270,7 @@ export async function createChatGptSession(
       closed = true;
       await cancelPending();
       active = undefined;
+      releaseMarker(false);
     },
     async signout() {
       if (signingOut) throw new Error("Signout pending");
@@ -241,10 +280,30 @@ export async function createChatGptSession(
         const session = active;
         active = undefined;
         if (session) await discard(session.credentials);
-        return !remoteUncertain;
+        return !remoteUncertain && markers().length === 0;
       } finally {
         signingOut = false;
       }
+    },
+    async acknowledgeRemoteDisconnect() {
+      if (closed || pending || active || signingOut) throw new Error("Session is active");
+      const files = markers();
+      for (const file of files) {
+        if (liveMarkers.has(file)) throw new Error("Another login is active");
+        const pid = Number(readFileSync(file, "utf8"));
+        if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error("Invalid uncertainty marker");
+        if (pid !== process.pid) {
+          try {
+            process.kill(pid, 0);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ESRCH") continue;
+            throw error;
+          }
+          throw new Error("Another process may be active");
+        }
+      }
+      for (const file of files) unlinkSync(file);
+      remoteUncertain = false;
     },
   };
 }
