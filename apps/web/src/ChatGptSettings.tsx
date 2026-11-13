@@ -231,6 +231,14 @@ export function ChatGptSettings() {
         Script generation can use your ChatGPT plan. Plan and research notes are sent to OpenAI;
         planning, research, review and speech remain local. There is no automatic paid API fallback.
       </p>
+      <h3>How to connect your ChatGPT subscription</h3>
+      <ol>
+        <li>Leave the account label as <strong>default</strong>, or enter a short name to identify this connection. It is not your password or email address.</li>
+        <li>Click <strong>Start ChatGPT sign-in</strong>, then click <strong>Continue sign-in at OpenAI</strong> when the link appears.</li>
+        <li>Sign in on OpenAI’s website and approve the requested plan access. Return here and wait for the signed-in status.</li>
+        <li>Click <strong>Load available ChatGPT models</strong>, choose a model, then click <strong>Use ChatGPT for scripts</strong>. The selection applies to new jobs.</li>
+      </ol>
+      <p>Model availability depends on your account and OpenAI. Sign in again after a server restart; use <strong>Use local script generation</strong> to switch back to Ollama.</p>
       <h3>Script provider</h3>
       <ScriptSelectionStatus selection={selection} />
       <button type="button" disabled={busy} onClick={() => void select("local")}>Use local script generation</button>{" "}
