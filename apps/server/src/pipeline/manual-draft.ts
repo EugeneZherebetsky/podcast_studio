@@ -1,4 +1,4 @@
-// Building blocks only: this does not pause a job or approve a draft for publication.
+// Draft validation and prompt generation; the manual workflow keeps imports isolated.
 import { z } from "zod";
 import { escapeSourceText, loadPrompt, renderPrompt } from "./prompts.ts";
 import { assignIds, responseSchemaFor, ScriptResponseSchema, type ScriptInput } from "./script.ts";
