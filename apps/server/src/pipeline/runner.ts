@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { and, eq } from "drizzle-orm";
 import { JobOptionsSchema, STAGE_NAMES, type JobOptions, type StageName } from "shared";
@@ -7,8 +7,22 @@ import type { Db } from "../db/index.ts";
 import { episodes, jobs, jobStages } from "../db/schema.ts";
 import { usageOfFailedCall, type LlmProvider, type Usage } from "../providers/llm/interface.ts";
 import { monthTotalCostUsd, recordLlmUsage } from "../usage.ts";
-import { ARTIFACT_FILES, artifactPaths, STAGE_SCRATCH, type CachedStageName, type StageResult } from "./artifacts.ts";
+import {
+  ARTIFACT_FILES,
+  artifactPaths,
+  STAGE_SCRATCH,
+  type CachedStageName,
+  type StageResult,
+} from "./artifacts.ts";
 import type { PublishStep } from "./publish.ts";
+
+function rejectLink(file: string): void {
+  try {
+    if (lstatSync(file).isSymbolicLink()) throw new Error(`Symbolic link rejected: ${file}`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
 
 function checkBudget(db: Db, budgetUsd: number): void {
   if (!Number.isFinite(budgetUsd) || budgetUsd < 0) throw new Error("Invalid budget");
@@ -268,22 +282,29 @@ export async function generateJob(
   const canonicalDir = path.join(deps.dataDir, "jobs", id);
   // The meter has already recorded the stage's usage, so it must not be recorded again.
   const stage = <T>(name: StageName, fn: () => Promise<StageResult<T>>) =>
-    runJobStage(db, id, name, async () => ({ ...(await fn()), usage: [] }), ownerToken, () => {
-      const files = [...(STAGE_SCRATCH[name] ?? [])];
-      if (name in ARTIFACT_FILES) {
-        const paths = artifactPaths(workDir, name as CachedStageName);
-        const target = artifactPaths(canonicalDir, name as CachedStageName);
-        rmSync(target.hash, { force: true });
-        files.push(path.basename(paths.artifact), path.basename(paths.hash));
-      }
-      for (const file of files) {
-        const source = path.join(workDir, file);
-        if (!existsSync(source)) continue;
-        const target = path.join(canonicalDir, file);
-        rmSync(target, { recursive: true, force: true });
-        cpSync(source, target, { recursive: true });
-      }
-    });
+    runJobStage(
+      db,
+      id,
+      name,
+      async () => ({ ...(await fn()), usage: [] }),
+      ownerToken,
+      () => {
+        const files = [...(STAGE_SCRATCH[name] ?? [])];
+        if (name in ARTIFACT_FILES) {
+          const paths = artifactPaths(workDir, name as CachedStageName);
+          const target = artifactPaths(canonicalDir, name as CachedStageName);
+          rmSync(target.hash, { force: true });
+          files.push(path.basename(paths.artifact), path.basename(paths.hash));
+        }
+        for (const file of files) {
+          const source = path.join(workDir, file);
+          if (!existsSync(source)) continue;
+          const target = path.join(canonicalDir, file);
+          rmSync(target, { recursive: true, force: true });
+          cpSync(source, target, { recursive: true });
+        }
+      },
+    );
   const uncached = <T>(artifact: T): StageResult<T> => ({
     artifact,
     usage: [],
@@ -308,24 +329,52 @@ export async function generateJob(
   const ownerToken = startJob(db, id, deps.budgetUsd, true);
   const workDir = path.join(canonicalDir, "runs", ownerToken);
   // Copy, never link: an abandoned executor may still write its own files.
-  db.transaction((tx) => {
-    const owner = tx.select().from(jobs).where(eq(jobs.id, id)).get();
-    if (owner?.status !== "running" || owner.ownerToken !== ownerToken)
-      throw new Error("Job ownership lost");
-    tx.update(jobs).set({ updatedAt: owner.updatedAt }).where(eq(jobs.id, id)).run();
-    mkdirSync(workDir, { recursive: true });
-    const files = [
-      ...Object.keys(ARTIFACT_FILES).flatMap((stage) => {
-        const paths = artifactPaths(canonicalDir, stage as CachedStageName);
-        return [path.basename(paths.artifact), path.basename(paths.hash)];
-      }),
-      ...Object.values(STAGE_SCRATCH).flat(),
-    ];
-    for (const file of files) {
-      const source = path.join(canonicalDir, file);
-      if (existsSync(source)) cpSync(source, path.join(workDir, file), { recursive: true });
-    }
-  });
+  try {
+    db.transaction((tx) => {
+      const owner = tx.select().from(jobs).where(eq(jobs.id, id)).get();
+      if (owner?.status !== "running" || owner.ownerToken !== ownerToken)
+        throw new Error("Job ownership lost");
+      tx.update(jobs).set({ updatedAt: owner.updatedAt }).where(eq(jobs.id, id)).run();
+      for (const dir of [
+        deps.dataDir,
+        path.join(deps.dataDir, "jobs"),
+        canonicalDir,
+        path.join(canonicalDir, "runs"),
+        workDir,
+      ])
+        rejectLink(dir);
+      mkdirSync(workDir, { recursive: true });
+      const files = [
+        ...Object.keys(ARTIFACT_FILES).flatMap((stage) => {
+          const paths = artifactPaths(canonicalDir, stage as CachedStageName);
+          return [path.basename(paths.artifact), path.basename(paths.hash)];
+        }),
+        ...Object.values(STAGE_SCRATCH).flat(),
+      ];
+      for (const file of files) {
+        const source = path.join(canonicalDir, file);
+        const target = path.join(workDir, file);
+        rejectLink(source);
+        rejectLink(target);
+        if (existsSync(source))
+          cpSync(source, target, {
+            recursive: true,
+            filter: (src, dest) => {
+              rejectLink(src);
+              rejectLink(dest);
+              return true;
+            },
+          });
+      }
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    db.update(jobs)
+      .set({ status: "failed", error: message, updatedAt: new Date().toISOString() })
+      .where(and(eq(jobs.id, id), eq(jobs.status, "running"), eq(jobs.ownerToken, ownerToken)))
+      .run();
+    throw error;
+  }
   const plan = (
     await stage("plan", () => runPlanStage({ workDir, llm: providers.llm }, job.options))
   ).artifact;

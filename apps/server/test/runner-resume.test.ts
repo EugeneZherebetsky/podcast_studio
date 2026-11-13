@@ -1,5 +1,12 @@
 import { eq } from "drizzle-orm";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { expect, test } from "vitest";
 import { episodes, jobs } from "../src/db/schema.ts";
@@ -72,6 +79,35 @@ test(
   },
   GENERATION_TIMEOUT_MS,
 );
+
+test("initialization rejects nested cache symlinks", async () => {
+  const run = fakeGeneration();
+  try {
+    const cache = path.join(run.workDir, "notes-map");
+    const outside = path.join(run.dir, "outside");
+    mkdirSync(cache, { recursive: true });
+    mkdirSync(outside);
+    symlinkSync(outside, path.join(cache, "linked"), "junction");
+    await expect(generateJob(run.deps, run.jobId)).rejects.toThrow(/symbolic link/i);
+    expect(run.job().status).toBe("failed");
+    expect(readdirSync(outside)).toEqual([]);
+  } finally {
+    run.close();
+  }
+});
+
+test("initialization failure after claim marks the owned job failed", async () => {
+  const run = fakeGeneration();
+  try {
+    mkdirSync(run.workDir, { recursive: true });
+    writeFileSync(path.join(run.workDir, "runs"), "not a directory");
+    await expect(generateJob(run.deps, run.jobId)).rejects.toThrow();
+    expect(run.job().status).toBe("failed");
+    expect(run.job().error).toBeTruthy();
+  } finally {
+    run.close();
+  }
+});
 
 test("only a job whose executor is known to be gone can be marked interrupted", () => {
   const run = fakeGeneration();
