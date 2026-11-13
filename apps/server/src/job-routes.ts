@@ -56,7 +56,11 @@ export function registerJobRoutes(
     if (learningBlocked(mode))
       return reply.code(400).send({ error: "Local learning modes require ALLOW_LOCAL_LEARNING=1" });
     if (!runner) return reply.code(503).send({ error: "Job runner unavailable" });
-    return reply.code(201).send(await runner.create(body.data));
+    try {
+      return reply.code(201).send(await runner.create(body.data));
+    } catch (error) {
+      return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+    }
   });
   app.post<{ Params: { id: string } }>("/api/jobs/:id/retry", async (request, reply) => {
     const body = RetryJobRequestSchema.safeParse(request.body ?? {});
@@ -69,6 +73,10 @@ export function registerJobRoutes(
     if (!db.select().from(jobs).where(eq(jobs.id, request.params.id)).get())
       return reply.code(404).send({ error: "Job not found" });
     if (!runner) return reply.code(503).send({ error: "Job runner unavailable" });
-    return runner.cancel(request.params.id);
+    try {
+      return await runner.cancel(request.params.id);
+    } catch (error) {
+      return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+    }
   });
 }

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { and, eq } from "drizzle-orm";
-import { JobOptionsSchema, STAGE_NAMES, type JobOptions, type StageName } from "shared";
+import { JobOptionsSchema, STAGE_NAMES, type JobOptions, type StageName, type ServerEvent } from "shared";
 import type { Db } from "../db/index.ts";
 import { episodes, jobs, jobStages } from "../db/schema.ts";
 import { usageOfFailedCall, type LlmProvider, type Usage } from "../providers/llm/interface.ts";
@@ -229,6 +229,7 @@ export interface GenerateDeps {
   llmName: string;
   ttsName: string;
   nativeLang: string;
+  onEvent?: (event: ServerEvent) => void;
 }
 
 export interface GenerateOptions {
@@ -272,14 +273,17 @@ export async function generateJob(
   const { hashInputs, SCRATCH_FILES } = await import("./artifacts.ts");
   const canonicalDir = path.join(deps.dataDir, "jobs", id);
   // The meter has already recorded the stage's usage, so it must not be recorded again.
-  const stage = <T>(name: StageName, fn: () => Promise<StageResult<T>>) =>
-    runJobStage(
-      db,
-      id,
-      name,
-      async () => ({ ...(await fn()), usage: [] }),
-      ownerToken,
-    );
+  const stage = async <T>(name: StageName, fn: () => Promise<StageResult<T>>) => {
+    deps.onEvent?.({ type: "job-stage", jobId: id, stage: name, status: "running" });
+    try {
+      const result = await runJobStage(db, id, name, async () => ({ ...(await fn()), usage: [] }), ownerToken);
+      deps.onEvent?.({ type: "job-stage", jobId: id, stage: name, status: result.skipped ? "skipped" : "done" });
+      return result;
+    } catch (error) {
+      deps.onEvent?.({ type: "job-stage", jobId: id, stage: name, status: "failed", error: error instanceof Error ? error.message : String(error) });
+      throw error;
+    }
+  };
   const uncached = <T>(artifact: T): StageResult<T> => ({
     artifact,
     usage: [],
@@ -383,21 +387,14 @@ export async function generateJob(
     await stage("tts", async () => {
       const tts = providers.tts.forRun?.(path.join(workDir, "tts"));
       if (!tts) throw new Error("TTS provider does not support run isolation");
-      return uncached(
-        await Promise.all(
-          reviewed.segments.map(
-            async (segment) =>
-              (
-                await tts.synthesize({
-                  text: segment.text,
-                  lang: segment.lang,
-                  voice: deps.voice,
-                  rate: segment.rate ?? 1,
-                })
-              ).wavPath,
-          ),
-        ),
-      );
+      const paths: string[] = [];
+      for (const segment of reviewed.segments) {
+        const owner = db.select().from(jobs).where(eq(jobs.id, id)).get();
+        if (owner?.status !== "running" || owner.ownerToken !== ownerToken)
+          throw new Error("Job cancelled during TTS");
+        paths.push((await tts.synthesize({ text: segment.text, lang: segment.lang, voice: deps.voice, rate: segment.rate ?? 1 })).wavPath);
+      }
+      return uncached(paths);
     })
   ).artifact;
   const audioPath = path.join(workDir, SCRATCH_FILES.assembledAudio);
@@ -422,6 +419,7 @@ export async function generateJob(
       episode: {
         schemaVersion: EPISODE_SCHEMA_VERSION,
         id,
+        ...(job.topicId ? { topicId: job.topicId } : {}),
         title: reviewed.title,
         summary: reviewed.summary,
         createdAt: job.createdAt,
@@ -448,4 +446,5 @@ export async function generateJob(
     .set({ status: "succeeded", updatedAt: new Date().toISOString() })
     .where(and(eq(jobs.id, id), eq(jobs.status, "running"), eq(jobs.ownerToken, ownerToken)))
     .run();
+  deps.onEvent?.({ type: "episode-ready", jobId: id, episodeId: id });
 }

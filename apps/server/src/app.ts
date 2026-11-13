@@ -106,15 +106,22 @@ export function buildApp(options?: {
     return { version, profile: options.config.PROFILE, providers: await options.providerHealth() };
   });
   const events = options?.events ?? new EventEmitter();
+  const streams = new Set<PassThrough>();
+  app.addHook("preClose", (done) => {
+    for (const stream of streams) stream.end();
+    done();
+  });
   app.get("/api/events", async (_request, reply) => {
     const stream = new PassThrough();
+    streams.add(stream);
     const listener = (event: unknown) => {
       const parsed = ServerEventSchema.safeParse(event);
-      if (parsed.success) stream.write(`data: ${JSON.stringify(parsed.data)}\n\n`);
+      if (parsed.success && !stream.write(`data: ${JSON.stringify(parsed.data)}\n\n`)) stream.destroy();
     };
     events.on("event", listener);
     reply.raw.on("close", () => {
       events.off("event", listener);
+      streams.delete(stream);
       stream.destroy();
     });
     stream.write(": connected\n\n");
