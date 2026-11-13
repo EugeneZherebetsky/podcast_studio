@@ -1,11 +1,11 @@
 import { parseArgs } from "node:util";
 import { eq } from "drizzle-orm";
-import { JobOptionsSchema } from "shared";
+import { JobOptionsSchema, STAGE_NAMES, type StageName } from "shared";
 import { loadConfig } from "../config.ts";
 import { ensureDataDirs } from "../data-dir.ts";
 import { openDatabase } from "../db/index.ts";
 import { jobs } from "../db/schema.ts";
-import { createJob, generateJob } from "../pipeline/runner.ts";
+import { createJob, generateJob, markJobInterrupted } from "../pipeline/runner.ts";
 import { createProviders } from "../providers/index.ts";
 
 async function main(): Promise<void> {
@@ -18,6 +18,8 @@ async function main(): Promise<void> {
       brief: { type: "string", default: "" },
       voice: { type: "string" },
       resume: { type: "string" },
+      "from-stage": { type: "string" },
+      interrupted: { type: "boolean" },
       "no-review": { type: "boolean" },
     },
   });
@@ -32,8 +34,13 @@ async function main(): Promise<void> {
     );
   if (!args.values.resume && args.positionals.length !== 1)
     throw new Error(
-      'Usage: pnpm gen "topic" [--minutes 8] [--lang en] [--mode standard] [--voice ID] [--no-review], or --resume JOB_ID',
+      'Usage: pnpm gen "topic" [--minutes 8] [--lang en] [--mode standard] [--voice ID] [--no-review], or --resume JOB_ID [--from-stage STAGE] [--interrupted]',
     );
+  const fromStage = args.values["from-stage"] as StageName | undefined;
+  if ((fromStage !== undefined || args.values.interrupted) && !args.values.resume)
+    throw new Error("--from-stage and --interrupted need --resume JOB_ID");
+  if (fromStage !== undefined && !STAGE_NAMES.includes(fromStage))
+    throw new Error(`--from-stage must be one of: ${STAGE_NAMES.join(", ")}`);
   const dirs = ensureDataDirs(config.DATA_DIR);
   const db = openDatabase(dirs.dbFile);
   try {
@@ -59,6 +66,12 @@ async function main(): Promise<void> {
         ? config.TTS_VOICE_HU_HOST
         : config.TTS_VOICE_NATIVE_HOST);
     if (!voice) throw new Error("Set TTS_VOICE_NATIVE_HOST in .env or pass --voice");
+    if (args.values.interrupted) {
+      // The operator's word that the process which was running this job is gone; a job
+      // marked as running is never resumed without it.
+      markJobInterrupted(db, id);
+      console.log("Marked the previous run as interrupted");
+    }
     await generateJob(
       {
         db,
@@ -72,6 +85,7 @@ async function main(): Promise<void> {
         nativeLang: config.NATIVE_LANG,
       },
       id,
+      fromStage === undefined ? {} : { fromStage },
     );
     console.log(`Published ${dirs.episodes}/${id}/audio.m4a`);
   } finally {

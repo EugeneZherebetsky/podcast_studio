@@ -4,7 +4,7 @@ import path from "node:path";
 import { ScriptSegmentSchema, type Lang } from "shared";
 import { z } from "zod";
 import type { LlmProvider, Usage } from "../providers/llm/interface.ts";
-import { hashInputs, runCachedStage, type StageResult } from "./artifacts.ts";
+import { hashInputs, runCachedStage, SCRATCH_FILES, type StageResult } from "./artifacts.ts";
 import { escapeSourceText, loadPrompt, renderPrompt, type PromptTemplate } from "./prompts.ts";
 import type { Notes, Plan, Sources } from "./schemas.ts";
 
@@ -173,7 +173,7 @@ async function runLocalScript(deps: ScriptDeps, input: ScriptInput, template: Pr
       "local-script",
     );
     const key = hashInputs({ version: 2, model: deps.llm.localCacheIdentity, input, system, prompt, schema: z.toJSONSchema(schema) });
-    const cacheDir = path.join(deps.workDir, "script-chapters");
+    const cacheDir = path.join(deps.workDir, SCRATCH_FILES.scriptChapters);
     const file = path.join(cacheDir, `${key}.json`);
     let part: z.infer<typeof schema> | undefined;
     try {

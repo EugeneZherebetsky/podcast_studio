@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { JobOptionsSchema, STAGE_NAMES, type JobOptions, type StageName } from "shared";
 import type { Db } from "../db/index.ts";
-import { jobs, jobStages } from "../db/schema.ts";
+import { episodes, jobs, jobStages } from "../db/schema.ts";
 import { usageOfFailedCall, type LlmProvider, type Usage } from "../providers/llm/interface.ts";
 import { monthTotalCostUsd, recordLlmUsage } from "../usage.ts";
 import type { StageResult } from "./artifacts.ts";
@@ -38,19 +38,84 @@ export function createJob(db: Db, options: JobOptions, budgetUsd: number) {
   });
 }
 
+const INTERRUPTED = "Interrupted: the process running this job stopped";
+
+/**
+ * Claims the job for the caller, atomically: of any number of callers, one gets it.
+ *
+ * - `queued` and `failed` jobs can be started: nothing is executing them (a job becomes
+ *   `failed` only when its executor gives up).
+ * - A `cancelled` job can be started once no stage is marked `running`, i.e. once its
+ *   executor has noticed the cancellation and stopped.
+ * - A `running` job is never taken over. The database cannot tell an executor that is
+ *   still working from one whose process died (nothing records who runs a job or when it
+ *   was last alive), so that takes an explicit `markJobInterrupted` first.
+ */
 export function startJob(db: Db, id: string, budgetUsd: number): void {
   db.transaction((tx) => {
     const job = tx.select().from(jobs).where(eq(jobs.id, id)).get();
     if (!job) throw new Error("Job not found");
-    if (job.status === "running") throw new Error("Job is already running");
-    if (job.status === "succeeded" || job.status === "cancelled")
-      throw new Error(`Cannot start ${job.status} job`);
+    if (job.status === "running")
+      throw new Error(
+        "Job is already running; if its process has stopped, mark the job as interrupted first",
+      );
+    if (job.status === "succeeded") throw new Error("Cannot start succeeded job");
+    if (job.status === "cancelled" && runningStages(tx, id).length > 0)
+      throw new Error("Job was cancelled but its current stage has not stopped yet");
     checkBudget(db, budgetUsd);
     tx.update(jobs)
       .set({ status: "running", error: null, updatedAt: new Date().toISOString() })
       .where(eq(jobs.id, id))
       .run();
   });
+}
+
+function runningStages(tx: Pick<Db, "select">, id: string) {
+  return tx
+    .select()
+    .from(jobStages)
+    .where(and(eq(jobStages.jobId, id), eq(jobStages.status, "running")))
+    .all();
+}
+
+/**
+ * The operator's statement that no process is executing this job any more (it was killed,
+ * or the machine went down), which is the one thing the database cannot know. A `running`
+ * job becomes `failed` and can then be resumed; a `cancelled` job stuck in a stage gets
+ * that stage closed. Never call this on a guess: if the old process is in fact alive, two
+ * executors will work on the same job.
+ */
+export function markJobInterrupted(db: Db, id: string): void {
+  db.transaction((tx) => {
+    const job = tx.select().from(jobs).where(eq(jobs.id, id)).get();
+    if (!job) throw new Error("Job not found");
+    const stuck = job.status === "cancelled" && runningStages(tx, id).length > 0;
+    if (job.status !== "running" && !stuck)
+      throw new Error(`Job is ${job.status}: there is no interrupted run to clear`);
+    const now = new Date().toISOString();
+    tx.update(jobStages)
+      .set({ status: "failed", finishedAt: now, error: INTERRUPTED })
+      .where(and(eq(jobStages.jobId, id), eq(jobStages.status, "running")))
+      .run();
+    if (job.status === "running")
+      tx.update(jobs)
+        .set({ status: "failed", error: INTERRUPTED, updatedAt: now })
+        .where(eq(jobs.id, id))
+        .run();
+  });
+}
+
+/** Retry-from-stage, database half: `fromStage` and every later stage are pending again. */
+function resetStagesFrom(db: Db, id: string, fromStage: StageName): void {
+  db.update(jobStages)
+    .set({ status: "pending", inputHash: null, startedAt: null, finishedAt: null, error: null })
+    .where(
+      and(
+        eq(jobStages.jobId, id),
+        inArray(jobStages.stage, STAGE_NAMES.slice(STAGE_NAMES.indexOf(fromStage))),
+      ),
+    )
+    .run();
 }
 
 export function cancelJob(db: Db, id: string): void {
@@ -158,13 +223,23 @@ export interface GenerateDeps {
 }
 
 export interface GenerateOptions {
+  /**
+   * Retry from this stage: it and every later stage run again even if their inputs are
+   * unchanged; earlier stages are reused from their cached artifacts.
+   */
+  fromStage?: StageName;
   /** Test seam: fail in place of the review stage, as an interruption after stage 5. */
   stopAfterScript?: boolean;
   /** Test seam: see `PublishOptions.afterStep`. */
   afterPublishStep?: (step: PublishStep) => void | Promise<void>;
 }
 
-/** Run the standard pipeline. Providers must be free: paid usage is not safely priced yet. */
+/**
+ * Run the standard pipeline, or resume it: a stage whose artifact is there for the same
+ * inputs is skipped, so a `failed` job continues where it stopped. Which jobs may be
+ * started is decided by `startJob`. Providers must be free: paid usage is not safely
+ * priced yet.
+ */
 export async function generateJob(
   deps: GenerateDeps,
   id: string,
@@ -190,7 +265,7 @@ export async function generateJob(
   const { runNotesStage } = await import("./notes.ts");
   const { runScriptStage } = await import("./script.ts");
   const { runReviewStage } = await import("./review.ts");
-  const { hashInputs } = await import("./artifacts.ts");
+  const { hashInputs, invalidateStageFiles, SCRATCH_FILES } = await import("./artifacts.ts");
   const workDir = path.join(deps.dataDir, "jobs", id);
   // The meter has already recorded the stage's usage, so it must not be recorded again.
   const stage = <T>(name: StageName, fn: () => Promise<StageResult<T>>) =>
@@ -201,7 +276,32 @@ export async function generateJob(
     skipped: false,
     inputHash: hashInputs(artifact),
   });
+  const { fromStage } = options;
+  if (fromStage !== undefined) {
+    if (!STAGE_NAMES.includes(fromStage)) throw new Error(`Unknown stage "${String(fromStage)}"`);
+    if (job.status === "succeeded") throw new Error("Cannot start succeeded job");
+    // A listed episode may already be on a device and is never replaced (see publish.ts),
+    // so re-running earlier stages could only produce work that is thrown away.
+    if (db.select().from(episodes).where(eq(episodes.id, id)).get())
+      throw new Error(
+        "Job has already published its episode; resume it without a stage to finish it",
+      );
+  }
   startJob(db, id, deps.budgetUsd);
+  if (fromStage !== undefined) {
+    // Only now that the job is ours: nothing of a job someone else runs is ever removed.
+    try {
+      await invalidateStageFiles(workDir, fromStage);
+      resetStagesFrom(db, id, fromStage);
+    } catch (error) {
+      const message = `Cannot retry from ${fromStage}: ${error instanceof Error ? error.message : String(error)}`;
+      db.update(jobs)
+        .set({ status: "failed", error: message, updatedAt: new Date().toISOString() })
+        .where(and(eq(jobs.id, id), eq(jobs.status, "running")))
+        .run();
+      throw new Error(message, { cause: error });
+    }
+  }
   const plan = (
     await stage("plan", () => runPlanStage({ workDir, llm: providers.llm }, job.options))
   ).artifact;
@@ -266,7 +366,7 @@ export async function generateJob(
       ),
     )
   ).artifact;
-  const audioPath = path.join(workDir, "audio.m4a");
+  const audioPath = path.join(workDir, SCRATCH_FILES.assembledAudio);
   const audio = (
     await stage("assemble", async () =>
       uncached(

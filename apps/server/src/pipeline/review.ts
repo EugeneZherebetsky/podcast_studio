@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { hashInputs, runCachedStage, type StageResult } from "./artifacts.ts";
+import { hashInputs, runCachedStage, SCRATCH_FILES, type StageResult } from "./artifacts.ts";
 import { escapeSourceText, loadPrompt, renderPrompt } from "./prompts.ts";
 import {
   assignIds,
@@ -101,7 +101,7 @@ async function runLocalReview(deps: ScriptDeps, input: ReviewInput, scriptInput:
       prompt,
       schema: z.toJSONSchema(schema),
     });
-    const dir = path.join(deps.workDir, "review-segments");
+    const dir = path.join(deps.workDir, SCRATCH_FILES.reviewSegments);
     const file = path.join(dir, `${key}.json`);
     let part: z.infer<typeof schema> | undefined;
     try {
@@ -233,7 +233,7 @@ export async function runReviewStage(
       };
     },
   });
-  const file = path.join(deps.workDir, "reviewed-script.json");
+  const file = path.join(deps.workDir, SCRATCH_FILES.reviewedScript);
   const content = `${JSON.stringify(result.artifact.script, null, 2)}\n`;
   const existing = await readFile(file, "utf8").catch(() => undefined);
   if (existing !== content) {

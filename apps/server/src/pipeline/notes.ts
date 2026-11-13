@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { LlmProvider, Usage } from "../providers/llm/interface.ts";
-import { hashInputs, runCachedStage, type StageResult } from "./artifacts.ts";
+import { hashInputs, runCachedStage, SCRATCH_FILES, type StageResult } from "./artifacts.ts";
 import { escapeSourceText, loadPrompt, renderPrompt } from "./prompts.ts";
 import {
   NotesSchema,
@@ -85,7 +85,7 @@ export async function runNotesStage(
             system,
             prompt,
           });
-          const cacheDir = path.join(deps.workDir, "notes-map");
+          const cacheDir = path.join(deps.workDir, SCRATCH_FILES.notesMap);
           const file = path.join(cacheDir, `${key}.json`);
           const started = Date.now();
           try {

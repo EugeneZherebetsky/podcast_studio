@@ -5,7 +5,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { formatZodError, type StageName } from "shared";
+import { formatZodError, STAGE_NAMES, type StageName } from "shared";
 import type { ZodType } from "zod";
 import type { Usage } from "../providers/llm/interface.ts";
 
@@ -20,6 +20,30 @@ export const ARTIFACT_FILES = {
 } as const satisfies Partial<Record<StageName, string>>;
 
 export type CachedStageName = keyof typeof ARTIFACT_FILES;
+
+/**
+ * Other files a stage keeps in the work directory: partial results that let an interrupted
+ * stage resume, and outputs that are not JSON artifacts.
+ */
+export const SCRATCH_FILES = {
+  /** `notes`: one file of facts per source (free local models only). */
+  notesMap: "notes-map",
+  /** `script`: one file per chapter (free local models only). */
+  scriptChapters: "script-chapters",
+  /** `review`: one file per reviewed segment (free local models only). */
+  reviewSegments: "review-segments",
+  /** `review`: the corrected script, for reading. */
+  reviewedScript: "reviewed-script.json",
+  /** `assemble`: the encoded audio that `publish` copies. */
+  assembledAudio: "audio.m4a",
+} as const;
+
+const STAGE_SCRATCH: Partial<Record<StageName, readonly string[]>> = {
+  notes: [SCRATCH_FILES.notesMap],
+  script: [SCRATCH_FILES.scriptChapters],
+  review: [SCRATCH_FILES.reviewSegments, SCRATCH_FILES.reviewedScript],
+  assemble: [SCRATCH_FILES.assembledAudio],
+};
 
 export interface ArtifactPaths {
   /** The stage's JSON artifact, e.g. `<workDir>/plan.json`. */
@@ -142,4 +166,25 @@ export async function runCachedStage<T>(options: CachedStage<T>): Promise<StageR
   await writeFileAtomic(paths.artifact, `${JSON.stringify(parsed.data, null, 2)}\n`);
   await writeFileAtomic(paths.hash, `${inputHash}\n`);
   return { artifact: parsed.data, usage: output.usage, skipped: false, inputHash };
+}
+
+/**
+ * Retry-from-stage: forgets what `fromStage` and every later stage left in the work
+ * directory, so they run again whatever their inputs; earlier stages keep their cache.
+ * Synthesised speech lives in the content-addressed TTS cache, outside the work directory,
+ * and stays: the same text, voice and rate give the same audio.
+ */
+export async function invalidateStageFiles(workDir: string, fromStage: StageName): Promise<void> {
+  const first = STAGE_NAMES.indexOf(fromStage);
+  if (first < 0) throw new Error(`Unknown stage "${String(fromStage)}"`);
+  for (const stage of STAGE_NAMES.slice(first)) {
+    if (stage in ARTIFACT_FILES) {
+      const paths = artifactPaths(workDir, stage as CachedStageName);
+      // The hash goes first, as in `runCachedStage`: it must never outlive its artifact.
+      await rm(paths.hash, { force: true });
+      await rm(paths.artifact, { force: true });
+    }
+    for (const name of STAGE_SCRATCH[stage] ?? [])
+      await rm(path.join(workDir, name), { recursive: true, force: true });
+  }
 }

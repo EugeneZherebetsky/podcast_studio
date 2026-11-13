@@ -80,6 +80,13 @@ A **job** produces one episode. It is a sequence of stages; each stage reads the
 
 Why per-segment synthesis: it gives exact sentence timings from any TTS provider with no alignment model, allows a different language, voice and speed per segment (needed for bilingual episodes), and makes caching and partial regeneration trivial. The cost is slightly less natural prosody across sentence boundaries; mitigate by synthesising at sentence level for learning modes and at paragraph level (with sentence timings unavailable and not needed) for plain episodes. `granularity: "sentence" | "paragraph"` is a job option, default by mode.
 
+### Resume and retry
+
+- **Resume** (`pnpm gen --resume <jobId>`) runs the pipeline again on the same job: completed stages are skipped from their cached artifacts, so no LLM or search call is repeated. A `queued` or `failed` job can be resumed. A `cancelled` job can be resumed once no stage is still marked `running`, i.e. once its executor has noticed the cancellation.
+- **A `running` job is never taken over automatically.** The database does not record which process runs a job or when it was last alive, so a job whose process died looks the same as one still being worked on. The operator states that the process is gone with `pnpm gen --resume <jobId> --interrupted`, which marks the job `failed` (and its open stage `failed`) and then resumes it. Stating it wrongly lets two executors work on one job; detecting a dead executor without the operator needs an owner/heartbeat column on `jobs`, a schema change that has not been approved.
+- **Retry from a stage** (`pnpm gen --resume <jobId> --from-stage <stage>`) removes the artifacts, input hashes and partial results of that stage and every later one, resets their `job_stages` rows to `pending`, and runs from there; earlier stages are reused. The content-addressed TTS cache is kept. It is refused for a `running` or `succeeded` job and once the job's episode is listed: a listed episode is never replaced.
+- `POST /api/jobs/:id/retry` and the web UI retry button remain disabled: the server has no job executor yet, and it must not adopt jobs it did not start.
+
 ### Prompt handling
 
 - Prompts are markdown files in `pipeline/prompts/`, one per stage and mode, with `{{placeholders}}`. No prompt strings inline in code.
