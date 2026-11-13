@@ -7,6 +7,7 @@ import { openDatabase } from "../db/index.ts";
 import { jobs } from "../db/schema.ts";
 import { createJob, generateJob } from "../pipeline/runner.ts";
 import { createProviders } from "../providers/index.ts";
+import { openDesktopGuard } from "../desktop-guard.ts";
 
 async function main(): Promise<void> {
   const args = parseArgs({
@@ -44,6 +45,8 @@ async function main(): Promise<void> {
   if (fromStage !== undefined && !STAGE_NAMES.includes(fromStage))
     throw new Error(`--from-stage must be one of: ${STAGE_NAMES.join(", ")}`);
   const dirs = ensureDataDirs(config.DATA_DIR);
+  const guard = openDesktopGuard(dirs.root);
+  let clean = false;
   const db = openDatabase(dirs.dbFile);
   try {
     const providers = createProviders(config);
@@ -58,6 +61,7 @@ async function main(): Promise<void> {
           review: !args.values["no-review"],
         });
     if (input && input.mode !== "standard") throw new Error("Only standard mode is supported");
+    guard.begin();
     const id = args.values.resume ?? createJob(db, input!, config.MONTHLY_BUDGET_USD).id;
     console.log(`Job ${id}`);
     const job = db.select().from(jobs).where(eq(jobs.id, id)).get();
@@ -83,9 +87,11 @@ async function main(): Promise<void> {
       id,
       fromStage === undefined ? {} : { fromStage },
     );
+    clean = true;
     console.log(`Published ${dirs.episodes}/${id}/audio.m4a`);
   } finally {
     db.$client.close();
+    guard.close(clean);
   }
 }
 

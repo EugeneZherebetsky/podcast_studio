@@ -4,6 +4,7 @@ import { buildApp } from "../src/app.ts";
 import { createDesktopRunner } from "../src/desktop-runner.ts";
 import { fakeGeneration, GENERATION_TIMEOUT_MS } from "./generation-fakes.ts";
 import { loadConfig } from "../src/config.ts";
+import { openDesktopGuard } from "../src/desktop-guard.ts";
 
 test(
   "HTTP creates and runs a new job without starting an old queued job",
@@ -171,6 +172,7 @@ test("shutdown closes SSE and bounds a blocked local call", async () => {
     await started;
     await app.close();
     expect(drained).toBe(false);
+    expect(() => openDesktopGuard(f.dir)).toThrow(/another/i);
     expect(events.listenerCount("event")).toBe(0);
     expect(f.job().status).toBe("queued");
     expect(f.db.$client.prepare("select status from jobs where id = ?").get(job.id)).toMatchObject({
@@ -230,6 +232,24 @@ test("cancellation stops additional search queries", async () => {
     f.close();
   }
 }, GENERATION_TIMEOUT_MS);
+
+
+test("a failed provider leaves recovery blocked even after the runner closes", async () => {
+  const f = fakeGeneration();
+  f.deps.providers.llm = { async generateObject() { throw new Error("connection lost"); } };
+  const runner = createDesktopRunner(f.deps, new EventEmitter());
+  try {
+    const job = await runner.create({ title: "Bees", brief: "", mode: "standard", lang: "en", minutes: 1 });
+    await viWait(async () => (f.db.$client.prepare("select status from jobs where id = ?").get(job.id) as { status: string }).status === "failed");
+    expect(await runner.close()).toBe(true);
+    const guard = openDesktopGuard(f.dir);
+    try { expect(() => guard.begin()).toThrow(/manual/i); }
+    finally { guard.close(false); }
+  } finally {
+    await runner.close();
+    f.close();
+  }
+});
 
 test("does not announce a running stage when its database transition fails", async () => {
   const f = fakeGeneration();

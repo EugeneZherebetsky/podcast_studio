@@ -137,6 +137,8 @@ export function cancelJob(db: Db, id: string): void {
   });
 }
 
+export class CancelledAfterStage extends Error {}
+
 /** Persist the stage transition; cancellation is cooperative between provider calls. */
 export async function runJobStage<T>(
   db: Db,
@@ -175,7 +177,7 @@ export async function runJobStage<T>(
         .run();
       return false;
     });
-    if (cancelled) throw new Error("Job cancelled during stage");
+    if (cancelled) throw new CancelledAfterStage("Job cancelled during stage");
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
