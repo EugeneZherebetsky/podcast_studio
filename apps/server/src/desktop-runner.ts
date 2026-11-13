@@ -41,7 +41,16 @@ export function createDesktopRunner(
     active = generateJob({ ...item.deps, onEvent: (event) => events.emit("event", event) }, id)
       .catch((error: unknown) => {
         // A failed request may still be running in an external service.
-        if (!(error instanceof CancelledAfterStage)) uncertain = true;
+        if (!(error instanceof CancelledAfterStage)) {
+          uncertain = true;
+          const blocked = "External work may still be running; stop the server and follow manual recovery in SETUP.md";
+          for (const queued of queue.splice(0)) {
+            const result = deps.db.update(jobs)
+              .set({ status: "failed", error: blocked, updatedAt: new Date().toISOString() })
+              .where(and(eq(jobs.id, queued.id), eq(jobs.status, "queued"))).run();
+            if (result.changes) events.emit("event", { type: "job-stage", jobId: queued.id, stage: "plan", status: "failed", error: blocked });
+          }
+        }
         const message = error instanceof Error ? error.message : String(error);
         deps.db
           .update(jobs)

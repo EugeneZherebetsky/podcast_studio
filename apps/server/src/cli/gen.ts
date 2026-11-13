@@ -1,11 +1,9 @@
 import { parseArgs } from "node:util";
-import { eq } from "drizzle-orm";
 import { JobOptionsSchema, STAGE_NAMES, type StageName } from "shared";
 import { loadConfig } from "../config.ts";
 import { ensureDataDirs } from "../data-dir.ts";
 import { openDatabase } from "../db/index.ts";
-import { jobs } from "../db/schema.ts";
-import { createJob, generateJob } from "../pipeline/runner.ts";
+import { checkBudget, createJob, generateJob } from "../pipeline/runner.ts";
 import { createProviders } from "../providers/index.ts";
 import { openDesktopGuard } from "../desktop-guard.ts";
 
@@ -61,17 +59,16 @@ async function main(): Promise<void> {
           review: !args.values["no-review"],
         });
     if (input && input.mode !== "standard") throw new Error("Only standard mode is supported");
-    guard.begin();
-    const id = args.values.resume ?? createJob(db, input!, config.MONTHLY_BUDGET_USD).id;
-    console.log(`Job ${id}`);
-    const job = db.select().from(jobs).where(eq(jobs.id, id)).get();
-    if (!job) throw new Error("Job not found");
     const voice =
       args.values.voice ??
-      (job.options.lang.toLowerCase().startsWith("hu")
+      (input!.lang.toLowerCase().startsWith("hu")
         ? config.TTS_VOICE_HU_HOST
         : config.TTS_VOICE_NATIVE_HOST);
     if (!voice) throw new Error("Set TTS_VOICE_NATIVE_HOST in .env or pass --voice");
+    checkBudget(db, config.MONTHLY_BUDGET_USD);
+    guard.begin();
+    const id = createJob(db, input!, config.MONTHLY_BUDGET_USD).id;
+    console.log(`Job ${id}`);
     await generateJob(
       {
         db,

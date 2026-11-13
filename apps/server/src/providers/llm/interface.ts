@@ -39,6 +39,8 @@ export interface GenerateObjectRequest<T> {
   prompt: string;
   /** Deadline override for opt-in bounded local generation; ignored by cloud providers. */
   localTimeoutMs?: number;
+  /** Called before a provider-internal retry to respect cancellation. */
+  assertContinue?: () => void;
   /** The response is validated against this schema; `object` is the parsed value. */
   schema: ZodType<T>;
 }

@@ -204,7 +204,7 @@ test("desktop runner refuses non-local provider settings before creating a job",
   }
 });
 
-test("cancellation stops additional search queries", async () => {
+test.each([1, 2, 3, 4, 5])("cancellation stops after search query %i", async (stopAt) => {
   const f = fakeGeneration();
   let release!: () => void;
   let entered!: () => void;
@@ -214,8 +214,7 @@ test("cancellation stops additional search queries", async () => {
   const search = f.deps.providers.search;
   f.deps.providers.search = { async search(query, options) {
     calls++;
-    entered();
-    await gate;
+    if (calls === stopAt) { entered(); await gate; }
     return search.search(query, options);
   } };
   const runner = createDesktopRunner(f.deps, new EventEmitter());
@@ -225,7 +224,9 @@ test("cancellation stops additional search queries", async () => {
     await runner.cancel(job.id);
     release();
     await viWait(async () => (await runner.close()));
-    expect(calls).toBe(1);
+    expect(calls).toBe(stopAt);
+    const guard = openDesktopGuard(f.dir);
+    try { expect(() => guard.begin()).not.toThrow(); } finally { guard.close(true); }
   } finally {
     release();
     await runner.close();
@@ -233,6 +234,58 @@ test("cancellation stops additional search queries", async () => {
   }
 }, GENERATION_TIMEOUT_MS);
 
+
+test.each([1, 2, 3, 4, 5, 6])("cancellation stops after TTS segment %i", async (stopAt) => {
+  const f = fakeGeneration();
+  let release!: () => void;
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let calls = 0;
+  const tts = f.deps.providers.tts;
+  f.deps.providers.tts = { ...tts, forRun(dir) {
+    const isolated = tts.forRun!(dir);
+    return { ...isolated, async synthesize(request) {
+      calls++;
+      if (calls === stopAt) { entered(); await gate; }
+      return isolated.synthesize(request);
+    }, voices: isolated.voices.bind(isolated) };
+  }, synthesize: tts.synthesize.bind(tts), voices: tts.voices.bind(tts) };
+  const runner = createDesktopRunner(f.deps, new EventEmitter());
+  try {
+    const job = await runner.create({ title: "Bees", brief: "", mode: "standard", lang: "en", minutes: 1, review: false });
+    await started;
+    await runner.cancel(job.id);
+    release();
+    await viWait(async () => await runner.close());
+    expect(calls).toBe(stopAt);
+    const guard = openDesktopGuard(f.dir);
+    try { expect(() => guard.begin()).not.toThrow(); } finally { guard.close(true); }
+  } finally { release(); await runner.close(); f.close(); }
+}, GENERATION_TIMEOUT_MS);
+
+test("uncertain provider failure terminates and notifies queued jobs", async () => {
+  const f = fakeGeneration();
+  let release!: () => void;
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  f.deps.providers.llm = { async generateObject() { entered(); await gate; throw new Error("connection lost"); } };
+  const events = new EventEmitter();
+  const received: unknown[] = [];
+  events.on("event", (event) => received.push(event));
+  const runner = createDesktopRunner(f.deps, events);
+  const request = { title: "Bees", brief: "", mode: "standard" as const, lang: "en", minutes: 1 };
+  try {
+    await runner.create(request);
+    await started;
+    const queued = await runner.create(request);
+    release();
+    await viWait(async () => (f.db.$client.prepare("select status from jobs where id = ?").get(queued.id) as { status: string }).status !== "queued");
+    expect(f.db.$client.prepare("select status, error from jobs where id = ?").get(queued.id)).toMatchObject({ status: "failed", error: expect.stringMatching(/external work/i) });
+    expect(received).toContainEqual(expect.objectContaining({ type: "job-stage", jobId: queued.id, status: "failed" }));
+  } finally { release(); await runner.close(); f.close(); }
+}, GENERATION_TIMEOUT_MS);
 
 test("a failed provider leaves recovery blocked even after the runner closes", async () => {
   const f = fakeGeneration();

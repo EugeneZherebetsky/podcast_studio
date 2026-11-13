@@ -97,6 +97,7 @@ export class AiSdkLlmProvider implements LlmProvider {
       ? AbortSignal.timeout(request.localTimeoutMs ?? 180_000)
       : undefined;
     for (let attempt = 1; attempt <= attempts; attempt++) {
+      if (attempt > 1) request.assertContinue?.();
       const prompt =
         this.boundedOllama && attempt > 1
           ? request.prompt +
@@ -128,6 +129,7 @@ export class AiSdkLlmProvider implements LlmProvider {
           instructions: request.system,
           prompt,
           output: Output.object({ schema: request.schema }),
+          ...(this.providerName === "ollama" ? { maxRetries: 0 } : {}),
           ...(this.boundedOllama
             ? {
                 maxOutputTokens: 8192,

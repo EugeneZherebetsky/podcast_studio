@@ -1,6 +1,7 @@
 // Stage 4, `notes`: each source -> fact bullets tagged with its id (map), then one merged
 // outline whose facts keep their source ids -> notes.json. Source text is untrusted: it is
 // wrapped in <source> tags, and these calls carry no tools.
+import { CancelledAfterStage } from "./cancellation.ts";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -30,6 +31,7 @@ export interface NotesDeps {
   workDir: string;
   llm: LlmProvider;
   shouldContinue?: () => boolean;
+  assertContinue?: () => void;
 }
 
 const DEFAULT_CONCURRENCY = 3;
@@ -89,6 +91,7 @@ export async function runNotesStage(
           const file = path.join(cacheDir, `${key}.json`);
           const started = Date.now();
           try {
+            deps.assertContinue?.();
             if (deps.shouldContinue && !deps.shouldContinue())
               throw new Error("Job cancelled during notes");
             let object: { facts: string[] } | undefined;
@@ -133,7 +136,7 @@ export async function runNotesStage(
             console.info(
               `[notes] map ${i + 1}/${sources.length} failed after ${Date.now() - started}ms`,
             );
-            if (!failed) failure = error;
+            if (!failed || (failure instanceof CancelledAfterStage && !(error instanceof CancelledAfterStage))) failure = error;
             failed = true;
           }
         }
@@ -167,6 +170,7 @@ export async function runNotesStage(
         },
         "notes-merge",
       );
+      deps.assertContinue?.();
       if (deps.shouldContinue && !deps.shouldContinue())
         throw new Error("Job cancelled during notes");
       const mergeStarted = Date.now();

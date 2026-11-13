@@ -9,6 +9,8 @@ import { usageOfFailedCall, type LlmProvider, type Usage } from "../providers/ll
 import { monthTotalCostUsd, recordLlmUsage } from "../usage.ts";
 import type { StageResult } from "./artifacts.ts";
 import type { PublishStep } from "./publish.ts";
+import { CancelledAfterStage } from "./cancellation.ts";
+export { CancelledAfterStage } from "./cancellation.ts";
 
 function rejectLink(file: string): void {
   try {
@@ -18,7 +20,7 @@ function rejectLink(file: string): void {
   }
 }
 
-function checkBudget(db: Db, budgetUsd: number): void {
+export function checkBudget(db: Db, budgetUsd: number): void {
   if (!Number.isFinite(budgetUsd) || budgetUsd < 0) throw new Error("Invalid budget");
   const total = monthTotalCostUsd(db);
   if (!Number.isFinite(total) || total < 0) throw new Error("Invalid recorded spending");
@@ -137,8 +139,6 @@ export function cancelJob(db: Db, id: string): void {
   });
 }
 
-export class CancelledAfterStage extends Error {}
-
 /** Persist the stage transition; cancellation is cooperative between provider calls. */
 export async function runJobStage<T>(
   db: Db,
@@ -164,7 +164,9 @@ export async function runJobStage<T>(
     const cancelled = db.transaction((tx) => {
       for (const item of result.usage) recordLlmUsage(db, item, { jobId: id });
       const job = tx.select().from(jobs).where(eq(jobs.id, id)).get();
-      if (!job || job.status !== "running" || job.ownerToken !== ownerToken) return true;
+      if (job?.status === "cancelled" && job.ownerToken === ownerToken) return true;
+      if (!job || job.status !== "running" || job.ownerToken !== ownerToken)
+        throw new Error("Job ownership lost");
 
       tx.update(jobStages)
         .set({
@@ -255,27 +257,31 @@ export async function generateJob(
   const { db } = deps;
   const assertOwner = () => {
     const owner = db.select().from(jobs).where(eq(jobs.id, id)).get();
+    if (owner?.status === "cancelled" && owner.ownerToken === ownerToken)
+      throw new CancelledAfterStage("Job cancelled between provider calls");
     if (owner?.status !== "running" || owner.ownerToken !== ownerToken)
       throw new Error("Job cancelled or ownership lost");
   };
   // Every LLM call is written to `usage` as it completes; see `meterLlm`.
   const llm = deps.providers.llm;
+  let extractFailure: unknown;
   const providers: import("../providers/index.ts").Providers = {
     ...deps.providers,
     llm: meterLlm({
       ...(llm.localCacheIdentity === undefined ? {} : { localCacheIdentity: llm.localCacheIdentity }),
       generateObject(request) {
         assertOwner();
-        return llm.generateObject(request);
+        return llm.generateObject({ ...request, assertContinue: assertOwner });
       },
     }, (usage) => recordLlmUsage(db, usage, { jobId: id })),
     search: { search(query, options) {
       assertOwner();
       return deps.providers.search.search(query, options);
     } },
-    extractor: { extract(url) {
+    extractor: { async extract(url) {
       assertOwner();
-      return deps.providers.extractor.extract(url);
+      try { return await deps.providers.extractor.extract(url); }
+      catch (error) { extractFailure = error ?? new Error("Extractor failed"); throw error; }
     } },
   };
   const job = db.select().from(jobs).where(eq(jobs.id, id)).get();
@@ -363,9 +369,18 @@ export async function generateJob(
     await stage("search", () => runSearchStage({ workDir, search: providers.search }, { plan }))
   ).artifact;
   const sources = (
-    await stage("extract", () =>
-      runExtractStage({ workDir, extractor: providers.extractor }, { candidates }),
-    )
+    await stage("extract", async () => {
+      try {
+        const result = await runExtractStage({ workDir, extractor: providers.extractor }, { candidates });
+        if (extractFailure !== undefined) throw extractFailure;
+        assertOwner();
+        return result;
+      } catch (error) {
+        if (extractFailure !== undefined) throw extractFailure;
+        assertOwner();
+        throw error;
+      }
+    })
   ).artifact;
   const notes = (
     await stage("notes", () =>
@@ -373,14 +388,7 @@ export async function generateJob(
         {
           workDir,
           llm: providers.llm,
-          shouldContinue: () =>
-            db
-              .select()
-              .from(jobs)
-              .where(
-                and(eq(jobs.id, id), eq(jobs.status, "running"), eq(jobs.ownerToken, ownerToken)),
-              )
-              .get() !== undefined,
+          assertContinue: assertOwner,
         },
         { title: job.options.title, plan, sources },
       ),
@@ -413,9 +421,7 @@ export async function generateJob(
       if (!tts) throw new Error("TTS provider does not support run isolation");
       const paths: string[] = [];
       for (const segment of reviewed.segments) {
-        const owner = db.select().from(jobs).where(eq(jobs.id, id)).get();
-        if (owner?.status !== "running" || owner.ownerToken !== ownerToken)
-          throw new Error("Job cancelled during TTS");
+        assertOwner();
         paths.push((await tts.synthesize({ text: segment.text, lang: segment.lang, voice: deps.voice, rate: segment.rate ?? 1 })).wavPath);
       }
       return uncached(paths);
