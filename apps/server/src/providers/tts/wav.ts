@@ -53,8 +53,9 @@ export function isWellFormedPcmWav(buf: Buffer): boolean {
     if (id === "fmt ") {
       if (align || size < 16 || buf.readUInt16LE(offset) !== 1) return false;
       const channels = buf.readUInt16LE(offset + 2), bits = buf.readUInt16LE(offset + 14);
+      const sampleRate = buf.readUInt32LE(offset + 4), byteRate = buf.readUInt32LE(offset + 8);
       align = buf.readUInt16LE(offset + 12);
-      if (!channels || !bits || bits % 8 || align !== channels * bits / 8) return false;
+      if (!channels || !bits || bits % 8 || align !== channels * bits / 8 || !sampleRate || sampleRate * align > 0xffffffff || byteRate !== sampleRate * align) return false;
     } else if (id === "data") {
       if (dataSize !== -1) return false;
       dataSize = size;
@@ -82,7 +83,7 @@ export function isMono24k16BitPcmWav(buf: Buffer): boolean {
     if (offset + chunkSize + (chunkSize % 2) > buf.length) return false;
 
     if (chunkId === "fmt ") {
-      if (chunkSize < 16 || offset + 16 > buf.length) return false;
+      if (hasFmt || chunkSize < 16 || offset + 16 > buf.length) return false;
       const format = buf.readUInt16LE(offset);
       const channels = buf.readUInt16LE(offset + 2);
       const sampleRate = buf.readUInt32LE(offset + 4);
@@ -91,6 +92,7 @@ export function isMono24k16BitPcmWav(buf: Buffer): boolean {
         format !== 1 ||
         channels !== WAV_CHANNELS ||
         sampleRate !== WAV_SAMPLE_RATE ||
+        buf.readUInt32LE(offset + 8) !== WAV_SAMPLE_RATE * 2 ||
         buf.readUInt16LE(offset + 12) !== 2 ||
         bitsPerSample !== WAV_BITS_PER_SAMPLE
       ) {

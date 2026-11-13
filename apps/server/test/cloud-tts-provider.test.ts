@@ -1,11 +1,11 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { expect, test, vi } from "vitest";
 import { FakeTtsProvider } from "../src/providers/tts/fake.ts";
 import { CloudTtsProvider } from "../src/providers/tts/cloud.ts";
-import { isMono24k16BitPcmWav } from "../src/providers/tts/wav.ts";
+import { encodeWav, isMono24k16BitPcmWav } from "../src/providers/tts/wav.ts";
 
 test.each(["elevenlabs", "fish"] as const)("%s sends one safe request and writes validated WAV", async (provider) => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "cloud-tts-test-"));
@@ -39,6 +39,19 @@ test("provider failures are sanitized and are not retried", async () => {
   const tts = new CloudTtsProvider({ provider: "fish", model: "s2.1-pro-free", apiKey: "test-key", fetcher }).forRun(os.tmpdir());
   await expect(tts.synthesize({ text: "private script", lang: "en", voice: "voice-id", rate: 1 })).rejects.toThrow("Cloud TTS failed; the provider may have billed this request");
   expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+test("rejects provider WAV with invalid byte rate before conversion", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "cloud-tts-bad-wav-"));
+  try {
+    const audio = encodeWav(Int16Array.from([1, 2]));
+    audio.writeUInt32LE(1, 28);
+    const fetcher = vi.fn(async () => new Response(audio));
+    const tts = new CloudTtsProvider({ provider: "fish", model: "model", apiKey: "test-key", fetcher }).forRun(dir);
+    await expect(tts.synthesize({ text: "Hello", lang: "en", voice: "voice-id", rate: 1 })).rejects.toThrow("Cloud TTS failed");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(await readdir(dir)).toEqual([]);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
 test("converts provider MP3 to validated pipeline WAV", async () => {
