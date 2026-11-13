@@ -103,6 +103,9 @@ test("manual workflow prepares a job snapshot and imports a validated draft into
     await expect(manualImport(db, dir, job.id, prepared, JSON.stringify(draft))).rejects.toThrow(
       /changed since preparation/,
     );
+    await mkdir(path.join(work, "runs"));
+    await expect(manualPrepare(db, dir, job.id)).rejects.toThrow(/run-specific/i);
+    await expect(manualImport(db, dir, job.id, prepared, JSON.stringify(draft))).rejects.toThrow(/run-specific/i);
     const { startJob } = await import("../src/pipeline/runner.ts");
     startJob(db, job.id, 20);
     await expect(manualPrepare(db, dir, job.id)).rejects.toThrow(/queued or failed/);

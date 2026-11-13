@@ -151,15 +151,42 @@ test("a stale TTS call writes only to its abandoned run", async () => {
   }
 });
 
-test("a run imports and reuses a legacy canonical stage cache", async () => {
+test("a new run ignores and preserves legacy canonical cache", async () => {
   const f = fakeGeneration();
   try {
     const { runPlanStage } = await import("../src/pipeline/plan.ts");
     await runPlanStage({ workDir: f.workDir, llm: f.deps.providers.llm }, f.job().options);
+    const before = readFileSync(path.join(f.workDir, "plan.json"), "utf8");
+    const hash = readFileSync(path.join(f.workDir, "plan.inputs.sha256"), "utf8");
     f.llm.stages.length = 0;
     await generateJob(f.deps, f.jobId);
-    expect(f.llm.stages).not.toContain("plan");
+    expect(f.llm.stages).toContain("plan");
+    expect(readFileSync(path.join(f.workDir, "plan.json"), "utf8")).toBe(before);
+    expect(readFileSync(path.join(f.workDir, "plan.inputs.sha256"), "utf8")).toBe(hash);
+    const runDir = path.join(f.workDir, "runs", f.job().ownerToken!);
+    expect(existsSync(path.join(runDir, "plan.json"))).toBe(true);
+    expect(existsSync(path.join(runDir, "notes.json"))).toBe(true);
+    expect(existsSync(path.join(runDir, "tts"))).toBe(true);
+    expect(existsSync(path.join(f.workDir, "notes.json"))).toBe(false);
     expect(f.job().status).toBe("succeeded");
+  } finally {
+    f.close();
+  }
+});
+
+test("failed stages leave canonical artifacts untouched and retain run artifacts", async () => {
+  const f = fakeGeneration();
+  try {
+    mkdirSync(f.workDir, { recursive: true });
+    writeFileSync(path.join(f.workDir, "plan.json"), "legacy plan");
+    writeFileSync(path.join(f.workDir, "plan.inputs.sha256"), "legacy hash");
+    f.llm.failIn = "notes";
+    await expect(generateJob(f.deps, f.jobId)).rejects.toThrow(/model offline/);
+    expect(readFileSync(path.join(f.workDir, "plan.json"), "utf8")).toBe("legacy plan");
+    expect(readFileSync(path.join(f.workDir, "plan.inputs.sha256"), "utf8")).toBe("legacy hash");
+    expect(existsSync(path.join(f.workDir, "sources.json"))).toBe(false);
+    expect(existsSync(path.join(f.workDir, "runs", f.job().ownerToken!, "sources.json"))).toBe(true);
+    expect(f.db.select().from(episodes).all()).toHaveLength(0);
   } finally {
     f.close();
   }

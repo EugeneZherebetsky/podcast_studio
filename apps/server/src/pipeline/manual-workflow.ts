@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { and, eq } from "drizzle-orm";
 import type { Db } from "../db/index.ts";
@@ -55,6 +56,8 @@ async function claimed<T>(
 }
 
 async function loadInput(work: string, lang: ScriptInput["lang"]): Promise<ScriptInput> {
+  if (existsSync(path.join(work, "runs")))
+    throw new Error("Manual drafts for run-specific artifacts are not supported");
   const load = async (name: string): Promise<unknown> =>
     JSON.parse(await readFile(path.join(work, `${name}.json`), "utf8"));
   const plan = PlanSchema.parse(await load("plan"));

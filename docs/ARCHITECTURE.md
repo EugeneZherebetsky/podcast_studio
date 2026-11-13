@@ -64,9 +64,9 @@ podcast-studio/
 
 ## 3. Generation pipeline
 
-A **job** produces one episode. It is a sequence of stages; each stage reads the previous stage's artifact from `data/jobs/<jobId>/` and writes its own JSON artifact. Stage status lives in SQLite. Re-running a job skips stages whose artifact exists and whose input hash is unchanged.
+A **job** produces one episode. Stages write their artifacts under a run-specific directory; stage status lives in SQLite.
 
-The runner copies canonical stage caches into `jobs/<jobId>/runs/<ownerToken>/` and executes stages there. After each completed stage it copies that stage's outputs back only while holding a database transaction that verifies the running owner; hashes are removed before their artifacts are replaced and copied back last. Attempt directories are retained because an abandoned worker or child process may still write to them. Legacy workers that write directly to canonical paths must be stopped before upgrading. This isolation does not fence the shared TTS cache or episode publication; generation recovery and retry remain disabled.
+New jobs use `jobs/<jobId>/runs/<ownerToken>/` for artifacts, partial caches, TTS and assembled audio. They neither import nor promote canonical caches; existing files are left untouched. Run directories are retained because abandoned workers may still write to them. Stop legacy workers before upgrading. Episode publication is not filesystem-fenced, so recovery and retry remain disabled. Cancellation and interruption are refused during publication; ownership is checked before entering it. Manual draft commands support legacy canonical research only and refuse jobs with run directories.
 
 | # | Stage | Input → Output | Notes |
 |---|---|---|---|
@@ -76,17 +76,15 @@ The runner copies canonical stage caches into `jobs/<jobId>/runs/<ownerToken>/` 
 | 4 | `notes` | each source → fact bullets tagged with source id; then merged outline → `notes.json` | Map step can use the cheap model; conflicting facts are kept with both sources noted |
 | 5 | `script` | outline + notes + mode + level + optional PC-provided vocabulary → `script.json` (see §4 `ScriptSegment`) | Structured output validated by zod. Word budget = minutes × 140 (English) or minutes × 90 (graded Hungarian) |
 | 6 | `review` | script + notes → corrected `script.json` + `review.json` | Checks every factual claim maps to a note; for Hungarian also a proofreading and level pass (see LEARNING-MODE.md §5). Skippable with `--no-review` |
-| 7 | `tts` | each segment → one WAV file (mono, 24 kHz, 16-bit PCM) in `data/cache/tts/<sha256(provider,voice,rate,lang,text)>.wav` | Concurrency 3; retry with backoff; cache means edits re-synthesise only changed segments |
+| 7 | `tts` | each segment → one WAV file in the run's `tts/` directory | Run-isolated cache; generation retry is disabled |
 | 8 | `assemble` | WAVs + pauses → `audio.m4a` (AAC, mono, 64 kbps) + timings | Concatenate **PCM**, insert silence per `pauseAfterMs`, loudness-normalise to −16 LUFS, encode once. `startMs`/`endMs` are computed from sample counts before encoding |
-| 9 | `publish` | everything → `data/episodes/<id>/{audio.m4a, episode.json}`, DB row `ready` | Emits an SSE event; deletes the job work directory except artifacts needed for retry. Crash-atomic: the package is written to a hidden sibling `data/episodes/.<id>.<random>.tmp/`, renamed to `data/episodes/<id>/`, and only then the `episodes` row is written, followed by the stage and job status. A crash leaves either nothing visible or a complete episode; the next run removes leftovers (`.<id>.*.tmp`, `.<id>.*.old`), replaces an unlisted package, and keeps a complete listed one unchanged |
+| 9 | `publish` | everything → `data/episodes/<id>/{audio.m4a, episode.json}`, then DB row | Stages a hidden sibling package and renames it before recording the episode; a crash can leave an unlisted package. Run directories are retained and recovery is disabled. |
 
 Why per-segment synthesis: it gives exact sentence timings from any TTS provider with no alignment model, allows a different language, voice and speed per segment (needed for bilingual episodes), and makes caching and partial regeneration trivial. The cost is slightly less natural prosody across sentence boundaries; mitigate by synthesising at sentence level for learning modes and at paragraph level (with sentence timings unavailable and not needed) for plain episodes. `granularity: "sentence" | "paragraph"` is a job option, default by mode.
 
 ### Resume and retry
 
-- **Resume** (`pnpm gen --resume <jobId>`) runs the pipeline again on the same job: completed stages are skipped from their cached artifacts, so no LLM or search call is repeated. A `queued` or `failed` job can be resumed. A `cancelled` job can be resumed once no stage is still marked `running`, i.e. once its executor has noticed the cancellation.
-- **A `running` job is never taken over automatically.** The database does not record which process runs a job or when it was last alive, so a job whose process died looks the same as one still being worked on. The operator states that the process is gone with `pnpm gen --resume <jobId> --interrupted`, which marks the job `failed` (and its open stage `failed`) and then resumes it. Stating it wrongly lets two executors work on one job; detecting a dead executor without the operator needs an owner/heartbeat column on `jobs`, a schema change that has not been approved.
-- **Retry from a stage** (`pnpm gen --resume <jobId> --from-stage <stage>`) removes the artifacts, input hashes and partial results of that stage and every later one, resets their `job_stages` rows to `pending`, and runs from there; earlier stages are reused. The content-addressed TTS cache is kept. It is refused for a `running` or `succeeded` job and once the job's episode is listed: a listed episode is never replaced.
+- **Resume and retry from a stage are disabled**, including CLI `--resume` and `--interrupted`. A running job is never automatically taken over. A publication in progress cannot be cancelled or marked interrupted; the filesystem and database cannot be atomically fenced together.
 - `POST /api/jobs/:id/retry` and the web UI retry button remain disabled: the server has no job executor yet, and it must not adopt jobs it did not start.
 
 ### Prompt handling

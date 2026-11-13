@@ -61,7 +61,7 @@ test(
       );
       expect(run.job().status).toBe("running");
       expect(run.llm.stages).toEqual(beforeKill);
-      expect(existsSync(path.join(run.workDir, "script.json"))).toBe(true);
+      expect(existsSync(path.join(run.workDir, "runs", run.job().ownerToken!, "script.json"))).toBe(true);
 
       // Only the operator's statement that the process is gone makes it resumable.
       markJobInterrupted(run.db, run.jobId);
@@ -80,14 +80,13 @@ test(
   GENERATION_TIMEOUT_MS,
 );
 
-test("initialization rejects nested cache symlinks", async () => {
+test("initialization rejects a linked runs directory", async () => {
   const run = fakeGeneration();
   try {
-    const cache = path.join(run.workDir, "notes-map");
     const outside = path.join(run.dir, "outside");
-    mkdirSync(cache, { recursive: true });
+    mkdirSync(run.workDir, { recursive: true });
     mkdirSync(outside);
-    symlinkSync(outside, path.join(cache, "linked"), "junction");
+    symlinkSync(outside, path.join(run.workDir, "runs"), "junction");
     await expect(generateJob(run.deps, run.jobId)).rejects.toThrow(/symbolic link/i);
     expect(run.job().status).toBe("failed");
     expect(readdirSync(outside)).toEqual([]);
@@ -175,7 +174,7 @@ test(
       );
       const before = run.llm.stages.length;
       const searches = run.providers.search.calls.length;
-      const scriptFile = path.join(run.workDir, "script.json");
+      const scriptFile = path.join(run.workDir, "runs", run.job().ownerToken!, "script.json");
       writeFileSync(scriptFile, readFileSync(scriptFile, "utf8").replace("About bees", "Stale"));
 
       await expect(
@@ -219,7 +218,7 @@ test(
         /already published/i,
       );
       expect(run.job().status).toBe("failed");
-      expect(existsSync(path.join(run.workDir, "script.json"))).toBe(true);
+      expect(existsSync(path.join(run.workDir, "runs", run.job().ownerToken!, "script.json"))).toBe(true);
 
       await expect(generateJob(run.deps, run.jobId)).rejects.toThrow(/recovery is disabled/i);
       expect(run.job().status).toBe("failed");
