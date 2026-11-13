@@ -188,7 +188,7 @@ async function runLocalScript(deps: ScriptDeps, input: ScriptInput, template: Pr
         slot: "main", system, prompt, schema, localTimeoutMs: 900_000,
       });
       part = schema.parse(result.object);
-      usage.push(result.usage);
+      if (result.usage) usage.push(result.usage);
       await mkdir(cacheDir, { recursive: true });
       const temp = `${file}.${randomUUID()}.tmp`;
       try {
@@ -238,6 +238,7 @@ export async function runScriptStage(
     inputs: {
       ...input,
       template,
+      model: deps.llm.cacheIdentity ?? deps.llm.localCacheIdentity,
       ...(localTemplate ? { localTemplate, localModel: deps.llm.localCacheIdentity, localScriptVersion: 2 } : {}),
       ...(deps.scriptGenerator ? { scriptGenerator: deps.scriptGenerator.identity } : {}),
     },
@@ -268,7 +269,7 @@ export async function runScriptStage(
         ...(deps.llm.localCacheIdentity ? { localTimeoutMs: 900_000 } : {}),
         schema: responseSchemaFor(input),
       });
-      return { artifact: { ...object, segments: assignIds(object.segments) }, usage: [usage] };
+      return { artifact: { ...object, segments: assignIds(object.segments) }, usage: usage ? [usage] : [] };
     },
   });
 }

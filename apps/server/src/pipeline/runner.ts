@@ -10,7 +10,7 @@ import { monthTotalCostUsd, recordLlmUsage } from "../usage.ts";
 import type { StageResult } from "./artifacts.ts";
 import type { PublishStep } from "./publish.ts";
 import { CancelledAfterStage } from "./cancellation.ts";
-import { ScriptPreflightError } from "../chatgpt-selection.ts";
+import { ChatGptOutputError, ScriptPreflightError } from "../chatgpt-selection.ts";
 import { LlmOutputError } from "../providers/llm/ai-sdk.ts";
 export { CancelledAfterStage } from "./cancellation.ts";
 
@@ -24,7 +24,7 @@ export class ExternalWorkUncertain extends Error {
 async function externalCall<T>(run: () => Promise<T>): Promise<T> {
   try { return await run(); }
   catch (error) {
-    if (error instanceof CancelledAfterStage || error instanceof ScriptPreflightError || error instanceof LlmOutputError) throw error;
+    if (error instanceof CancelledAfterStage || error instanceof ScriptPreflightError || error instanceof LlmOutputError || error instanceof ChatGptOutputError) throw error;
     throw new ExternalWorkUncertain(error);
   }
 }
@@ -227,6 +227,7 @@ export async function runJobStage<T>(
 export function meterLlm(llm: LlmProvider, onUsage: (usage: Usage) => void): LlmProvider {
   return {
     ...(llm.localCacheIdentity === undefined ? {} : { localCacheIdentity: llm.localCacheIdentity }),
+    ...(llm.cacheIdentity === undefined ? {} : { cacheIdentity: llm.cacheIdentity }),
     async generateObject(request) {
       let result;
       try {
@@ -236,7 +237,7 @@ export function meterLlm(llm: LlmProvider, onUsage: (usage: Usage) => void): Llm
         if (usage) onUsage(usage);
         throw error;
       }
-      onUsage(result.usage);
+      if (result.usage) onUsage(result.usage);
       return result;
     },
   };
@@ -253,6 +254,7 @@ export interface GenerateDeps {
   ttsName: string;
   nativeLang: string;
   scriptGenerator?: import("./script.ts").ScriptDeps["scriptGenerator"];
+  chatgptProvider?: ReturnType<ReturnType<typeof import("../chatgpt-selection.ts").createScriptSelection>["provider"]>;
   signal?: AbortSignal;
   onEvent?: (event: ServerEvent) => void;
   onProgress?: (progress: import("../job-log.ts").Progress) => void;
@@ -285,11 +287,12 @@ export async function generateJob(
       throw new Error("Job cancelled or ownership lost");
   };
   // Every LLM call is written to `usage` as it completes; see `meterLlm`.
-  const llm = deps.providers.llm;
+  const llm: LlmProvider = deps.chatgptProvider?.create(deps.signal) ?? deps.providers.llm;
   const providers: import("../providers/index.ts").Providers = {
     ...deps.providers,
     llm: meterLlm({
       ...(llm.localCacheIdentity === undefined ? {} : { localCacheIdentity: llm.localCacheIdentity }),
+      ...(llm.cacheIdentity === undefined ? {} : { cacheIdentity: llm.cacheIdentity }),
       generateObject(request) {
         assertOwner();
         return externalCall(() => llm.generateObject({ ...request, assertContinue: assertOwner }));
@@ -485,7 +488,7 @@ export async function generateJob(
         sources: sources.sources,
         generation: {
           profile: deps.profile,
-          llm: deps.scriptGenerator?.description ? `${deps.llmName}; ${deps.scriptGenerator.description}` : deps.llmName,
+          llm: deps.chatgptProvider?.description ?? (deps.scriptGenerator?.description ? `${deps.llmName}; ${deps.scriptGenerator.description}` : deps.llmName),
           tts: deps.ttsName,
           voice: deps.voice,
           costUsd: 0,

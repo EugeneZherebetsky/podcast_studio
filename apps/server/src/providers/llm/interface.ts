@@ -47,12 +47,14 @@ export interface GenerateObjectRequest<T> {
 
 export interface GenerateObjectResult<T> {
   object: T;
-  usage: Usage;
+  usage?: Usage;
 }
 
 /** Structured generation only, with no tools: stages pass untrusted source text in `prompt`. */
 export interface LlmProvider {
   /** Stable, secret-free identity for free local map caching; absent disables it. */
   readonly localCacheIdentity?: string;
+  /** Provider and model identity used only to scope stage caches. */
+  readonly cacheIdentity?: string;
   generateObject<T>(request: GenerateObjectRequest<T>): Promise<GenerateObjectResult<T>>;
 }

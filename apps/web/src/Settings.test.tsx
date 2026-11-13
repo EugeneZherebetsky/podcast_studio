@@ -14,4 +14,8 @@ test("ChatGPT settings offer a local sign-in and disclose the generation limit",
   expect(html).toContain("Start ChatGPT sign-in");
   expect(html).toContain("Script provider");
   expect(html).toContain("no automatic paid API fallback");
+  expect(html).toContain("source article text, topic and plan");
+  expect(html).toContain("Use ChatGPT for all stages");
+  expect(html).toContain("usage is unavailable");
+  expect(html).toMatch(/<button type="button" disabled="">Use ChatGPT for all stages<\/button>/);
 });

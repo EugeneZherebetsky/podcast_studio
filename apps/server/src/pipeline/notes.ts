@@ -53,7 +53,7 @@ export async function runNotesStage(
       title,
       plan,
       sources,
-      model: deps.llm.localCacheIdentity,
+      model: deps.llm.cacheIdentity ?? deps.llm.localCacheIdentity,
       templates: { map: mapTemplate, merge: mergeTemplate },
     },
     schema: NotesSchema,
@@ -193,7 +193,7 @@ export async function runNotesStage(
       });
       deps.onProgress?.({ kind: "merge", status: "done", elapsedMs: Date.now() - mergeStarted });
       console.info(`[notes] merge completed in ${Date.now() - mergeStarted}ms`);
-      usage.push(merged.usage);
+      if (merged.usage) usage.push(merged.usage);
 
       return { artifact: { facts, outline: merged.object.outline }, usage };
     },

@@ -106,7 +106,7 @@ export function fakeGeneration(options: Partial<JobOptions> = {}): FakeGeneratio
       if (stage === llm.failIn) throw new Error(`model offline during ${stage}`);
       llm.stages.push(stage);
       const result = await providers.llm.generateObject(request);
-      return { ...result, usage: { ...result.usage, costUsd: llm.costUsd } };
+      return { ...result, ...(result.usage ? { usage: { ...result.usage, costUsd: llm.costUsd } } : {}) };
     },
   };
   return {

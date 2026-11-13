@@ -71,7 +71,7 @@ export async function runBilingualGeneration(deps: ScriptDeps, input: BilingualI
   const script = await runCachedStage({
     workDir: deps.workDir,
     stage: "script",
-    inputs: { input, prompt, version: 1 },
+    inputs: { input, prompt, version: 1, model: deps.llm.cacheIdentity ?? deps.llm.localCacheIdentity },
     schema: ScriptSchema,
     run: async () => {
       const result = await deps.llm.generateObject({
@@ -125,14 +125,14 @@ export async function runBilingualGeneration(deps: ScriptDeps, input: BilingualI
           })),
           segments,
         },
-        usage: [result.usage],
+        usage: result.usage ? [result.usage] : [],
       };
     },
   });
   const review = await runCachedStage({
     workDir: deps.workDir,
     stage: "review",
-    inputs: { input, script: script.artifact, prompt: loadPrompt("graded-annotation"), version: 1 },
+    inputs: { input, script: script.artifact, prompt: loadPrompt("graded-annotation"), version: 1, model: deps.llm.cacheIdentity ?? deps.llm.localCacheIdentity },
     schema: z.object({
       script: ScriptSchema.extend({ segments: z.array(ScriptSegmentSchema).min(5) }),
     }),
@@ -142,7 +142,7 @@ export async function runBilingualGeneration(deps: ScriptDeps, input: BilingualI
       const usage = [];
       for (let i = 0; i < first.length; i += 10) {
         const batch = await annotateGradedBatch(deps.llm, first.slice(i, i + 10), input.nativeLang);
-        usage.push(batch.usage);
+        if (batch.usage) usage.push(batch.usage);
         batch.segments.forEach((segment, j) => {
           const index = (i + j) * 3;
           segments[index] = segment;

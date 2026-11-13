@@ -110,7 +110,7 @@ export function createDesktopRunner(
       if (!voice) throw new Error("Configure a local Piper voice before generating");
       const jobDeps = {
         ...deps,
-        ...(selection ? { scriptGenerator: selection.generator() } : {}),
+        ...(selection ? selection.capture() : {}),
         voice,
         budgetUsd: saved?.monthlyBudgetUsd ?? deps.budgetUsd,
         nativeLang: saved?.nativeLang ?? deps.nativeLang,

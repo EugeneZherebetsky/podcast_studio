@@ -47,7 +47,7 @@ export class FakeLlmProvider implements LlmProvider {
     this.queue.length = 0;
   }
 
-  async generateObject<T>(request: GenerateObjectRequest<T>): Promise<GenerateObjectResult<T>> {
+  async generateObject<T>(request: GenerateObjectRequest<T>): Promise<GenerateObjectResult<T> & { usage: Usage }> {
     const call: FakeLlmCall = request;
     this.calls.push(call);
     const callNumber = this.calls.length;

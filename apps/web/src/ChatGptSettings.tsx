@@ -32,8 +32,8 @@ export async function acknowledgeDisconnect(post: Post): Promise<Status> {
   return (await post("acknowledge", { disconnectedInChatGptSettings: true })) as Status;
 }
 
-export function ScriptSelectionStatus({ selection }: { selection: { provider: string; account?: string; model?: string } | null }) {
-  return <p role="status">{selection ? selection.provider === "incomplete" ? "Selection incomplete. Select a provider again before generating." : selection.provider === "chatgpt" ? `ChatGPT: ${selection.model} (${selection.account})` : "Local Ollama" : "Script provider unavailable or loading. Select a provider to recover."}</p>;
+export function ScriptSelectionStatus({ selection }: { selection: { provider: string; account?: string; model?: string; scope?: string } | null }) {
+  return <p role="status">{selection ? selection.provider === "incomplete" ? "Selection incomplete. Select a provider again before generating." : selection.provider === "chatgpt" ? `ChatGPT ${selection.scope === "all-stages" ? "all stages" : "scripts only"}: ${selection.model} (${selection.account})` : "Local Ollama" : "Script provider unavailable or loading. Select a provider to recover."}</p>;
 }
 
 export function ChatGptDisconnectNotice(props: {
@@ -99,7 +99,7 @@ export function ChatGptSettings() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [selection, setSelection] = useState<{ provider: string; account?: string; model?: string } | null>(null);
+  const [selection, setSelection] = useState<{ provider: string; account?: string; model?: string; scope?: string } | null>(null);
   const [models, setModels] = useState<{ slug: string; display_name: string }[]>([]);
   const [model, setModel] = useState("");
   const [modelAccount, setModelAccount] = useState<string | null>(null);
@@ -119,8 +119,8 @@ export function ChatGptSettings() {
   async function select(provider: "local" | "chatgpt") {
     setBusy(true); setMessage("");
     try {
-      setSelection(await call("select", provider === "local" ? { provider } : { provider, model }));
-      setMessage("Script provider saved for new jobs.");
+      setSelection(await call("select", provider === "local" ? { provider } : { provider, model, scope: "all-stages" }));
+      setMessage("Provider saved for new jobs.");
     } catch {
       setSelection(null);
       try { setSelection(await call("selection")); } catch { /* selection remains unknown */ }
@@ -228,15 +228,17 @@ export function ChatGptSettings() {
     <section className="panel" aria-labelledby="chatgpt-plan-status">
       <h2 id="chatgpt-plan-status">ChatGPT plan</h2>
       <p>
-        Script generation can use your ChatGPT plan. Plan and research notes are sent to OpenAI;
-        planning, research, review and speech remain local. There is no automatic paid API fallback.
+        Choosing ChatGPT for all stages sends source article text, topic and plan, research notes,
+        scripts and review material to OpenAI and uses your ChatGPT subscription allowance.
+        Speech remains local. ChatGPT usage is unavailable in this app; recorded totals exclude it
+        and do not indicate zero usage. There is no automatic paid API fallback.
       </p>
       <h3>How to connect your ChatGPT subscription</h3>
       <ol>
         <li>Leave the account label as <strong>default</strong>, or enter a short name to identify this connection. It is not your password or email address.</li>
         <li>Click <strong>Start ChatGPT sign-in</strong>, then click <strong>Continue sign-in at OpenAI</strong> when the link appears.</li>
         <li>Sign in on OpenAI’s website and approve the requested plan access. Return here and wait for the signed-in status.</li>
-        <li>Click <strong>Load available ChatGPT models</strong>, choose a model, then click <strong>Use ChatGPT for scripts</strong>. The selection applies to new jobs.</li>
+        <li>Click <strong>Load available ChatGPT models</strong>, choose a model, then click <strong>Use ChatGPT for all stages</strong> to opt in. The selection applies to new jobs.</li>
       </ol>
       <p>Model availability depends on your account and OpenAI. Sign in again after a server restart; use <strong>Use local script generation</strong> to switch back to Ollama.</p>
       <h3>Script provider</h3>
@@ -247,7 +249,7 @@ export function ChatGptSettings() {
         <option value="">Choose a model</option>
         {models.map((item) => <option key={item.slug} value={item.slug}>{item.display_name}</option>)}
       </select></label>{" "}
-      <button type="button" disabled={busy || !model || !status?.active || status.active !== modelAccount || status.expired || !status.planEnabled} onClick={() => void select("chatgpt")}>Use ChatGPT for scripts</button>
+      <button type="button" disabled={busy || !model || !status?.active || status.active !== modelAccount || status.expired || !status.planEnabled} onClick={() => void select("chatgpt")}>Use ChatGPT for all stages</button>
       <p>
         Sessions are held in memory only. Stopping the server tries to end the session with OpenAI
         but cannot always confirm it, so sign out first. Plan eligibility depends on OpenAI.

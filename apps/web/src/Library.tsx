@@ -141,6 +141,7 @@ export function Player({ id }: { id: string }) {
         <p className="eyebrow">Now listening</p>
         <h1>{episode.title}</h1>
         <p>{episode.summary}</p>
+        <p>Generation: {episode.generation.llm}</p>
       </header>
       <div className="panel player">
         <audio
