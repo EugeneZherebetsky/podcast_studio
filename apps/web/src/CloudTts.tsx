@@ -9,7 +9,18 @@ export function CloudTts({ status, value, onChange }: { status: CloudTtsStatus |
     <p>Piper is the default. Cloud script text is sent to the provider and speech is separately billed. No automatic fallback.</p>
     <p>The input limit bounds total characters and UTF-8 bytes, not money. Cloud TTS charges are excluded from recorded usage, episode cost and the monthly budget; these are not total cost.</p>
     <p role="status">{status ? `ElevenLabs: key ${status.elevenlabsConfigured ? "present" : "not present"}; Fish Audio: key ${status.fishConfigured ? "present" : "not present"}. Key presence does not verify a connection.` : "Key status unavailable or loading."}</p>
-    <p>Set provider keys in the server .env and restart; never enter keys here.</p>
+    <h3>How to connect a cloud voice</h3>
+    <ol>
+      <li>Create an API key with <a href="https://elevenlabs.io/docs/api-reference/authentication" target="_blank" rel="noreferrer">ElevenLabs</a> or <a href="https://docs.fish.audio/developer-guide/getting-started/api-key" target="_blank" rel="noreferrer">Fish Audio</a>. Check your provider’s API access and billing terms.</li>
+      <li>In the Podcast Studio server folder, create or edit the file named <code>.env</code> (not <code>.env.txt</code>). Add the line for your provider, replacing the placeholder with your key:</li>
+    </ol>
+    <pre><code>{"ELEVENLABS_API_KEY=your_api_key_here\nFISH_AUDIO_API_KEY=your_api_key_here"}</code></pre>
+    <p>Only add the provider you want to use. Keep the key private: do not paste it into chat or share the file.</p>
+    <ol start={3}>
+      <li>Restart the server, then return to this page. “Key present” means the key was loaded, not that it was verified with the provider.</li>
+      <li>Choose the speech provider and model below. Enter a voice ID from your provider’s voice library; for Fish Audio this is the voice reference ID. See <a href="https://elevenlabs.io/docs/api-reference/voices/get" target="_blank" rel="noreferrer">ElevenLabs voice IDs</a> or <a href="https://docs.fish.audio/features/manage-voices" target="_blank" rel="noreferrer">Fish Audio voices</a>.</li>
+      <li>Set the input limit and click <strong>Save settings</strong> at the bottom of this page. The selection applies to new jobs. Choose Piper to return to local speech.</li>
+    </ol>
     <label>Speech provider<select value={value?.provider ?? "piper"} onChange={(e) => {
       if (e.target.value === "fish") onChange({ provider: "fish", model: "s2.1-pro-free", voice: "", inputLimit: 5000 });
       else if (e.target.value === "elevenlabs") onChange({ provider: "elevenlabs", model: "eleven_multilingual_v2", voice: "", inputLimit: 5000 });

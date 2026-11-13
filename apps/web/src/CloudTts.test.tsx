@@ -12,4 +12,9 @@ test("cloud TTS exposes provider, model, voice and limit with billing disclosure
   expect(html).toContain("sent to the provider");
 
   expect(html).toContain("Piper");
+  expect(html).toContain("How to connect a cloud voice");
+  expect(html).toContain("ELEVENLABS_API_KEY=your_api_key_here");
+  expect(html).toContain("FISH_AUDIO_API_KEY=your_api_key_here");
+  expect(html).toContain("Save settings");
+  expect(html).toContain("https://docs.fish.audio/developer-guide/getting-started/api-key");
 });
