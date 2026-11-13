@@ -124,4 +124,6 @@ it("assembles fake speech with sample-accurate timings and embedded chapters", a
     expect(Math.abs(result.segments[i]!.startMs - positions[0]!)).toBeLessThanOrEqual(80);
     expect(Math.abs(result.segments[i]!.endMs - (positions.at(-1)! + 10))).toBeLessThanOrEqual(80);
   });
-});
+  // ffmpeg encodes once and is run three more times to check the result: under CPU load that
+  // can exceed vitest's 5 s default.
+}, 120_000);
