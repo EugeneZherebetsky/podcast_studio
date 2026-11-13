@@ -26,12 +26,14 @@ export type Progress =
     }
   | { kind: "merge"; status: "started" | "done" | "failed"; elapsedMs?: number }
   | ({ kind: "request" } & RequestDiagnostic)
+  | { kind: "selection"; provider: string; model: string | null }
   | { kind: "chatgpt"; stage: StageName; bytes: number; events: number; elapsedMs: number };
 
 type RequestDiagnostic = { stage: StageName; status: "sent" | "completed" | "failed" | "timed out" | "cancelled"; provider: string; model: string | null; index: number; elapsedMs?: number };
 const providers = new Set(["ollama", "openai", "anthropic", "gemini", "chatgpt", "fake", "unknown"]);
+const modelAllowlist = new Set(["qwen:4b", "qwen3:4b", "gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-5", "gpt-5-mini", "gpt-5.1", "gpt-5.2", "fake-main", "fake-fast"]);
 export function safeModel(value: unknown): string | null {
-  return typeof value === "string" && value.length <= 100 && /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/.test(value) && !/^(?:sk|key|token)[-_]/i.test(value) ? value : null;
+  return typeof value === "string" && modelAllowlist.has(value) ? value : null;
 }
 
 
@@ -41,7 +43,7 @@ export function publicJobError(error: string | null): string | null {
   return "Job failed.";
 }
 
-type Entry = { timestamp: string; message: string; request?: RequestDiagnostic };
+type Entry = { timestamp: string; message: string; request?: RequestDiagnostic; selection?: { provider: string; model: string | null } };
 const limit = 500;
 const safeDuration = (n: number | undefined) =>
   Number.isSafeInteger(n) && n! >= 0 ? ` (${n} ms)` : "";
@@ -69,6 +71,9 @@ function describe(progress: Progress): string {
       )
         throw new Error("Invalid progress");
       return `Map ${progress.index}/${progress.total} ${{ started: "started", done: "completed", failed: "failed", cached: "used cache" }[progress.status]}${safeDuration(progress.elapsedMs)}`;
+    case "selection":
+      if (!providers.has(progress.provider) || (progress.model !== null && safeModel(progress.model) !== progress.model)) throw new Error("Invalid selection diagnostic");
+      return `Selected provider: ${progress.provider}${progress.model ? ` / ${progress.model}` : " / model unavailable"}`;
     case "request":
       if (!STAGE_NAMES.includes(progress.stage) || !["sent", "completed", "failed", "timed out", "cancelled"].includes(progress.status) || !providers.has(progress.provider) || (progress.model !== null && safeModel(progress.model) !== progress.model) || !Number.isSafeInteger(progress.index) || progress.index < 1 || progress.index > 100000 || (progress.elapsedMs !== undefined && (!Number.isSafeInteger(progress.elapsedMs) || progress.elapsedMs < 0))) throw new Error("Invalid request diagnostic");
       return `${progress.stage} request ${progress.index} ${progress.status}: ${progress.provider}${progress.model ? ` / ${progress.model}` : ""}${safeDuration(progress.elapsedMs)}`;
@@ -117,7 +122,8 @@ export function createJobLog(dataDir: string) {
       check(target);
       const previous = read(id).entries;
       const request = progress.kind === "request" ? { stage: progress.stage, status: progress.status, provider: progress.provider, model: progress.model, index: progress.index, ...(progress.elapsedMs === undefined ? {} : { elapsedMs: progress.elapsedMs }) } : undefined;
-      const line = JSON.stringify({ timestamp: new Date().toISOString(), message, ...(request ? { request } : {}) }) + "\n";
+      const selection = progress.kind === "selection" ? { provider: progress.provider, model: progress.model } : undefined;
+      const line = JSON.stringify({ timestamp: new Date().toISOString(), message, ...(request ? { request } : {}), ...(selection ? { selection } : {}) }) + "\n";
       if (previous.length < limit) appendFileSync(target, line);
     },
   };

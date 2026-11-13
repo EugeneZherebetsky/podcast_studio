@@ -2,7 +2,14 @@ import { expect, test } from "vitest";
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync, readFileSync, readdirSync, appendFileSync } from "node:fs";
 import path from "node:path";
-import { createJobLog, publicJobError } from "../src/job-log.ts";
+import { createJobLog, publicJobError, safeModel } from "../src/job-log.ts";
+
+test("only known model identifiers may be recorded", () => {
+  expect(safeModel("qwen:4b")).toBe("qwen:4b");
+  for (const value of ["sk-proj-abc123", "gpt-4o-sk-secret", "qwen:4b-secret", "AIzaSyFakeCredential123456789", "unknown-model"]) {
+    expect(safeModel(value)).toBeNull();
+  }
+});
 import { makeTempDir, removeTempDir } from "./temp-dir.ts";
 
 test("exposes distinct safe ChatGPT timeout and cancellation messages", () => {

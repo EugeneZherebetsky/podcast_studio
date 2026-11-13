@@ -12,6 +12,7 @@ import type { JobRunner } from "./job-routes.ts";
 import { cancelJob, ExternalWorkUncertain, createJob, generateJob, type GenerateDeps } from "./pipeline/runner.ts";
 import { openDesktopGuard } from "./desktop-guard.ts";
 import type { createScriptSelection } from "./chatgpt-selection.ts";
+import { safeModel } from "./job-log.ts";
 
 /** Owns only jobs created in this process; never scans persisted jobs for work. */
 export function createDesktopRunner(
@@ -123,6 +124,10 @@ export function createDesktopRunner(
       }
       queue.push({ id: job.id, deps: jobDeps });
       events.emit("job-progress", job.id, { kind: "job", status: "queued" });
+      const diagnostic = (jobDeps.chatgptProvider?.create() ?? jobDeps.providers.llm).diagnostic;
+      for (const selected of [diagnostic && { provider: diagnostic.provider, model: diagnostic.models.main }, jobDeps.scriptGenerator?.diagnostic]) {
+        if (selected) events.emit("job-progress", job.id, { kind: "selection", provider: ["ollama", "openai", "anthropic", "gemini", "chatgpt", "fake"].includes(selected.provider) ? selected.provider : "unknown", model: safeModel(selected.model) });
+      }
       setImmediate(pump);
       return { ...job, topicId: topic?.id ?? null };
     },
