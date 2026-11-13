@@ -10,7 +10,7 @@ export async function importUsbEpisode(metadata: Pick<File, "json">, source: { c
   importing = true;
   try {
     const episode = EpisodeSchema.parse(await metadata.json());
-    if ((await listOfflineEpisodes()).some((row) => row.episode.id === episode.id)) {
+    if (await hasOfflineEpisodeId(episode.id)) {
       throw new Error("Episode already exists; replacements are not supported");
     }
     return await storeOfflineEpisode(episode, async (destination) => source.copy(destination));
@@ -50,6 +50,24 @@ export async function storeOfflineEpisode(input: unknown, transfer: (destination
       if (!moved && staging.exists) staging.delete();
     },
   });
+}
+
+async function hasOfflineEpisodeId(id: string): Promise<boolean> {
+  const directory = root();
+  if (!directory.exists) return false;
+  for (const item of directory.list()) {
+    if (!(item instanceof Directory) || (!item.name.startsWith("episode-") && !item.name.startsWith("published-"))) continue;
+    try {
+      if (item.name.startsWith("published-")) {
+        const marker = new File(item, "commit.json");
+        if (!marker.exists || (await marker.json() as { committed?: unknown }).committed !== true) continue;
+      }
+      if (EpisodeSchema.parse(await new File(item, "episode.json").json()).id === id) return true;
+    } catch {
+      // Preserve unreadable entries; do not infer an ID from invalid metadata.
+    }
+  }
+  return false;
 }
 
 export async function listOfflineEpisodes(): Promise<{ episode: Episode; audioUri: string }[]> {

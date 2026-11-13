@@ -4,6 +4,12 @@ import { mkdtempSync, mkdirSync, existsSync, readdirSync, readFileSync, rmSync, 
 import { join, basename } from "node:path";
 import { tmpdir } from "node:os";
 import { sampleEpisode } from "./sample";
+import { EventEmitter } from "node:events";
+import { parseConfig } from "shared";
+import { buildApp } from "../../server/src/app";
+import { openDatabase } from "../../server/src/db/index";
+import { episodes } from "../../server/src/db/schema";
+import { offlinePlayback } from "./offline-playback";
 
 const fault = vi.hoisted(() => ({ partialMove: false }));
 
@@ -45,6 +51,42 @@ import { importUsbEpisode, listOfflineEpisodes, storeOfflineEpisode } from "./of
 afterEach(() => { rmSync(join(String(Paths.document), "offline-episodes-v1"), { recursive: true, force: true }); });
 
 describe("offline filesystem adapter", () => {
+  it("imports desktop Library downloads and keeps local playback progress on duplicate", async () => {
+    const root = mkdtempSync(join(tmpdir(), "usb-roundtrip-"));
+    const db = openDatabase(":memory:");
+    const app = buildApp({ db, config: parseConfig({ DATA_DIR: root }), events: new EventEmitter() });
+    const dir = join(root, "episodes", sampleEpisode.id);
+    mkdirSync(dir, { recursive: true });
+    for (const name of ["episode.json", "audio.m4a"]) {
+      writeFileSync(join(dir, name), readFileSync(new URL(`../assets/${name}`, import.meta.url)));
+    }
+    db.insert(episodes).values({ id: sampleEpisode.id, topicId: null, title: sampleEpisode.title, summary: "", mode: "standard", lang: "en", durationMs: sampleEpisode.durationMs, createdAt: sampleEpisode.createdAt, path: dir }).run();
+    try {
+      const metadata = await app.inject({ url: `/api/episodes/${sampleEpisode.id}/usb/episode.json` });
+      const audio = await app.inject({ url: `/api/episodes/${sampleEpisode.id}/usb/audio.m4a` });
+      expect(metadata.statusCode).toBe(200);
+      expect(audio.statusCode).toBe(200);
+      const copied = join(root, "phone-copy");
+      mkdirSync(copied);
+      writeFileSync(join(copied, "episode.json"), metadata.rawPayload);
+      writeFileSync(join(copied, "audio.m4a"), audio.rawPayload);
+      const selectedMetadata = { json: async () => JSON.parse(readFileSync(join(copied, "episode.json"), "utf8")) };
+      const selectedAudio = { copy: async (destination: { write(data: Uint8Array): Promise<void> }) => destination.write(readFileSync(join(copied, "audio.m4a"))) };
+      const storage = new Map<string, string>();
+      const kv = { getItemSync: (key: string) => storage.get(key) ?? null, setItemSync: (key: string, value: string) => { storage.set(key, value); } };
+      await importUsbEpisode(selectedMetadata, selectedAudio);
+      const [saved] = await listOfflineEpisodes();
+      expect(saved?.episode).toEqual(sampleEpisode);
+      expect(readFileSync(saved!.audioUri)).toEqual(audio.rawPayload);
+      offlinePlayback(kv, sampleEpisode.id).record(42, false);
+      await expect(importUsbEpisode(selectedMetadata, selectedAudio)).rejects.toThrow("already exists");
+      expect(offlinePlayback(kv, sampleEpisode.id).position()).toBe(42);
+    } finally {
+      await app.close();
+      db.$client.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30000);
   const audio = Buffer.from("fixture audio");
   const episode = { ...sampleEpisode, audio: { ...sampleEpisode.audio, bytes: audio.length, sha256: createHash("sha256").update(audio).digest("hex") } };
   it("imports a selected package and refuses a duplicate without replacing it", async () => {
@@ -56,6 +98,14 @@ describe("offline filesystem adapter", () => {
     expect(await listOfflineEpisodes()).toHaveLength(1);
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+  });
+  it("rejects a duplicate even when the existing published audio is damaged", async () => {
+    const source = { copy: async (destination: { write(data: Uint8Array): Promise<void> }) => destination.write(audio) };
+    await importUsbEpisode({ json: async () => episode }, source);
+    const [original] = await listOfflineEpisodes();
+    writeFileSync(original!.audioUri, "damaged");
+    await expect(importUsbEpisode({ json: async () => episode }, source)).rejects.toThrow("already exists");
+    expect(readFileSync(original!.audioUri, "utf8")).toBe("damaged");
   });
   it("rejects invalid or interrupted packages without affecting the library", async () => {
     const source = { copy: async (destination: { write(data: Uint8Array): Promise<void> }) => destination.write(audio) };
