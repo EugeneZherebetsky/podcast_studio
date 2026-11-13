@@ -102,6 +102,7 @@ export function createScriptSelection(directory: string, session?: Session) {
         create(signal?: AbortSignal) {
           return {
             cacheIdentity: `chatgpt:${selected.account}:${selected.model}`,
+            diagnostic: { provider: "chatgpt", models: { main: selected.model, fast: selected.model } },
             async generateObject<T>(request: import("./providers/llm/interface.ts").GenerateObjectRequest<T>) {
 
               for (let attempt = 0; attempt < 2; attempt++) {
@@ -133,6 +134,7 @@ export function createScriptSelection(directory: string, session?: Session) {
       return {
         identity: `chatgpt:${selected.account}:${selected.model}`,
         description: `ChatGPT script: ${selected.model}`,
+        diagnostic: { provider: "chatgpt", model: selected.model },
         async run(input: Parameters<typeof generatePodcastScript>[2], signal?: AbortSignal) {
           let started = false;
           let inFlight = false;

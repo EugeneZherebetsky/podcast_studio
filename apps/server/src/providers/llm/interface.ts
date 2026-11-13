@@ -52,6 +52,7 @@ export interface GenerateObjectResult<T> {
 
 /** Structured generation only, with no tools: stages pass untrusted source text in `prompt`. */
 export interface LlmProvider {
+  readonly diagnostic?: { provider: string; models: Record<LlmSlot, string> };
   /** Stable, secret-free identity for free local map caching; absent disables it. */
   readonly localCacheIdentity?: string;
   /** Provider and model identity used only to scope stage caches. */

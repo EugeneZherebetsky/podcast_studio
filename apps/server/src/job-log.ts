@@ -24,7 +24,14 @@ export type Progress =
       total: number;
       elapsedMs?: number;
     }
-  | { kind: "merge"; status: "started" | "done" | "failed"; elapsedMs?: number };
+  | { kind: "merge"; status: "started" | "done" | "failed"; elapsedMs?: number }
+  | ({ kind: "request" } & RequestDiagnostic);
+
+type RequestDiagnostic = { stage: StageName; status: "sent" | "completed" | "failed" | "timed out" | "cancelled"; provider: string; model: string | null; index: number; elapsedMs?: number };
+const providers = new Set(["ollama", "openai", "anthropic", "gemini", "chatgpt", "fake", "unknown"]);
+export function safeModel(value: unknown): string | null {
+  return typeof value === "string" && value.length <= 100 && /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/.test(value) && !/^(?:sk|key|token)[-_]/i.test(value) ? value : null;
+}
 
 export function publicJobError(error: string | null): string | null {
   if (error === null) return null;
@@ -32,7 +39,7 @@ export function publicJobError(error: string | null): string | null {
   return "Job failed.";
 }
 
-type Entry = { timestamp: string; message: string };
+type Entry = { timestamp: string; message: string; request?: RequestDiagnostic };
 const limit = 500;
 const safeDuration = (n: number | undefined) =>
   Number.isSafeInteger(n) && n! >= 0 ? ` (${n} ms)` : "";
@@ -60,6 +67,9 @@ function describe(progress: Progress): string {
       )
         throw new Error("Invalid progress");
       return `Map ${progress.index}/${progress.total} ${{ started: "started", done: "completed", failed: "failed", cached: "used cache" }[progress.status]}${safeDuration(progress.elapsedMs)}`;
+    case "request":
+      if (!STAGE_NAMES.includes(progress.stage) || !["sent", "completed", "failed", "timed out", "cancelled"].includes(progress.status) || !providers.has(progress.provider) || (progress.model !== null && safeModel(progress.model) !== progress.model) || !Number.isSafeInteger(progress.index) || progress.index < 1 || progress.index > 100000 || (progress.elapsedMs !== undefined && (!Number.isSafeInteger(progress.elapsedMs) || progress.elapsedMs < 0))) throw new Error("Invalid request diagnostic");
+      return `${progress.stage} request ${progress.index} ${progress.status}: ${progress.provider}${progress.model ? ` / ${progress.model}` : ""}${safeDuration(progress.elapsedMs)}`;
     case "merge":
       if (!["started", "done", "failed"].includes(progress.status))
         throw new Error("Invalid progress");
@@ -101,7 +111,8 @@ export function createJobLog(dataDir: string) {
       const target = file(id);
       check(target);
       const previous = read(id).entries;
-      const line = JSON.stringify({ timestamp: new Date().toISOString(), message }) + "\n";
+      const request = progress.kind === "request" ? { stage: progress.stage, status: progress.status, provider: progress.provider, model: progress.model, index: progress.index, ...(progress.elapsedMs === undefined ? {} : { elapsedMs: progress.elapsedMs }) } : undefined;
+      const line = JSON.stringify({ timestamp: new Date().toISOString(), message, ...(request ? { request } : {}) }) + "\n";
       if (previous.length < limit) appendFileSync(target, line);
     },
   };

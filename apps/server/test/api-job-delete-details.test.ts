@@ -44,6 +44,20 @@ test("job details report unavailable script and no invented request metadata", a
   } finally { await app.close(); db.$client.close(); }
 });
 
+test("details use recorded request model rather than current settings", async () => {
+  const dir = makeTempDir();
+  const db = openDatabase(":memory:");
+  db.insert(jobs).values({ id: "one", status: "failed", options: { title: "Topic", brief: "", mode: "standard", lang: "en", minutes: 8 }, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }).run();
+  const events = new (await import("node:events")).EventEmitter();
+  const app = buildApp({ db, config: parseConfig({ DATA_DIR: dir }), events });
+  try {
+    events.emit("job-progress", "one", { kind: "request", stage: "script", status: "sent", provider: "ollama", model: "qwen:4b", index: 1 });
+    const result = (await app.inject({ url: "/api/jobs/one/details" })).json();
+    expect(result.model).toBe("qwen:4b");
+    expect(result.providers).toEqual(["ollama"]);
+  } finally { await app.close(); db.$client.close(); removeTempDir(dir); }
+});
+
 test("terminal status cannot be deleted while its runner still owns it", async () => {
   const db = openDatabase(":memory:");
   db.insert(jobs).values({ id: "owned", status: "cancelled", options: { title: "Topic", brief: "", mode: "standard", lang: "en", minutes: 8 }, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }).run();

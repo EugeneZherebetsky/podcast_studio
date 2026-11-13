@@ -23,6 +23,7 @@ export interface FakeLlmOptions {
  * tests can assert on prompts. To return a function as the object, wrap it in another one.
  */
 export class FakeLlmProvider implements LlmProvider {
+  readonly diagnostic = { provider: "fake", models: { main: "fake-main", fast: "fake-fast" } };
   readonly calls: FakeLlmCall[] = [];
   private readonly queue: FakeLlmResponse[];
 

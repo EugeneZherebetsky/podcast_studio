@@ -97,6 +97,7 @@ export function fakeGeneration(options: Partial<JobOptions> = {}): FakeGeneratio
     }),
   };
   const controlled: LlmProvider = {
+    diagnostic: providers.llm.diagnostic,
     async generateObject<T>(request: GenerateObjectRequest<T>): Promise<GenerateObjectResult<T>> {
       const stage = getJob().currentStage!;
       if (stage === llm.hangIn) {

@@ -55,7 +55,11 @@ test(
         const log = await (await fetch(`${address}/api/jobs/${job.id}/log`)).json() as { entries: { message: string }[] };
         return log.entries.some((entry) => entry.message === "Job completed");
       });
-      const log = await (await fetch(`${address}/api/jobs/${job.id}/log`)).json() as { entries: { message: string }[] };
+      const log = await (await fetch(`${address}/api/jobs/${job.id}/log`)).json() as { entries: { message: string; request?: { stage: string; status: string; provider: string; model: string } }[] };
+      expect(log.entries.some((entry) => entry.request?.stage === "script" && entry.request.status === "completed" && entry.request.provider === "fake" && entry.request.model === "fake-main")).toBe(true);
+      const details = await (await fetch(`${address}/api/jobs/${job.id}/details`)).json() as { script: string; model: string };
+      expect(details.script).toContain("bees");
+      expect(details.model).toContain("fake-main");
       expect(log.entries.map((entry) => entry.message)).toContain("Job queued");
       expect(log.entries.some((entry) => entry.message.startsWith("Map 1/"))).toBe(true);
       expect(log.entries.some((entry) => entry.message.startsWith("Merge completed"))).toBe(true);

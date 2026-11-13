@@ -80,6 +80,8 @@ export class AiSdkLlmProvider implements LlmProvider {
     this.warn = options.warn ?? ((message) => console.warn(message));
   }
 
+  get diagnostic() { return { provider: this.providerName, models: this.modelIds }; }
+
   /** The model id behind each slot. */
   get modelIds(): Record<LlmSlot, string> {
     return { main: this.models.main.id, fast: this.models.fast.id };

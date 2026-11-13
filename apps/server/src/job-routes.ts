@@ -13,7 +13,7 @@ import {
 } from "shared";
 import type { Db } from "./db/index.ts";
 import { jobs, jobStages, settings, topics, usage } from "./db/schema.ts";
-import { publicJobError } from "./job-log.ts";
+import { createJobLog, publicJobError, safeModel } from "./job-log.ts";
 import { ScriptSchema } from "./pipeline/script.ts";
 
 // T12 owns job execution and its state transitions; HTTP must not simulate them.
@@ -60,8 +60,10 @@ export function registerJobRoutes(
       } catch { /* Missing, unsafe or invalid artifacts are not displayed. */ }
     }
     const known = new Set(["ollama", "openai", "anthropic", "gemini", "chatgpt", "fake"]);
-    const providers = [...new Set(db.select({ provider: usage.provider }).from(usage).where(eq(usage.jobId, job.id)).all().map((row) => row.provider).filter((provider) => known.has(provider)))];
-    return reply.header("cache-control", "no-store").send({ script, providers, model: null });
+    const recorded = config ? (() => { try { return createJobLog(config.DATA_DIR).read(job.id).entries.flatMap((entry) => entry.request ? [entry.request] : []); } catch { return []; } })() : [];
+    const providers = [...new Set([...db.select({ provider: usage.provider }).from(usage).where(eq(usage.jobId, job.id)).all().map((row) => row.provider), ...recorded.map((entry) => entry.provider)].filter((provider) => known.has(provider)))];
+    const models = [...new Set(recorded.map((entry) => safeModel(entry.model)).filter((model): model is string => model !== null))];
+    return reply.header("cache-control", "no-store").send({ script, providers, model: models.length ? models.join(", ") : null });
   });
   app.delete<{ Params: { id: string } }>("/api/jobs/:id", async (request, reply) => {
     const id = request.params.id;

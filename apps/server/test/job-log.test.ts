@@ -30,6 +30,17 @@ test("persists isolated, bounded, safe job progress across store instances", () 
   }
 }, 30000);
 
+test("persists allowlisted request diagnostics without arbitrary fields", () => {
+  const dir = makeTempDir();
+  try {
+    const log = createJobLog(dir);
+    log.append("job", { kind: "request", stage: "script", status: "sent", provider: "ollama", model: "qwen:4b", index: 1, secret: "do-not-save" } as never);
+    const entry = createJobLog(dir).read("job").entries[0]!;
+    expect(entry).toMatchObject({ request: { stage: "script", status: "sent", provider: "ollama", model: "qwen:4b", index: 1 } });
+    expect(JSON.stringify(entry)).not.toContain("do-not-save");
+  } finally { removeTempDir(dir); }
+});
+
 test("never evicts matching pre-existing files", () => {
   const dir = makeTempDir();
   try {

@@ -1,3 +1,4 @@
+import { safeModel } from "../job-log.ts";
 import { randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync } from "node:fs";
 import path from "node:path";
@@ -288,6 +289,23 @@ export async function generateJob(
   };
   // Every LLM call is written to `usage` as it completes; see `meterLlm`.
   const llm: LlmProvider = deps.chatgptProvider?.create(deps.signal) ?? deps.providers.llm;
+  let requestIndex = 0;
+  async function diagnosticCall<T>(provider: string | undefined, model: string | undefined, run: () => Promise<T>): Promise<T> {
+    const stage = db.select({ stage: jobs.currentStage }).from(jobs).where(eq(jobs.id, id)).get()?.stage;
+    if (!stage) return run();
+    const base = { kind: "request" as const, stage, provider: ["ollama", "openai", "anthropic", "gemini", "chatgpt", "fake"].includes(provider ?? "") ? provider! : "unknown", model: safeModel(model), index: ++requestIndex };
+    const started = Date.now();
+    deps.onProgress?.({ ...base, status: "sent" });
+    try {
+      const result = await run();
+      deps.onProgress?.({ ...base, status: "completed", elapsedMs: Date.now() - started });
+      return result;
+    } catch (error) {
+      const status = deps.signal?.aborted || error instanceof CancelledAfterStage ? "cancelled" : error instanceof Error && (error.name === "TimeoutError" || error.message === "Timeout") ? "timed out" : "failed";
+      deps.onProgress?.({ ...base, status, elapsedMs: Date.now() - started });
+      throw error;
+    }
+  }
   const providers: import("../providers/index.ts").Providers = {
     ...deps.providers,
     llm: meterLlm({
@@ -295,7 +313,7 @@ export async function generateJob(
       ...(llm.cacheIdentity === undefined ? {} : { cacheIdentity: llm.cacheIdentity }),
       generateObject(request) {
         assertOwner();
-        return externalCall(() => llm.generateObject({ ...request, assertContinue: assertOwner }));
+        return externalCall(() => diagnosticCall(llm.diagnostic?.provider, llm.diagnostic?.models[request.slot], () => llm.generateObject({ ...request, assertContinue: assertOwner })));
       },
     }, (usage) => recordLlmUsage(db, usage, { jobId: id })),
     search: { search(query, options) {
@@ -420,7 +438,7 @@ export async function generateJob(
           ...(deps.scriptGenerator
             ? { scriptGenerator: { ...deps.scriptGenerator, run: (input) => {
                 assertOwner();
-                return externalCall(() => deps.scriptGenerator!.run(input, deps.signal));
+                return externalCall(() => diagnosticCall(deps.scriptGenerator!.diagnostic?.provider, deps.scriptGenerator!.diagnostic?.model, () => deps.scriptGenerator!.run(input, deps.signal)));
               } } }
             : {}),
         },
