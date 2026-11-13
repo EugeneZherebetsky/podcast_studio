@@ -15,6 +15,24 @@ export interface Usage {
   costUsd: number;
 }
 
+/**
+ * The usage a provider attached to the error of a failed call (as `error.usage`) because
+ * the call was billed anyway, e.g. the model answered but never with a valid object.
+ */
+export function usageOfFailedCall(error: unknown): Usage | undefined {
+  if (!(error instanceof Error) || !("usage" in error)) return undefined;
+  const usage = error.usage as Partial<Usage> | null | undefined;
+  if (
+    typeof usage?.provider !== "string" ||
+    typeof usage.model !== "string" ||
+    !Number.isFinite(usage.inputTokens) ||
+    !Number.isFinite(usage.outputTokens) ||
+    !Number.isFinite(usage.costUsd)
+  )
+    return undefined;
+  return usage as Usage;
+}
+
 export interface GenerateObjectRequest<T> {
   slot: LlmSlot;
   system: string;

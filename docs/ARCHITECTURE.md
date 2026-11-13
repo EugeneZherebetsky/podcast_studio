@@ -89,7 +89,7 @@ Why per-segment synthesis: it gives exact sentence timings from any TTS provider
 
 ### Cost guard
 
-Each provider call records estimated cost (tokens or characters × configured price) in the `usage` table. The runner refuses to start a job when the month's total exceeds `MONTHLY_BUDGET_USD`. Prices live in `config.ts` and are editable: do not trust remembered price lists, read them from each provider's pricing page when implementing.
+Each provider call records estimated cost (tokens or characters × configured price) in the `usage` table. The runner writes the row as each LLM call completes, not when its stage ends, so calls made before a stage fails, is cancelled or is interrupted still count, as does a failed call the provider billed anyway (the error carries its `usage`). The runner refuses to start a job when the month's total exceeds `MONTHLY_BUDGET_USD`. Prices live in `config.ts` and are editable: do not trust remembered price lists, read them from each provider's pricing page when implementing.
 
 ## 4. Data contracts (`packages/shared`)
 

@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { JobOptionsSchema, STAGE_NAMES, type JobOptions, type StageName } from "shared";
 import type { Db } from "../db/index.ts";
 import { jobs, jobStages } from "../db/schema.ts";
+import { usageOfFailedCall, type LlmProvider, type Usage } from "../providers/llm/interface.ts";
 import { monthTotalCostUsd, recordLlmUsage } from "../usage.ts";
 import type { StageResult } from "./artifacts.ts";
 
@@ -120,6 +121,29 @@ export async function runJobStage<T>(
   }
 }
 
+/**
+ * Reports the usage of every call the moment it returns, and of failed calls that were
+ * billed anyway. A stage only hands its usage over when it succeeds, so going through the
+ * stage result would lose what was spent before a failure, a cancellation or a crash.
+ */
+export function meterLlm(llm: LlmProvider, onUsage: (usage: Usage) => void): LlmProvider {
+  return {
+    ...(llm.localCacheIdentity === undefined ? {} : { localCacheIdentity: llm.localCacheIdentity }),
+    async generateObject(request) {
+      let result;
+      try {
+        result = await llm.generateObject(request);
+      } catch (error) {
+        const usage = usageOfFailedCall(error);
+        if (usage) onUsage(usage);
+        throw error;
+      }
+      onUsage(result.usage);
+      return result;
+    },
+  };
+}
+
 export interface GenerateDeps {
   db: Db;
   providers: import("../providers/index.ts").Providers;
@@ -138,7 +162,12 @@ export async function generateJob(
   id: string,
   options: { stopAfterScript?: boolean } = {},
 ): Promise<void> {
-  const { db, providers } = deps;
+  const { db } = deps;
+  // Every LLM call is written to `usage` as it completes; see `meterLlm`.
+  const providers = {
+    ...deps.providers,
+    llm: meterLlm(deps.providers.llm, (usage) => recordLlmUsage(db, usage, { jobId: id })),
+  };
   const job = db.select().from(jobs).where(eq(jobs.id, id)).get();
   if (!job) throw new Error("Job not found");
   if (job.options.mode !== "standard")
@@ -157,8 +186,9 @@ export async function generateJob(
   const { runReviewStage } = await import("./review.ts");
   const { hashInputs } = await import("./artifacts.ts");
   const workDir = path.join(deps.dataDir, "jobs", id);
+  // The meter has already recorded the stage's usage, so it must not be recorded again.
   const stage = <T>(name: StageName, fn: () => Promise<StageResult<T>>) =>
-    runJobStage(db, id, name, fn);
+    runJobStage(db, id, name, async () => ({ ...(await fn()), usage: [] }));
   const uncached = <T>(artifact: T): StageResult<T> => ({
     artifact,
     usage: [],
