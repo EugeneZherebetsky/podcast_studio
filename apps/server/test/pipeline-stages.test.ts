@@ -662,6 +662,27 @@ function runNotes(sources: Sources = SOURCES) {
   );
 }
 
+test("notes prefers uncertain external work over an earlier settled failure", async () => {
+  const { ExternalWorkUncertain } = await import("../src/pipeline/runner.ts");
+  const { ScriptPreflightError } = await import("../src/chatgpt-selection.ts");
+  let rejectFirst!: (error: Error) => void;
+  let rejectSecond!: (error: Error) => void;
+  let calls = 0;
+  const llm = { generateObject: () => new Promise<never>((_, reject) => {
+    calls++;
+    if (calls === 1) rejectFirst = reject;
+    else rejectSecond = reject;
+  }) };
+  const result = runNotesStage({ workDir, llm }, { title: "Urban bees", plan: PLAN, sources: SOURCES, concurrency: 2 });
+  const assertion = expect(result).rejects.toBeInstanceOf(ExternalWorkUncertain);
+  while (calls < 2) await new Promise((resolve) => setTimeout(resolve, 0));
+  rejectFirst(new ScriptPreflightError("settled"));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  rejectSecond(new ExternalWorkUncertain(new Error("connection lost")));
+  await assertion;
+  expect(calls).toBe(2);
+});
+
 test("local notes resume completed maps and invalidate changed source and model", async () => {
   let fail = true;
   let model = "local-a";

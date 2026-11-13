@@ -19,7 +19,7 @@ async function request<T>(
   endpoint: string,
   body: object | undefined,
   options: Options,
-  consume: { push(text: string): void; finish(): T },
+  consume: { push(text: string): void | boolean; finish(): T },
 ): Promise<T> {
   const timeoutMs = options.timeoutMs ?? 60_000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 900_000) throw new Error("Invalid ChatGPT request timeout");
@@ -56,7 +56,12 @@ async function request<T>(
       if (part.done) break;
       size += part.value.byteLength;
       if (size > (options.maxBytes ?? 1_000_000)) throw new Error("Response exceeds byte limit");
-      consume.push(decoder.decode(part.value, { stream: true }));
+      if (consume.push(decoder.decode(part.value, { stream: true }))) {
+        consume.push(decoder.decode());
+        const result = consume.finish();
+        void reader.cancel().catch(() => {});
+        return result;
+      }
     }
     consume.push(decoder.decode());
     return consume.finish();
@@ -145,6 +150,7 @@ export async function generate(
         options.onProgress?.({ bytes, events, elapsedMs: now - started });
         lastProgress = now;
       }
+      return completed;
     }, finish() {
       if (buffer || !completed) throw new Error("Incomplete response");
       return output;

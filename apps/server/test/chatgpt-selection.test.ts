@@ -36,6 +36,19 @@ it("marks invalid script input settled without making a request", async () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+it("rejects an invalid script timeout before starting a request", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "selection-timeout-"));
+  const generateStructured = vi.fn(async () => "{}");
+  const session = { status: () => ({ active: "alice", expired: false, planEnabled: true, accounts: [], remoteUncertain: false, uncertain: [] }), models: async () => [{ slug: "chosen", display_name: "Chosen" }], generateStructured };
+  try {
+    const selection = createScriptSelection(dir, session);
+    await selection.set({ provider: "chatgpt", model: "chosen" });
+    vi.stubEnv("CHATGPT_SCRIPT_TIMEOUT_MS", "invalid");
+    await expect(selection.generator()!.run({} as never)).rejects.toThrow("Invalid ChatGPT stage timeout");
+    expect(generateStructured).not.toHaveBeenCalled();
+  } finally { vi.unstubAllEnvs(); rmSync(dir, { recursive: true, force: true }); }
+});
+
 it("requires explicit account and model selection and never falls back after session loss", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "selection-"));
   let active: string | null = "alice";

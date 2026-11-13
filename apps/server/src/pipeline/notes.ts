@@ -2,6 +2,7 @@
 // outline whose facts keep their source ids -> notes.json. Source text is untrusted: it is
 // wrapped in <source> tags, and these calls carry no tools.
 import { CancelledAfterStage } from "./cancellation.ts";
+import { ExternalWorkUncertain } from "./runner.ts";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -141,7 +142,8 @@ export async function runNotesStage(
             console.info(
               `[notes] map ${i + 1}/${sources.length} failed after ${Date.now() - started}ms`,
             );
-            if (!failed || (failure instanceof CancelledAfterStage && !(error instanceof CancelledAfterStage))) failure = error;
+            if (!failed || (!(failure instanceof ExternalWorkUncertain) && error instanceof ExternalWorkUncertain) ||
+              (failure instanceof CancelledAfterStage && !(error instanceof CancelledAfterStage))) failure = error;
             failed = true;
           }
         }

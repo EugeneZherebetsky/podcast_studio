@@ -8,6 +8,7 @@ import { parseConfig } from "shared";
 import { buildApp } from "../src/app.ts";
 import { createScriptSelection, chatGptDeadline } from "../src/chatgpt-selection.ts";
 import { createDesktopRunner } from "../src/desktop-runner.ts";
+import { openDesktopGuard } from "../src/desktop-guard.ts";
 import { createChatGptSession } from "../src/providers/llm/chatgpt-session.ts";
 import { episodes, jobs, usage } from "../src/db/schema.ts";
 import { fakeGeneration, GENERATION_TIMEOUT_MS, respond } from "./generation-fakes.ts";
@@ -21,6 +22,28 @@ it("uses bounded configurable stage deadlines", () => {
     vi.stubEnv("CHATGPT_SCRIPT_TIMEOUT_MS", "900001");
     expect(() => chatGptDeadline("script")).toThrow("Invalid ChatGPT stage timeout");
   } finally { vi.unstubAllEnvs(); }
+});
+
+it("treats an invalid stage timeout as preflight and leaves the recovery guard clean", async () => {
+  const f = fakeGeneration();
+  const session = {
+    status: () => ({ active: "alice", expired: false, planEnabled: true, accounts: [], remoteUncertain: false, uncertain: [] }),
+    models: async () => [{ slug: "chosen", display_name: "Chosen" }],
+    generateStructured: vi.fn(async () => "{}"),
+  };
+  const selection = createScriptSelection(path.join(f.dir, "choice"), session);
+  await selection.set({ provider: "chatgpt", model: "chosen", scope: "all-stages" });
+  vi.stubEnv("CHATGPT_STAGE_TIMEOUT_MS", "invalid");
+  const runner = createDesktopRunner(f.deps, new EventEmitter(), undefined, selection);
+  try {
+    const job = await runner.create({ title: "Bees", brief: "", mode: "standard", lang: "en", minutes: 1 });
+    for (let i = 0; i < 500 && f.db.select().from(jobs).where(eq(jobs.id, job.id)).get()?.status !== "failed"; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(f.db.select().from(jobs).where(eq(jobs.id, job.id)).get()?.error).toMatch(/invalid ChatGPT stage timeout/i);
+    expect(session.generateStructured).not.toHaveBeenCalled();
+    await runner.close();
+    const guard = openDesktopGuard(f.dir);
+    try { expect(() => guard.begin()).not.toThrow(); } finally { guard.close(true); }
+  } finally { await runner.close(); vi.unstubAllEnvs(); f.close(); }
 });
 
 it("retries a failed job as new using all-stage ChatGPT, preserving old artifacts and exporting the new episode", async () => {

@@ -11,7 +11,7 @@ import type { GenerateOptions } from "./providers/llm/chatgpt-inference.ts";
 export function chatGptDeadline(stage: string): number {
   const raw = stage === "script" ? process.env.CHATGPT_SCRIPT_TIMEOUT_MS : process.env.CHATGPT_STAGE_TIMEOUT_MS;
   const value = raw === undefined ? (stage === "script" ? 300_000 : 120_000) : Number(raw);
-  if (!Number.isSafeInteger(value) || value < 1_000 || value > 900_000) throw new Error("Invalid ChatGPT stage timeout");
+  if (!Number.isSafeInteger(value) || value < 1_000 || value > 900_000) throw new ScriptPreflightError("Invalid ChatGPT stage timeout");
   return value;
 }
 
@@ -154,10 +154,11 @@ export function createScriptSelection(directory: string, session?: Session) {
                 throw new Error("Script selection changed before generation");
               requireAccount(selected.account);
               signal?.throwIfAborted();
+              const requestOptions = options ?? { timeoutMs: chatGptDeadline("script") };
               started = true;
               return generatePodcastScript({ async generateStructured(...args) {
                 inFlight = true;
-                const response = await session!.generateStructured(...args, options ?? { timeoutMs: chatGptDeadline("script") });
+                const response = await session!.generateStructured(...args, requestOptions);
                 inFlight = false;
                 return response;
               } }, selected.model, input, signal);

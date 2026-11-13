@@ -27,6 +27,16 @@ it("lists visible models and sends a bounded streaming request", async () => {
   expect(calls[1]!.redirect).toBe("error");
 });
 
+it("settles and cancels a stalled stream after a completed event", async () => {
+  const cancel = vi.fn();
+  const transport: typeof fetch = async () => new Response(new ReadableStream({
+    start(c) { c.enqueue(new TextEncoder().encode('data: {"type":"response.output_text.delta","delta":"ok"}\n\ndata: {"type":"response.completed"}\n\n')); },
+    cancel,
+  }));
+  await expect(generate("token", "m", "p", { transport, timeoutMs: 50 })).resolves.toBe("ok");
+  expect(cancel).toHaveBeenCalledTimes(1);
+});
+
 it.each([
   [
     "redirect",
