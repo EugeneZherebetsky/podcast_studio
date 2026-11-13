@@ -45,6 +45,11 @@ export function Settings() {
         <h2 id="chatgpt-plan-status">ChatGPT plan</h2>
         <p>ChatGPT plan sign-in and script generation are not available yet. The local profile continues to use Ollama.</p>
       </section>
+      <section className="panel" aria-labelledby="gemini-status">
+        <h2 id="gemini-status">Gemini</h2>
+        <p>Gemini consumer account sign-in is not connected to this app. <a href="https://gemini.google.com/" target="_blank" rel="noopener noreferrer">Open Gemini separately</a>.</p>
+        <p>An experimental command-line manual draft workflow exists, but it requires prepared research and is not connected to review, audio, or publication. See docs/MANUAL-GEMINI.md in the project for its safety restrictions.</p>
+      </section>
       <PairingStatus />
       {error && (
         <p role="alert" className="error">
