@@ -80,6 +80,31 @@ it("does not send a stale queued script and clears the durable guard after prefl
 }, GENERATION_TIMEOUT_MS);
 
 
+it("clears the guard after a complete but invalid ChatGPT script", async () => {
+  const f = fakeGeneration();
+  const session = {
+    status: () => ({ active: "alice", expired: false, planEnabled: true, accounts: [], remoteUncertain: false, uncertain: [] }),
+    models: async () => [{ slug: "chosen", display_name: "Chosen" }],
+    generateStructured: vi.fn(async () => "{}"),
+  };
+  const selection = createScriptSelection(path.join(f.dir, "choice"), session);
+  await selection.set({ provider: "chatgpt", model: "chosen" });
+  const runner = createDesktopRunner(f.deps, new EventEmitter(), undefined, selection);
+  try {
+    const job = await runner.create({ title: "Bees", brief: "", mode: "standard", lang: "en", minutes: 1 });
+    for (let i = 0; i < 1000 && f.db.select().from(jobs).where(eq(jobs.id, job.id)).get()!.status !== "failed"; i++)
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(f.db.select().from(jobs).where(eq(jobs.id, job.id)).get()!.status).toBe("failed");
+    expect(session.generateStructured).toHaveBeenCalledOnce();
+    expect(await runner.close()).toBe(true);
+    const reopened = createDesktopRunner(f.deps, new EventEmitter(), undefined, selection);
+    try {
+      const next = await reopened.create({ title: "Bees", brief: "", mode: "standard", lang: "en", minutes: 1 });
+      await reopened.cancel(next.id);
+    } finally { await reopened.close(); }
+  } finally { await runner.close(); f.close(); }
+}, GENERATION_TIMEOUT_MS);
+
 it("aborts an in-flight ChatGPT request but retains the uncertain-work guard", async () => {
   const f = fakeGeneration();
   let started!: () => void;

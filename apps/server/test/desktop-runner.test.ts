@@ -396,6 +396,9 @@ test("does not announce a running stage when its database transition fails", asy
     const job = await runner.create({ title: "Bees", brief: "", mode: "standard", lang: "en", minutes: 1 });
     await viWait(async () => (f.db.$client.prepare("select status from jobs where id = ?").get(job.id) as { status: string }).status === "failed");
     expect(received).not.toContainEqual(expect.objectContaining({ type: "job-stage", status: "running" }));
+    expect(await runner.close()).toBe(true);
+    const guard = openDesktopGuard(f.dir);
+    try { expect(() => guard.begin()).not.toThrow(); } finally { guard.close(true); }
   } finally {
     await runner.close();
     f.close();

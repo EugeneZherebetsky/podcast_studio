@@ -10,7 +10,24 @@ import { monthTotalCostUsd, recordLlmUsage } from "../usage.ts";
 import type { StageResult } from "./artifacts.ts";
 import type { PublishStep } from "./publish.ts";
 import { CancelledAfterStage } from "./cancellation.ts";
+import { ScriptPreflightError } from "../chatgpt-selection.ts";
+import { LlmOutputError } from "../providers/llm/ai-sdk.ts";
 export { CancelledAfterStage } from "./cancellation.ts";
+
+export class ExternalWorkUncertain extends Error {
+  readonly usage: Usage | undefined;
+  constructor(error: unknown) {
+    super(error instanceof Error ? error.message : String(error), { cause: error });
+    this.usage = usageOfFailedCall(error);
+  }
+}
+async function externalCall<T>(run: () => Promise<T>): Promise<T> {
+  try { return await run(); }
+  catch (error) {
+    if (error instanceof CancelledAfterStage || error instanceof ScriptPreflightError || error instanceof LlmOutputError) throw error;
+    throw new ExternalWorkUncertain(error);
+  }
+}
 
 function rejectLink(file: string): void {
   try {
@@ -150,6 +167,8 @@ export async function runJobStage<T>(
   const where = and(eq(jobStages.jobId, id), eq(jobStages.stage, stage));
   db.transaction((tx) => {
     const job = tx.select().from(jobs).where(eq(jobs.id, id)).get();
+    if (job?.status === "cancelled" && job.ownerToken === ownerToken)
+      throw new CancelledAfterStage("Job cancelled before stage");
     if (!job || job.status !== "running" || job.ownerToken !== ownerToken)
       throw new Error(`Job is ${job?.status ?? "not found"}`);
     const now = new Date().toISOString();
@@ -273,16 +292,16 @@ export async function generateJob(
       ...(llm.localCacheIdentity === undefined ? {} : { localCacheIdentity: llm.localCacheIdentity }),
       generateObject(request) {
         assertOwner();
-        return llm.generateObject({ ...request, assertContinue: assertOwner });
+        return externalCall(() => llm.generateObject({ ...request, assertContinue: assertOwner }));
       },
     }, (usage) => recordLlmUsage(db, usage, { jobId: id })),
     search: { search(query, options) {
       assertOwner();
-      return deps.providers.search.search(query, options);
+      return externalCall(() => deps.providers.search.search(query, options));
     } },
     extractor: { async extract(url) {
       assertOwner();
-      try { return await deps.providers.extractor.extract(url); }
+      try { return await externalCall(() => deps.providers.extractor.extract(url)); }
       catch (error) { extractFailure = error ?? new Error("Extractor failed"); throw error; }
     } },
   };
@@ -405,7 +424,7 @@ export async function generateJob(
           ...(deps.scriptGenerator
             ? { scriptGenerator: { ...deps.scriptGenerator, run: (input) => {
                 assertOwner();
-                return deps.scriptGenerator!.run(input, deps.signal);
+                return externalCall(() => deps.scriptGenerator!.run(input, deps.signal));
               } } }
             : {}),
         },
@@ -433,7 +452,7 @@ export async function generateJob(
       const paths: string[] = [];
       for (const segment of reviewed.segments) {
         assertOwner();
-        paths.push((await tts.synthesize({ text: segment.text, lang: segment.lang, voice: deps.voice, rate: segment.rate ?? 1 })).wavPath);
+        paths.push((await externalCall(() => tts.synthesize({ text: segment.text, lang: segment.lang, voice: deps.voice, rate: segment.rate ?? 1 }))).wavPath);
       }
       return uncached(paths);
     })
@@ -442,12 +461,12 @@ export async function generateJob(
   const audio = (
     await stage("assemble", async () =>
       uncached(
-        await assembleAudio({
+        await externalCall(() => assembleAudio({
           segments: reviewed.segments,
           chapters: reviewed.chapters,
           wavPaths,
           outputPath: audioPath,
-        }),
+        })),
       ),
     )
   ).artifact;

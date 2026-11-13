@@ -32,6 +32,10 @@ export async function acknowledgeDisconnect(post: Post): Promise<Status> {
   return (await post("acknowledge", { disconnectedInChatGptSettings: true })) as Status;
 }
 
+export function ScriptSelectionStatus({ selection }: { selection: { provider: string; account?: string; model?: string } | null }) {
+  return <p role="status">{selection ? selection.provider === "incomplete" ? "Selection incomplete. Select a provider again before generating." : selection.provider === "chatgpt" ? `ChatGPT: ${selection.model} (${selection.account})` : "Local Ollama" : "Script provider unavailable or loading. Select a provider to recover."}</p>;
+}
+
 export function ChatGptDisconnectNotice(props: {
   status: Status | null;
   confirming: boolean;
@@ -117,7 +121,11 @@ export function ChatGptSettings() {
     try {
       setSelection(await call("select", provider === "local" ? { provider } : { provider, model }));
       setMessage("Script provider saved for new jobs.");
-    } catch { setMessage("Could not save selection. Check your session and model."); }
+    } catch {
+      setSelection(null);
+      try { setSelection(await call("selection")); } catch { /* selection remains unknown */ }
+      setMessage("Could not save selection. Check your session and model, then select a provider again.");
+    }
     finally { setBusy(false); }
   }
   async function refresh() {
@@ -224,8 +232,8 @@ export function ChatGptSettings() {
         planning, research, review and speech remain local. There is no automatic paid API fallback.
       </p>
       <h3>Script provider</h3>
-      <p role="status">{selection ? selection.provider === "chatgpt" ? `ChatGPT: ${selection.model} (${selection.account})` : "Local Ollama" : "Loading script provider…"}</p>
-      <button type="button" disabled={busy || !selection} onClick={() => void select("local")}>Use local script generation</button>{" "}
+      <ScriptSelectionStatus selection={selection} />
+      <button type="button" disabled={busy} onClick={() => void select("local")}>Use local script generation</button>{" "}
       <button type="button" disabled={busy || !status?.active || status.expired || !status.planEnabled} onClick={() => void loadModels()}>Load available ChatGPT models</button>{" "}
       <label>ChatGPT model <select value={model} onChange={(event) => setModel(event.target.value)} disabled={busy || !models.length || !status?.active || status.active !== modelAccount}>
         <option value="">Choose a model</option>

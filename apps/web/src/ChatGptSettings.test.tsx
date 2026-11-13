@@ -4,6 +4,7 @@ import { expect, test, vi } from "vitest";
 import {
   acknowledgeDisconnect,
   ChatGptDisconnectNotice,
+  ScriptSelectionStatus,
   CHATGPT_SETTINGS_URL,
   type Status,
 } from "./ChatGptSettings.tsx";
@@ -31,6 +32,13 @@ const disconnectButton = (html: string) =>
   /<button[^>]*>I(&#x27;|&apos;|')ve disconnected Podcast Studio in ChatGPT Settings<\/button>/.exec(
     html,
   )?.[0];
+
+test("does not present an incomplete selection as local", () => {
+  const html = renderToString(<ScriptSelectionStatus selection={{ provider: "incomplete" }} />);
+  expect(html).toContain("Selection incomplete");
+  expect(html).toContain("Select a provider again");
+  expect(html).not.toContain("Local Ollama");
+});
 
 test("warns for each cause and links to ChatGPT Settings in a new tab", () => {
   const stopped = render({

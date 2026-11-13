@@ -39,7 +39,7 @@ export function createScriptSelection(directory: string, session?: Session) {
     try { writeFileSync(temp, value, { mode: 0o600, flag: "wx" }); renameSync(temp, target); }
     finally { try { unlinkSync(temp); } catch { /* already renamed */ } }
   }
-  function get(): z.infer<typeof Selection> {
+  function readSelection(): z.infer<typeof Selection> {
     try { return Selection.parse(JSON.parse(readFileSync(file, "utf8"))); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return { provider: "local" };
@@ -54,7 +54,9 @@ export function createScriptSelection(directory: string, session?: Session) {
     return status.active;
   }
   return {
-    get,
+    get() {
+      return locked(() => intent() !== readRevision(committedFile) ? { provider: "incomplete" as const } : readSelection());
+    },
     async models() { const account = requireAccount(); const models = await session!.models(); requireAccount(account); return models; },
     async set(raw: unknown) {
       const input = z.discriminatedUnion("provider", [z.object({ provider: z.literal("local") }).strict(), z.object({ provider: z.literal("chatgpt"), model: z.string().min(1).max(200) }).strict()]).parse(raw);
@@ -79,7 +81,7 @@ export function createScriptSelection(directory: string, session?: Session) {
       const { selected, selectedRevision } = locked(() => {
         const selectedRevision = intent();
         if (selectedRevision !== readRevision(committedFile)) throw new Error("Script selection incomplete; select a provider again");
-        return { selected: get(), selectedRevision };
+        return { selected: readSelection(), selectedRevision };
       });
       if (selected.provider === "local") return undefined;
       requireAccount(selected.account);
@@ -88,24 +90,35 @@ export function createScriptSelection(directory: string, session?: Session) {
         description: `ChatGPT script: ${selected.model}`,
         async run(input: Parameters<typeof generatePodcastScript>[2], signal?: AbortSignal) {
           let started = false;
+          let inFlight = false;
           let pending: ReturnType<typeof generatePodcastScript>;
           try {
             pending = locked(() => {
-              const current = get();
+              const current = readSelection();
               if (intent() !== selectedRevision || current.provider !== "chatgpt" || current.account !== selected.account || current.model !== selected.model)
                 throw new Error("Script selection changed before generation");
               requireAccount(selected.account);
               signal?.throwIfAborted();
               started = true;
-              return generatePodcastScript(session!, selected.model, input, signal);
+              return generatePodcastScript({ async generateStructured(...args) {
+                inFlight = true;
+                const response = await session!.generateStructured(...args);
+                inFlight = false;
+                return response;
+              } }, selected.model, input, signal);
             });
           } catch (error) {
             if (started) throw error;
             throw new ScriptPreflightError(error instanceof Error ? error.message : String(error), { cause: error });
           }
-          const result = await pending;
-          requireAccount(selected.account);
-          return result.script;
+          try {
+            const result = await pending;
+            requireAccount(selected.account);
+            return result.script;
+          } catch (error) {
+            if (inFlight) throw error;
+            throw new ScriptPreflightError(error instanceof Error ? error.message : String(error), { cause: error });
+          }
         },
       };
     },

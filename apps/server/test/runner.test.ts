@@ -7,6 +7,7 @@ import { openDatabase } from "../src/db/index.ts";
 import { episodes, jobs, jobStages, usage } from "../src/db/schema.ts";
 import {
   cancelJob,
+  CancelledAfterStage,
   createJob,
   markJobInterrupted,
   runJobStage as executeJobStage,
@@ -75,7 +76,7 @@ test("records successful stage and usage and persists cancellation", async () =>
     runJobStage(db, job.id, "search", async () => {
       throw Error("must not run");
     }),
-  ).rejects.toThrow(/cancel/i);
+  ).rejects.toBeInstanceOf(CancelledAfterStage);
 });
 
 test("a cached real plan can be resumed without another model call or usage row", async () => {

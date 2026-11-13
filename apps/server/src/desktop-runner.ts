@@ -9,9 +9,9 @@ import {
 } from "shared";
 import { jobs, topics, settings } from "./db/schema.ts";
 import type { JobRunner } from "./job-routes.ts";
-import { cancelJob, CancelledAfterStage, createJob, generateJob, type GenerateDeps } from "./pipeline/runner.ts";
+import { cancelJob, ExternalWorkUncertain, createJob, generateJob, type GenerateDeps } from "./pipeline/runner.ts";
 import { openDesktopGuard } from "./desktop-guard.ts";
-import { ScriptPreflightError, type createScriptSelection } from "./chatgpt-selection.ts";
+import type { createScriptSelection } from "./chatgpt-selection.ts";
 
 /** Owns only jobs created in this process; never scans persisted jobs for work. */
 export function createDesktopRunner(
@@ -45,7 +45,7 @@ export function createDesktopRunner(
     active = generateJob({ ...item.deps, signal: abort.signal, onEvent: (event) => events.emit("event", event) }, id)
       .catch((error: unknown) => {
         // A failed request may still be running in an external service.
-        if (!(error instanceof CancelledAfterStage) && !(error instanceof ScriptPreflightError)) {
+        if (error instanceof ExternalWorkUncertain) {
           uncertain = true;
           const blocked = "External work may still be running; stop the server and follow manual recovery in SETUP.md";
           for (const queued of queue.splice(0)) {

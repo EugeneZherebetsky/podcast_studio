@@ -1,8 +1,40 @@
+import { fork } from "node:child_process";
 import { expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createScriptSelection } from "../src/chatgpt-selection.ts";
+import { createScriptSelection, ScriptPreflightError } from "../src/chatgpt-selection.ts";
+
+it("honors local opt-out saved by another process before sending", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "selection-process-"));
+  const generateStructured = vi.fn(async () => "{}");
+  const session = { status: () => ({ active: "alice", expired: false, planEnabled: true, accounts: [], remoteUncertain: false, uncertain: [] }), models: async () => [{ slug: "chosen", display_name: "Chosen" }], generateStructured };
+  try {
+    const selection = createScriptSelection(dir, session);
+    await selection.set({ provider: "chatgpt", model: "chosen" });
+    const generator = selection.generator()!;
+    const child = fork(path.join(import.meta.dirname, "fixtures", "chatgpt-selection-local.ts"), [dir], { execArgv: ["--import", "tsx"], stdio: ["ignore", "ignore", "inherit", "ipc"] });
+    await new Promise<void>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`child exited ${code}`)));
+    });
+    expect(selection.get()).toEqual({ provider: "local" });
+    await expect(generator.run({} as never)).rejects.toThrow(/selection changed/i);
+    expect(generateStructured).not.toHaveBeenCalled();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+it("marks invalid script input settled without making a request", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "selection-validation-"));
+  const generateStructured = vi.fn(async () => "{}");
+  const session = { status: () => ({ active: "alice", expired: false, planEnabled: true, accounts: [], remoteUncertain: false, uncertain: [] }), models: async () => [{ slug: "chosen", display_name: "Chosen" }], generateStructured };
+  try {
+    const selection = createScriptSelection(dir, session);
+    await selection.set({ provider: "chatgpt", model: "chosen" });
+    await expect(selection.generator()!.run({} as never)).rejects.toBeInstanceOf(ScriptPreflightError);
+    expect(generateStructured).not.toHaveBeenCalled();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
 
 it("requires explicit account and model selection and never falls back after session loss", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "selection-"));
@@ -114,6 +146,7 @@ it("fails closed after a selection is interrupted or rejected until a new choice
   try {
     const selection = createScriptSelection(dir, session);
     await expect(selection.set({ provider: "chatgpt", model: "chosen" })).rejects.toThrow(/catalog/);
+    expect(selection.get()).toEqual({ provider: "incomplete" });
     expect(() => selection.generator()).toThrow(/incomplete/i);
     await selection.set({ provider: "local" });
     expect(selection.generator()).toBeUndefined();
