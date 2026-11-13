@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import Database from "better-sqlite3";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { z } from "zod";
@@ -48,22 +49,62 @@ export async function openRegistrationStore(directory: string) {
   const file = path.join(directory, "chatgpt-registration.json");
   const grantsFile = path.join(directory, "chatgpt-grants.json");
   const lock = path.join(directory, "chatgpt-registration.lock");
-  async function locked<T>(work: () => Promise<T>): Promise<T> {
-    // One directory lock serializes writers in this process and in a concurrently running CLI.
-    for (let attempt = 0; ; attempt++) {
-      try {
-        await mkdir(lock, { mode: 0o700 });
-        break;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST" || attempt >= 40) throw error;
-        await sleep(25);
-      }
-    }
+  async function checkLegacyLock() {
     try {
+      await lstat(lock);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    throw new Error(
+      "Legacy chatgpt-registration.lock exists. Stop all old server and CLI processes, verify none are running, then remove the lock directory manually.",
+    );
+  }
+  async function acquire(name: string, wait: boolean): Promise<Database.Database | undefined> {
+    const target = path.join(directory, name);
+    const handle = await open(target, "a", 0o600);
+    await handle.close();
+    const db = new Database(target, { timeout: 0 });
+    try {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          db.exec("BEGIN IMMEDIATE");
+          return db;
+        } catch (error) {
+          if ((error as { code?: string }).code !== "SQLITE_BUSY") throw error;
+          if (!wait) {
+            db.close();
+            return undefined;
+          }
+          if (attempt >= 200) throw error;
+          await sleep(25);
+        }
+      }
+    } catch (error) {
+      db.close();
+      throw error;
+    }
+  }
+  function release(db: Database.Database) {
+    try {
+      db.exec("ROLLBACK");
+    } finally {
+      db.close();
+    }
+  }
+  async function locked<T>(work: () => Promise<T>): Promise<T> {
+    await checkLegacyLock();
+    const db = (await acquire("chatgpt-mutex.sqlite", true))!;
+    try {
+      await checkLegacyLock();
       return await work();
     } finally {
-      await rm(lock, { recursive: true, force: true });
+      release(db);
     }
+  }
+  async function grantLock(id: string, wait = false) {
+    grant.shape.id.parse(id);
+    return acquire(`chatgpt-grant-${id}.sqlite`, wait);
   }
   async function read<T>(target: string, parse: (value: unknown) => T, empty: () => T) {
     try {
@@ -124,6 +165,28 @@ export async function openRegistrationStore(directory: string) {
         // Any other failure keeps the last valid list rather than hiding a warning.
       }
       return structuredClone(grants);
+    },
+    async ownGrant(id: string) {
+      const db = (await grantLock(id, true))!;
+      return () => release(db);
+    },
+    async acknowledgeGrants() {
+      await locked(async () => {
+        const acquired: Database.Database[] = [];
+        try {
+          const current = await read(grantsFile, parseGrants, (): GrantRecord[] => []);
+          const kept: GrantRecord[] = [];
+          for (const record of current) {
+            const db = await grantLock(record.id);
+            if (db) acquired.push(db);
+            else kept.push(record);
+          }
+          await write(grantsFile, { grants: kept });
+          grants = kept;
+        } finally {
+          for (const db of acquired) release(db);
+        }
+      });
     },
     /** Applies a change to the grant records; resolves only after the file has been replaced. */
     async updateGrants(change: (current: GrantRecord[]) => GrantRecord[]) {

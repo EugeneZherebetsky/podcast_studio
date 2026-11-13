@@ -73,6 +73,9 @@ it("reports uncertainty on cancellation during exchange and revokes late credent
     expect(await session.signout()).toBe(false);
     await completion;
     expect(session.status().remoteUncertain).toBe(true);
+    const observer = await createChatGptSession(dir);
+    await observer.acknowledgeRemoteDisconnect();
+    expect(observer.status().remoteUncertain).toBe(true);
     release(Response.json({ access_token: "access", refresh_token: "refresh" }));
     await vi.waitFor(() =>
       expect(revoke).toHaveBeenCalledWith(
@@ -249,6 +252,7 @@ it("keeps tokens in memory and reuses the selected account after signout", async
     await returning.complete();
     expect(calls[1]).toMatchObject({ clientId: "client", expectedSubject: "sub" });
     expect((calls[0] as { hostId: string }).hostId).toBe((calls[1] as { hostId: string }).hostId);
+    await session.shutdown();
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

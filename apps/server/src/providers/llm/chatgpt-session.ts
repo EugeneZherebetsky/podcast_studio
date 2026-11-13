@@ -119,6 +119,12 @@ export async function createChatGptSession(
   let stopping: Promise<void> | undefined;
   // Records whose token exchange has started in this process and has not yet ended.
   const exchanging = new Set<string>();
+  const ownership = new Map<string, () => void>();
+  function releaseGrant(id: string | undefined) {
+    if (!id) return;
+    ownership.get(id)?.();
+    ownership.delete(id);
+  }
   // Set when a record update could not be written, so this process still warns.
   let unrecorded = false;
   let writes: Promise<unknown> = Promise.resolve();
@@ -129,11 +135,18 @@ export async function createChatGptSession(
   }
   async function createGrant(label: string, clientId: string) {
     const id = randomUUID();
-    await persist((current) => [
-      ...current,
-      { id, label, clientId, state: "grant-may-exist", at: Date.now() },
-    ]);
-    return id;
+    const release = await store.ownGrant(id);
+    ownership.set(id, release);
+    try {
+      await persist((current) => [
+        ...current,
+        { id, label, clientId, state: "grant-may-exist", at: Date.now() },
+      ]);
+      return id;
+    } catch (error) {
+      releaseGrant(id);
+      throw error;
+    }
   }
   async function removeGrant(id: string | undefined) {
     if (!id) return;
@@ -305,7 +318,10 @@ export async function createChatGptSession(
       };
       // The exchange has produced a result (or the session took over the outcome).
       const settle = () => {
-        if (current.grantId) exchanging.delete(current.grantId);
+        if (current.grantId) {
+          exchanging.delete(current.grantId);
+          if (active?.grantId !== current.grantId) releaseGrant(current.grantId);
+        }
       };
       try {
         const accounts = store.accounts;
@@ -328,7 +344,11 @@ export async function createChatGptSession(
                 if (id && current.clientId) await markUnconfirmed(id, label, current.clientId);
               } else await discard(end, id, label);
             } finally {
-              if (id) exchanging.delete(id);
+              if (id) {
+                exchanging.delete(id);
+                await writes;
+                releaseGrant(id);
+              }
             }
           },
           ...(account ? { clientId: account.clientId, expectedSubject: account.subject } : {}),
@@ -432,13 +452,18 @@ export async function createChatGptSession(
         await cancelPending();
         const session = active;
         active = undefined;
-        if (session)
-          await discard(
-            fromSuccess(session.credentials),
-            session.grantId,
-            session.label,
-            shutdownPolicy,
-          );
+        if (session) {
+          try {
+            await discard(
+              fromSuccess(session.credentials),
+              session.grantId,
+              session.label,
+              shutdownPolicy,
+            );
+          } finally {
+            releaseGrant(session.grantId);
+          }
+        }
         await writes;
       })();
       return stopping;
@@ -450,8 +475,13 @@ export async function createChatGptSession(
         await cancelPending();
         const session = active;
         active = undefined;
-        if (session)
-          await discard(fromSuccess(session.credentials), session.grantId, session.label);
+        if (session) {
+          try {
+            await discard(fromSuccess(session.credentials), session.grantId, session.label);
+          } finally {
+            releaseGrant(session.grantId);
+          }
+        }
         await writes;
         return !remoteUncertain();
       } finally {
@@ -465,8 +495,8 @@ export async function createChatGptSession(
     async acknowledgeRemoteDisconnect() {
       if (closed || active || pending || signingOut || exchanging.size > 0)
         throw new Error("Sign out or cancel sign-in first");
-      const ids = held();
-      await persist((current) => current.filter((record) => ids.has(record.id)));
+      await writes;
+      await store.acknowledgeGrants();
       unrecorded = false;
     },
   };
