@@ -50,7 +50,7 @@ async function selectPiper() {
   try {
     const answer = await dialog.showMessageBox({ type: 'info', buttons: ['Choose files', 'Cancel'], defaultId: 1, cancelId: 1,
       message: 'Connect an existing Piper installation',
-      detail: 'Piper and voices are not bundled. Select only a trusted Piper executable from the Piper home venv folder and two voice ONNX files from its voices folder. Each voice needs its matching .onnx.json file. Review the engine and voice licenses. Piper will run during generation. Changes apply after quitting and reopening; finish any jobs first.' });
+      detail: 'Piper and voices are not bundled. Select only a trusted Piper executable from the Piper home venv folder and two voice ONNX files from its voices folder. Each voice needs its matching .onnx.json file. Review the engine and voice licenses. Piper will run during generation. After reopening, these selections override saved web Piper voices without changing them. A configured cloud TTS selection still takes precedence. Changes apply after quitting and reopening; finish any jobs first.' });
     if (answer.response !== 0) return;
     const selected = {};
     for (const [key, title] of [['executable', 'Select Piper in venv'], ['native', 'Select English voice ONNX'], ['hu', 'Select Hungarian voice ONNX']]) {
@@ -59,7 +59,7 @@ async function selectPiper() {
       selected[key] = result.filePaths[0];
     }
     await savePiper(home, selected);
-    await dialog.showMessageBox({ message: 'Piper settings saved.', detail: 'Finish any jobs, then quit and reopen Podcast Studio to use these settings.' });
+    await dialog.showMessageBox({ message: 'Piper settings saved.', detail: 'Finish any jobs, then quit and reopen Podcast Studio. These voices override saved web Piper voices; configured cloud TTS still takes precedence.' });
   } catch (err) { dialog.showErrorBox('Piper selection failed', String(err.message)); }
   finally { selectingPiper = false; }
 }
@@ -154,7 +154,9 @@ else {
     const image = nativeImage.createFromBitmap(pixels, { width: 16, height: 16 });
     tray = new Tray(image); tray.setToolTip('Podcast Studio'); tray.setContextMenu(menu()); tray.on('click', show);
     const piper = await readPiper(home);
-    const services = await readServices(home);
+    let services;
+    try { services = await readServices(home); }
+    catch (err) { error(err.message); return; }
     server = startServer(resources, home, () => error('The server stopped unexpectedly.'), { tools, piper, services });
     const port = await server.ready;
     if (failed || quitting) return;

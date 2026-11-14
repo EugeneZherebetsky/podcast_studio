@@ -22,6 +22,8 @@ test('passes only selected Piper settings to the next child', () => {
   assert.equal(env.PIPER_DIR, piper.PIPER_DIR);
   assert.equal(env.TTS_VOICE_NATIVE_HOST, piper.TTS_VOICE_NATIVE_HOST);
   assert.equal(env.TTS_VOICE_HU_HOST, piper.TTS_VOICE_HU_HOST);
+  assert.equal(env.PODCAST_STUDIO_NATIVE_PIPER, '1');
+  assert.equal(childEnvironment({ PODCAST_STUDIO_NATIVE_PIPER: '1' }, 'resources', 'home').PODCAST_STUDIO_NATIVE_PIPER, undefined);
   assert.equal(env.API_KEY, undefined);
 });
 

@@ -6,7 +6,7 @@ async function validate(value) {
   if (!value || !['executable', 'native', 'hu'].every((key) => typeof value[key] === 'string' && path.isAbsolute(value[key]))) throw new Error('Select the Piper executable and both voice models.');
   const exe = path.normalize(value.executable);
   const expected = process.platform === 'win32' ? ['Scripts', 'piper.exe'] : ['bin', 'piper'];
-  if (path.basename(exe).toLowerCase() !== expected[1] || path.basename(path.dirname(exe)).toLowerCase() !== expected[0].toLowerCase() || path.basename(path.dirname(path.dirname(exe))).toLowerCase() !== 'venv') throw new Error('Select Piper from the Piper home venv directory.');
+  if (path.basename(exe) !== expected[1] || path.basename(path.dirname(exe)) !== expected[0] || path.basename(path.dirname(path.dirname(exe))) !== 'venv') throw new Error('Select Piper from the Piper home venv directory.');
   const dir = path.dirname(path.dirname(path.dirname(exe)));
   const voices = path.join(dir, 'voices');
   const files = [exe];
@@ -28,14 +28,18 @@ function validateServices(value) {
     if (typeof text !== 'string' || text.length > 2048 || !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::[0-9]+)?(?:\/|$)/i.test(text)) throw new Error('Endpoints must be HTTP URLs on localhost, 127.0.0.1, or [::1], without credentials.');
     let url;
     try { url = new URL(text); } catch { throw new Error('Invalid local service URL.'); }
-    if (url.username || url.password || url.hash || url.search || /[\s\\]/.test(text)) throw new Error('Endpoints cannot contain credentials, query strings, fragments, whitespace, or backslashes.');
+    if (url.username || url.password || url.hash || url.search || /[?#\s\\]/.test(text)) throw new Error('Endpoints cannot contain credentials, query strings, fragments, whitespace, or backslashes.');
   }
   if (typeof value.model !== 'string' || value.model.length > 256 || !/^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)?(?::[a-z0-9][a-z0-9._-]*)?$/i.test(value.model) || /(?:^|[/:._-])cloud(?:$|[/:._-])/i.test(value.model)) throw new Error('Enter a valid local Ollama model name; cloud models are not allowed.');
   return { ollama: value.ollama, model: value.model, searxng: value.searxng };
 }
 export async function readServices(home) {
-  try { return validateServices(JSON.parse(await readFile(path.join(home, 'service-settings.json'), 'utf8'))); }
-  catch (error) { if (error.code === 'ENOENT') return { ...defaultServices }; throw error; }
+  const target = path.join(home, 'service-settings.json');
+  let text;
+  try { text = await readFile(target, 'utf8'); }
+  catch (error) { if (error.code === 'ENOENT') return { ...defaultServices }; throw new Error(`Cannot read local service settings at ${target}. Check file permissions; the file was not changed.`, { cause: error }); }
+  try { return validateServices(JSON.parse(text)); }
+  catch (error) { throw new Error(`Invalid local service settings at ${target}. The file was not changed. Back up the file, then edit it to correct its JSON and local service values before reopening the app.`, { cause: error }); }
 }
 export async function saveServices(home, value) {
   const valid = validateServices(value);

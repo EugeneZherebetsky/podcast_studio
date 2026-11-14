@@ -11,7 +11,7 @@ test('service settings validate loopback and preserve previous settings on failu
   try {
     await saveServices(home, good);
     assert.deepEqual(await readServices(home), good);
-    for (const url of ['http://user:pass@localhost/v1', 'http://192.168.1.1', 'http://example.com', 'http://127.1', 'http://localhost.evil', 'http://127.0.0.1/#x', 'http://localhost?x', 'http://127.0.0.1:99999']) {
+    for (const url of ['http://user:pass@localhost/v1', 'http://192.168.1.1', 'http://example.com', 'http://127.1', 'http://localhost.evil', 'http://127.0.0.1/#x', 'http://localhost?x', 'http://localhost/v1?', 'http://localhost/v1#', 'http://127.0.0.1:99999']) {
       await assert.rejects(saveServices(home, { ...good, ollama: url }));
       await assert.rejects(saveServices(home, { ...good, searxng: url }));
     }
@@ -20,6 +20,18 @@ test('service settings validate loopback and preserve previous settings on failu
     const ipv4 = { ...good, ollama: 'http://127.0.0.1:11434/v1' };
     await saveServices(home, ipv4);
     assert.deepEqual(await readServices(home), ipv4);
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
+test('invalid service settings identify the preserved file and recovery action', async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'podcast-invalid-services-'));
+  const target = path.join(home, 'service-settings.json');
+  try {
+    for (const data of ['{broken', JSON.stringify({ ollama: 'https://example.com' })]) {
+      await writeFile(target, data);
+      await assert.rejects(readServices(home), (err) => err.message.includes(target) && /back up/i.test(err.message) && /edit/i.test(err.message));
+      assert.equal(await readFile(target, 'utf8'), data);
+    }
   } finally { await rm(home, { recursive: true, force: true }); }
 });
 
@@ -48,5 +60,6 @@ test('saves a Piper home and matching voice pairs without executing them', async
     assert.deepEqual(await readPiper(home), { PIPER_DIR: piper, TTS_VOICE_NATIVE_HOST: 'en_US-test-medium', TTS_VOICE_HU_HOST: 'hu_HU-test-medium' });
     await assert.rejects(savePiper(home, { executable: exe, native: path.join(piper, 'voices', 'en_US-missing.onnx'), hu: path.join(piper, 'voices', 'hu_HU-test-medium.onnx') }));
     assert.equal((await readPiper(home)).TTS_VOICE_NATIVE_HOST, 'en_US-test-medium');
+    await assert.rejects(savePiper(home, { executable: path.join(path.dirname(exe), 'PIPER' + (process.platform === 'win32' ? '.exe' : '')), native: path.join(piper, 'voices', 'en_US-test-medium.onnx'), hu: path.join(piper, 'voices', 'hu_HU-test-medium.onnx') }), /venv directory/);
   } finally { await rm(home, { recursive: true, force: true }); }
 });

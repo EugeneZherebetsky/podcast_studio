@@ -23,6 +23,7 @@ export function createDesktopRunner(
   config?: AppConfig,
   selection?: ReturnType<typeof createScriptSelection>,
   guard = openDesktopGuard(deps.dataDir),
+  nativePiperSelection = false,
 ): JobRunner & { stopGeneration(): Promise<boolean>; close(): Promise<boolean> } {
   const queue: { id: string; deps: GenerateDeps }[] = [];
   let active: Promise<void> | undefined;
@@ -122,8 +123,8 @@ export function createDesktopRunner(
         throw new Error("Generation requires local Ollama, SearXNG and Piper");
       const voice = cloud?.voice ?? (config
         ? options.lang.toLowerCase().startsWith("hu")
-          ? (saved?.voices.huHost ?? config.TTS_VOICE_HU_HOST)
-          : (saved?.voices.nativeHost ?? config.TTS_VOICE_NATIVE_HOST)
+          ? (nativePiperSelection ? config.TTS_VOICE_HU_HOST : (saved?.voices.huHost ?? config.TTS_VOICE_HU_HOST))
+          : (nativePiperSelection ? config.TTS_VOICE_NATIVE_HOST : (saved?.voices.nativeHost ?? config.TTS_VOICE_NATIVE_HOST))
         : deps.voice);
       if (!voice) throw new Error("Configure a local Piper voice before generating");
       const key = cloud && config ? (cloud.provider === "fish" ? config.FISH_AUDIO_API_KEY : config.ELEVENLABS_API_KEY) : undefined;
