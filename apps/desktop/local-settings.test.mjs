@@ -3,7 +3,17 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { savePiper, readPiper, saveServices, readServices } from './local-settings.mjs';
+import { savePiper, readPiper, saveServices, readServices, samePiperPath } from './local-settings.mjs';
+
+test('Piper path comparisons follow the platform without locale-sensitive casing', () => {
+  for (const [left, right] of [['Scripts', 'scripts'], ['PIPER.EXE', 'piper.exe'], ['C:\\Piper\\VOICES', 'c:\\piper\\voices']]) {
+    assert.equal(samePiperPath(left, right, 'win32'), true);
+    assert.equal(samePiperPath(left, right, 'linux'), false);
+    assert.equal(samePiperPath(left, right, 'darwin'), false);
+  }
+  assert.equal(samePiperPath('voices', 'voices-other', 'win32'), false);
+  assert.equal(samePiperPath('voices', 'voices', 'linux'), true);
+});
 
 test('service settings validate loopback and preserve previous settings on failure', async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), 'podcast-services-'));
@@ -60,6 +70,20 @@ test('saves a Piper home and matching voice pairs without executing them', async
     assert.deepEqual(await readPiper(home), { PIPER_DIR: piper, TTS_VOICE_NATIVE_HOST: 'en_US-test-medium', TTS_VOICE_HU_HOST: 'hu_HU-test-medium' });
     await assert.rejects(savePiper(home, { executable: exe, native: path.join(piper, 'voices', 'en_US-missing.onnx'), hu: path.join(piper, 'voices', 'hu_HU-test-medium.onnx') }));
     assert.equal((await readPiper(home)).TTS_VOICE_NATIVE_HOST, 'en_US-test-medium');
-    await assert.rejects(savePiper(home, { executable: path.join(path.dirname(exe), 'PIPER' + (process.platform === 'win32' ? '.exe' : '')), native: path.join(piper, 'voices', 'en_US-test-medium.onnx'), hu: path.join(piper, 'voices', 'hu_HU-test-medium.onnx') }), /venv directory/);
+    const good = { executable: exe, native: path.join(piper, 'voices', 'en_US-test-medium.onnx'), hu: path.join(piper, 'voices', 'hu_HU-test-medium.onnx') };
+    for (const invalid of [
+      { ...good, native: path.join(piper, 'voices', '..', 'en_US-test-medium.onnx') },
+      { ...good, native: path.join(piper, 'voices-other', 'en_US-test-medium.onnx') },
+      { ...good, native: path.join(piper, 'voices', 'hu_HU-test-medium.onnx') },
+      { ...good, executable: path.join(piper, 'other', 'piper.exe') },
+    ]) await assert.rejects(savePiper(home, invalid));
+    assert.equal((await readPiper(home)).TTS_VOICE_NATIVE_HOST, 'en_US-test-medium');
+    const mixedCase = { executable: path.join(piper, 'VENV', process.platform === 'win32' ? 'scripts/PIPER.EXE' : 'bin/PIPER'), native: path.join(piper.toUpperCase(), 'VOICES', 'en_US-test-medium.onnx'), hu: path.join(piper.toLowerCase(), 'VoIcEs', 'hu_HU-test-medium.onnx') };
+    if (process.platform === 'win32') {
+      await savePiper(home, mixedCase);
+      assert.equal((await readPiper(home)).TTS_VOICE_NATIVE_HOST, 'en_US-test-medium');
+    } else {
+      await assert.rejects(savePiper(home, mixedCase), /venv directory/);
+    }
   } finally { await rm(home, { recursive: true, force: true }); }
 });
