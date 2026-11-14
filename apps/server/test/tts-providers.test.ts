@@ -234,6 +234,18 @@ describe("OpenAiTtsProvider", () => {
   });
 });
 
+test("OpenAI TTS does not expose an upstream error body or status text", async () => {
+  const secret = "synthetic-private-key";
+  const provider = new OpenAiTtsProvider({
+    apiKey: secret, dataDir: tempDir, maxRetries: 0,
+    fetch: async () => new Response(JSON.stringify({ error: { message: secret } }), {
+      status: 400, statusText: secret,
+    }),
+  });
+  await expect(provider.synthesize({ text: "hello", lang: "en", voice: "alloy", rate: 1 }))
+    .rejects.toThrow(/^OpenAI TTS failed \(400\)$/);
+});
+
 describe("Audio caching", () => {
   test("cache hit avoids second mock fetch call and returns cached WAV", async () => {
     let callCount = 0;
