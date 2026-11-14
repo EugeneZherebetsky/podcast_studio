@@ -12,6 +12,7 @@ import { OpenAiTtsProvider } from "../src/providers/tts/openai.ts";
 import { makeTempDir, removeTempDir } from "./temp-dir.ts";
 import { BraveSearchProvider } from "../src/providers/search/brave.ts";
 import { TavilySearchProvider } from "../src/providers/search/tavily.ts";
+import { SearxngSearchProvider } from "../src/providers/search/searxng.ts";
 
 const secret = "synthetic-credential-for-boundary-test";
 
@@ -81,6 +82,19 @@ describe.each(["azure", "openai"])("%s TTS exception boundary", (name) => {
       removeTempDir(dir);
     }
   });
+});
+
+test.each(["http", "transport", "body"])("SearXNG hides untrusted %s errors", async (failure) => {
+  const fetch = (async () => {
+    if (failure === "transport") throw new Error(secret);
+    if (failure === "body") return new Response(secret, { status: 200 });
+    return new Response(secret, { status: 503, statusText: secret });
+  }) as typeof globalThis.fetch;
+  const provider = new SearxngSearchProvider({ baseUrl: "http://127.0.0.1:8888", fetch });
+  const error = await provider.search("query", { max: 1 }).catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(Error);
+  expect(String(error)).not.toContain(secret);
+  expect(JSON.stringify(error, Object.getOwnPropertyNames(error))).not.toContain(secret);
 });
 
 describe.each([

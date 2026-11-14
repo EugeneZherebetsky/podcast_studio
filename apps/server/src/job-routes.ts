@@ -16,6 +16,23 @@ import { jobs, jobStages, settings, topics, usage } from "./db/schema.ts";
 import { createJobLog, publicJobError, safeModel } from "./job-log.ts";
 import { ScriptSchema } from "./pipeline/script.ts";
 
+const jobControlMessages = new Set([
+  "Runner is shutting down",
+  "Unclean desktop generation is unresolved. Stop all servers and verify any Piper, ffmpeg and Ollama work has stopped; see SETUP.md for manual recovery.",
+  "External work may still be running; stop the server and follow manual recovery in SETUP.md",
+  "Topic not found", "Only standard mode is supported", "Generation requires local Ollama, SearXNG and Piper",
+  "Configure a local Piper voice before generating", "Configure a valid cloud voice and provider key in .env before generating",
+  "Monthly budget exceeded", "Invalid budget", "Invalid recorded spending",
+  "Invalid script selection; select a provider again", "Selection incomplete; select a provider again",
+  "ChatGPT is unavailable on this host; select a provider from a numeric loopback host",
+  "Sign in to the selected ChatGPT account with plan access before generating",
+  "Select ChatGPT for all stages again after reviewing the privacy notice",
+  "Job is not owned by this runner", "Job not found", "Cannot cancel succeeded job", "Cannot cancel failed job", "Cannot cancel job during publish",
+]);
+function publicControlError(error: unknown): string {
+  return error instanceof Error && jobControlMessages.has(error.message) ? error.message : "Job control failed";
+}
+
 // T12 owns job execution and its state transitions; HTTP must not simulate them.
 export interface JobRunner {
   create(request: CreateJobRequest): Promise<Job>;
@@ -101,7 +118,7 @@ export function registerJobRoutes(
     try {
       return reply.code(201).send(await runner.create(body.data));
     } catch (error) {
-      return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(409).send({ error: publicControlError(error) });
     }
   });
   app.post<{ Params: { id: string } }>("/api/jobs/:id/retry", async (request, reply) => {
@@ -122,7 +139,7 @@ export function registerJobRoutes(
     try {
       return reply.code(201).send(await runner.create(job.options));
     } catch (error) {
-      return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(409).send({ error: publicControlError(error) });
     }
   });
   app.post<{ Params: { id: string } }>("/api/jobs/:id/cancel", async (request, reply) => {
@@ -132,7 +149,7 @@ export function registerJobRoutes(
     try {
       return await runner.cancel(request.params.id);
     } catch (error) {
-      return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply.code(409).send({ error: publicControlError(error) });
     }
   });
 }

@@ -33,6 +33,28 @@ test("existing jobs are readable but job creation fails closed without a runner"
   }
 });
 
+test("job control never reflects untrusted runner failures", async () => {
+  const db = openDatabase(":memory:");
+  const secret = "synthetic-runner-credential";
+  const options = { title: "News", brief: "", mode: "standard", lang: "en", minutes: 8 } as const;
+  db.insert(jobs).values({ id: "job", topicId: null, status: "failed", currentStage: "plan", error: "failed", options, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }).run();
+  const fail = async (): Promise<never> => { throw new Error(secret); };
+  const app = buildApp({ db, runner: { create: fail, retry: fail, cancel: fail } });
+  try {
+    for (const [url, payload] of [["/api/jobs", options], ["/api/jobs/job/retry-as-new", {}], ["/api/jobs/job/cancel", {}]] as const) {
+      const response = await app.inject({ method: "POST", url, payload });
+      expect(response.statusCode).toBe(409);
+      expect(response.body).not.toContain(secret);
+    }
+    const warning = "External work may still be running; stop the server and follow manual recovery in SETUP.md";
+    const warned = buildApp({ db, runner: { create: async () => { throw new Error(warning); }, retry: fail, cancel: fail } });
+    try {
+      const response = await warned.inject({ method: "POST", url: "/api/jobs", payload: options });
+      expect(response.json().error).toBe(warning);
+    } finally { await warned.close(); }
+  } finally { await app.close(); db.$client.close(); }
+});
+
 test("job control delegates to an injected runner", async () => {
   const db = openDatabase(":memory:");
   const job = {

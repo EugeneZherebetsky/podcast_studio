@@ -38,8 +38,8 @@ export function installShutdown(app: FastifyInstance): void {
     void app.close().then(() => {
       clearTimeout(deadline);
       process.exit(process.exitCode ?? 0);
-    }, (error: unknown) => {
-      console.error("Server shutdown failed", error);
+    }, () => {
+      console.error("Server shutdown failed; recovery may be required");
       process.exit(1);
     });
   };
