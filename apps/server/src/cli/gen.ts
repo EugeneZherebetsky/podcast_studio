@@ -6,6 +6,19 @@ import { openDatabase } from "../db/index.ts";
 import { checkBudget, createJob, generateJob } from "../pipeline/runner.ts";
 import { createProviders } from "../providers/index.ts";
 import { openDesktopGuard } from "../desktop-guard.ts";
+import { safeGenerationError } from "../safe-generation-error.ts";
+
+const safeCliMessages = new Set([
+  "Job recovery is disabled: filesystem publication is not fenced",
+  "Generation requires local Ollama, SearXNG and Piper; paid providers are disabled until their costs can be accounted safely",
+  'Usage: pnpm gen "topic" [--minutes 8] [--lang en] [--mode standard] [--voice ID] [--no-review], or --resume JOB_ID [--from-stage STAGE] [--interrupted]',
+  "--from-stage and --interrupted need --resume JOB_ID",
+  `--from-stage must be one of: ${STAGE_NAMES.join(", ")}`,
+  "Only standard mode is supported",
+  "Set TTS_VOICE_NATIVE_HOST in .env or pass --voice",
+  "Another desktop generation server owns this data directory",
+  "Unclean desktop generation is unresolved. Stop all servers and verify any Piper, ffmpeg and Ollama work has stopped; see SETUP.md for manual recovery.",
+]);
 
 async function main(): Promise<void> {
   const args = parseArgs({
@@ -93,6 +106,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
+  console.error(error instanceof Error && safeCliMessages.has(error.message)
+    ? error.message
+    : safeGenerationError(error));
   process.exitCode = 1;
 });
