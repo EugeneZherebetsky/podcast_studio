@@ -9,6 +9,7 @@ import {
 import path from "node:path";
 import { STAGE_NAMES, type StageName } from "shared";
 import { combinedRecoveryMessages } from "./safe-generation-error.ts";
+import { safeUsageModel } from "./providers/llm/interface.ts";
 
 export type Progress =
   | { kind: "job"; status: "queued" | "started" | "completed" | "failed" | "cancelled" }
@@ -32,9 +33,10 @@ export type Progress =
 
 type RequestDiagnostic = { stage: StageName; status: "sent" | "completed" | "failed" | "timed out" | "cancelled"; provider: string; model: string | null; index: number; elapsedMs?: number };
 const providers = new Set(["ollama", "openai", "anthropic", "gemini", "chatgpt", "fake", "unknown"]);
-const modelAllowlist = new Set(["qwen:4b", "qwen3:4b", "gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-5", "gpt-5-mini", "gpt-5.1", "gpt-5.2", "fake-main", "fake-fast"]);
 export function safeModel(value: unknown): string | null {
-  return typeof value === "string" && modelAllowlist.has(value) ? value : null;
+  if (typeof value !== "string") return null;
+  const safe = safeUsageModel(value);
+  return safe === "unknown" ? null : safe;
 }
 
 

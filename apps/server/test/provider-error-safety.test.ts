@@ -41,6 +41,16 @@ test("external work wrapper does not retain a serializable provider cause", () =
   expect(JSON.stringify(error, Object.getOwnPropertyNames(error))).not.toContain(secret);
 });
 
+test.each(["provider", "model"] as const)("external wrapper hides untrusted usage %s from every inspection mode", (field) => {
+  const usage = { provider: "fake", model: "fake-fast", inputTokens: 31, outputTokens: 12, costUsd: 0.5, [field]: secret };
+  const error = new ExternalWorkUncertain(Object.assign(new Error("failure"), { usage }));
+  for (const showHidden of [false, true]) for (const getters of [false, true]) {
+    expect(inspect(error, { depth: 10, showHidden, getters })).not.toContain(secret);
+  }
+  expect(JSON.stringify(error, Object.getOwnPropertyNames(error))).not.toContain(secret);
+  expect(error.usage).toMatchObject({ inputTokens: 31, outputTokens: 12, costUsd: 0.5 });
+});
+
 test("unknown external errors disclose uncertainty without provider text", () => {
   const message = safeGenerationError(new ExternalWorkUncertain(new Error(secret)));
   expect(message).toBe("External work may still be running; stop the server and follow manual recovery in SETUP.md");
