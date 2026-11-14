@@ -21,6 +21,8 @@ import {
 } from "./interface.ts";
 import { isMono24k16BitPcmWav } from "./wav.ts";
 import { ffmpegPath } from "../../paths.ts";
+import { CloudTtsBillingUncertain, ExternalWorkUncertain } from "../../safe-generation-error.ts";
+import { CancelledAfterStage } from "../../pipeline/cancellation.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -112,6 +114,12 @@ export interface RetryOptions {
   maxBackoffMs?: number;
   sleep?: (ms: number) => Promise<void>;
   isTransient?: (error: unknown) => boolean;
+  assertContinue?: () => void;
+  paid?: boolean;
+}
+
+export class TtsRetryGuardError extends Error {
+  constructor(readonly original: unknown) { super("TTS retry blocked"); }
 }
 
 /** Retries an async action with exponential backoff when a transient error occurs. */
@@ -127,6 +135,10 @@ export async function retryWithBackoff<T>(
 
   let lastError: unknown;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try { options.assertContinue?.(); }
+    catch (error) {
+      throw new TtsRetryGuardError(attempt === 0 || !options.paid ? error : new ExternalWorkUncertain(new CloudTtsBillingUncertain(error instanceof CancelledAfterStage)));
+    }
     try {
       return await fn();
     } catch (err) {
@@ -275,7 +287,10 @@ export class TtsCache {
       const cachedSecond = this.getCached(provider, request);
       if (cachedSecond) return cachedSecond;
 
-      const result = await retryWithBackoff(synthesizer, this.retryOptions);
+      const result = await retryWithBackoff(synthesizer, { ...this.retryOptions, assertContinue: request.assertContinue, paid: provider === "azure" || provider === "openai" }).catch((error: unknown) => {
+        if (error instanceof TtsRetryGuardError) throw error.original;
+        throw error;
+      });
 
       mkdirSync(this.cacheDir, { recursive: true });
       const key = this.computeKey(provider, request);

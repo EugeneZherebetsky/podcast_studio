@@ -7,6 +7,7 @@ import {
   type Voice,
 } from "./interface.ts";
 import { TtsCache, TtsHttpError, type TtsCacheOptions } from "./cache.ts";
+import { ExternalWorkUncertain } from "../../safe-generation-error.ts";
 
 export interface OpenAiTtsOptions {
   apiKey: string;
@@ -75,7 +76,10 @@ export class OpenAiTtsProvider implements TtsProvider {
   }
 
   async synthesize(request: SynthesizeRequest): Promise<SynthesizeResult> {
-    return this.cache.synthesizeWithCache("openai", request, async () => {
+    let guardError: unknown;
+    let guardFailed = false;
+    const guarded = { ...request, assertContinue: () => { try { request.assertContinue?.(); } catch (error) { guardFailed = true; guardError = error; throw error; } } };
+    return this.cache.synthesizeWithCache("openai", guarded, async () => {
       const url = `${this.baseUrl}/audio/speech`;
       const response = await this.fetchFn(url, {
         method: "POST",
@@ -103,6 +107,7 @@ export class OpenAiTtsProvider implements TtsProvider {
         chars: countChars(request.text),
       };
     }).catch((error: unknown) => {
+      if (error instanceof ExternalWorkUncertain || (guardFailed && error === guardError)) throw error;
       if (error instanceof TtsHttpError && Number.isInteger(error.status) && error.status >= 100 && error.status <= 599) {
         throw new TtsHttpError(error.status, `OpenAI TTS failed (${error.status})`);
       }

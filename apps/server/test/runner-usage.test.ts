@@ -7,6 +7,8 @@ import { LlmOutputError } from "../src/providers/llm/ai-sdk.ts";
 import type { LlmProvider, Usage } from "../src/providers/llm/interface.ts";
 import { monthTotalCostUsd } from "../src/usage.ts";
 import { fakeGeneration, GENERATION_TIMEOUT_MS } from "./generation-fakes.ts";
+import { MockLanguageModelV4 } from "ai/test";
+import { AiSdkLlmProvider } from "../src/providers/llm/ai-sdk.ts";
 
 const billed: Usage = {
   provider: "fake",
@@ -15,6 +17,26 @@ const billed: Usage = {
   outputTokens: 12,
   costUsd: 0.5,
 };
+
+test("SDK retry network failure preserves billed usage and uncertain recovery without provider secrets", async () => {
+  const run = fakeGeneration();
+  const secret = "synthetic-provider-secret-retry";
+  let calls = 0;
+  const model = new MockLanguageModelV4({ modelId: "model", doGenerate: async () => {
+    if (++calls > 1) throw new Error(secret);
+    return { content: [{ type: "text" as const, text: "not-json" }], finishReason: { unified: "stop" as const, raw: undefined }, usage: { inputTokens: { total: 100, noCache: 100, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 20, text: 20, reasoning: undefined } }, warnings: [] };
+  } });
+  run.deps.providers.llm = new AiSdkLlmProvider({ provider: "anthropic", models: { main: { id: "model", model }, fast: { id: "model", model } }, prices: { model: { inputUsdPerMTok: 3, outputUsdPerMTok: 15 } } });
+  try {
+    const error = await generateJob(run.deps, run.jobId).catch((caught: unknown) => caught);
+    const rows = run.db.select().from(usage).all();
+    expect(error).toMatchObject({ message: "External work uncertain" });
+    expect(calls).toBe(2);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ units: 120, costUsd: 0.0006 });
+    expect(JSON.stringify({ error, rows, job: run.job() })).not.toContain(secret);
+  } finally { run.close(); }
+});
 
 test("episode metadata records tracked LLM usage, not a hardcoded zero", async () => {
   const run = fakeGeneration();

@@ -160,11 +160,17 @@ export class AiSdkLlmProvider implements LlmProvider {
         const object = result.output as T;
         return { object, usage: this.usage(id, inputTokens, outputTokens) };
       } catch (error) {
-        localSignal?.throwIfAborted();
+        if (localSignal?.aborted) {
+          const safe = new Error("LLM request timed out");
+          safe.name = "TimeoutError";
+          if (attempt > 1) Object.defineProperty(safe, "usage", { value: this.usage(id, inputTokens, outputTokens) });
+          throw safe;
+        }
         if (this.boundedOllama && NoOutputGeneratedError.isInstance(error)) {
           // The SDK exception may include provider data.
-          // eslint-disable-next-line preserve-caught-error
-          throw new Error("LLM did not produce an answer");
+          const safe = new Error("LLM did not produce an answer");
+          if (attempt > 1) Object.defineProperty(safe, "usage", { value: this.usage(id, inputTokens, outputTokens) });
+          throw safe;
         }
         if (NoObjectGeneratedError.isInstance(error)) {
           inputTokens += error.usage?.inputTokens ?? 0;
@@ -177,11 +183,13 @@ export class AiSdkLlmProvider implements LlmProvider {
           if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
             const safe = new Error(error.name === "AbortError" ? "LLM request cancelled" : "LLM request timed out");
             safe.name = error.name;
+            if (attempt > 1) Object.defineProperty(safe, "usage", { value: this.usage(id, inputTokens, outputTokens) });
             throw safe;
           }
           // Do not retain the untrusted SDK exception as a cause.
-          // eslint-disable-next-line preserve-caught-error
-          throw new Error("LLM request failed");
+          const safe = new Error("LLM request failed");
+          if (attempt > 1) Object.defineProperty(safe, "usage", { value: this.usage(id, inputTokens, outputTokens) });
+          throw safe;
         }
       }
     }

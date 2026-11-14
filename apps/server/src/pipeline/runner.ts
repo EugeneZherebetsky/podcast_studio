@@ -478,7 +478,7 @@ export async function generateJob(
       const paths: string[] = [];
       for (const segment of reviewed.segments) {
         assertOwner();
-        paths.push((await externalCall(() => tts.synthesize({ text: segment.text, lang: segment.lang, voice: deps.voice, rate: segment.rate ?? 1 }))).wavPath);
+        paths.push((await externalCall(() => tts.synthesize({ text: segment.text, lang: segment.lang, voice: deps.voice, rate: segment.rate ?? 1, assertContinue: assertOwner }))).wavPath);
       }
       return uncached(paths);
     })

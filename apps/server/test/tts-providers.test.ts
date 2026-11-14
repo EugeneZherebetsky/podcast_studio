@@ -9,6 +9,10 @@ import {
 } from "../src/providers/index.ts";
 import { encodeWav, sineTone } from "../src/providers/tts/wav.ts";
 import { makeTempDir, removeTempDir } from "./temp-dir.ts";
+import { fakeGeneration } from "./generation-fakes.ts";
+import { checkBudget, CancelledAfterStage } from "../src/pipeline/runner.ts";
+import { recordLlmUsage } from "../src/usage.ts";
+import { safeGenerationError } from "../src/safe-generation-error.ts";
 
 let tempDir: string;
 
@@ -291,6 +295,33 @@ describe("Audio caching", () => {
 });
 
 describe("Concurrency limit and retry", () => {
+  test.each(["azure", "openai"])("%s stops retry when reconciliation starts during backoff", async (name) => {
+    const run = fakeGeneration();
+    const fetcher = vi.fn<typeof fetch>(async () => new Response("transient", { status: 503 }));
+    const opts = { dataDir: tempDir, fetch: fetcher, sleep: async () => { recordLlmUsage(run.db, { provider: "unknown", model: "unknown", inputTokens: 0, outputTokens: 0, costUsd: Infinity }); } };
+    const provider = name === "azure" ? new AzureTtsProvider({ ...opts, subscriptionKey: "test" }) : new OpenAiTtsProvider({ ...opts, apiKey: "test" });
+    try {
+      const error = await provider.synthesize({ text: "retry guard", lang: "en", voice: "alloy", rate: 1, assertContinue: () => checkBudget(run.db, 20) }).catch((caught: unknown) => caught);
+      expect(safeGenerationError(error)).toContain("provider may have billed");
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    } finally { run.close(); }
+  });
+  test.each(["azure", "openai"])("%s preserves cancellation before first request", async (name) => {
+    const fetcher = vi.fn<typeof fetch>(async () => new Response(null, { status: 503 }));
+    const opts = { dataDir: tempDir, fetch: fetcher };
+    const provider = name === "azure" ? new AzureTtsProvider({ ...opts, subscriptionKey: "test" }) : new OpenAiTtsProvider({ ...opts, apiKey: "test" });
+    await expect(provider.synthesize({ text: "cancel", lang: "en", voice: "alloy", rate: 1, assertContinue: () => { throw new CancelledAfterStage("cancelled"); } })).rejects.toBeInstanceOf(CancelledAfterStage);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  test.each(["azure", "openai"])("%s retains cancellation and billing uncertainty after a failed request", async (name) => {
+    let cancelled = false;
+    const fetcher = vi.fn<typeof fetch>(async () => new Response(null, { status: 503 }));
+    const opts = { dataDir: tempDir, fetch: fetcher, sleep: async () => { cancelled = true; } };
+    const provider = name === "azure" ? new AzureTtsProvider({ ...opts, subscriptionKey: "test" }) : new OpenAiTtsProvider({ ...opts, apiKey: "test" });
+    const error = await provider.synthesize({ text: "cancel retry", lang: "en", voice: "alloy", rate: 1, assertContinue: () => { if (cancelled) throw new CancelledAfterStage("cancelled"); } }).catch((caught: unknown) => caught);
+    expect(safeGenerationError(error)).toContain("Generation cancelled; Cloud TTS failed; the provider may have billed");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
   test("concurrency limit respects max 3 concurrent synthesis requests", async () => {
     let activeRequests = 0;
     let maxObservedActive = 0;

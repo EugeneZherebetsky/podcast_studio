@@ -18,6 +18,7 @@ export interface SynthesizeRequest {
   voice: string;
   /** Speaking rate, 1 = the voice's normal speed (segments use 0.7–1.1). */
   rate: number;
+  assertContinue?: () => void;
 }
 
 export interface SynthesizeResult {

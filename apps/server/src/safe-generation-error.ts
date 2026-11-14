@@ -2,7 +2,7 @@ import { ChatGptCancelledError, ChatGptTimeoutError } from "./providers/llm/chat
 import { safeUsageModel, safeUsageProvider, usageOfFailedCall, type Usage } from "./providers/llm/interface.ts";
 
 export class CloudTtsBillingUncertain extends Error {
-  constructor() { super("Cloud TTS failed; the provider may have billed this request"); }
+  constructor(readonly cancelled = false) { super("Cloud TTS failed; the provider may have billed this request"); }
 }
 
 const recovery = "external work may still be running; stop the server and follow manual recovery in SETUP.md";
@@ -12,6 +12,7 @@ const classifications = [
   "ChatGPT request timed out; remote work may still be running",
   "ChatGPT request cancelled; remote work may still be running",
   "Cloud TTS failed; the provider may have billed this request",
+  "Generation cancelled; Cloud TTS failed; the provider may have billed this request",
 ];
 export const combinedRecoveryMessages: readonly string[] = Object.freeze(classifications.map((message) => `${message}; ${recovery}`));
 const wrappedMessages = new WeakMap<ExternalWorkUncertain, string>();
@@ -49,7 +50,7 @@ const SAFE_MESSAGES = new Set([
 
 export function safeGenerationError(error: unknown): string {
   if (error instanceof ExternalWorkUncertain) return wrappedMessages.get(error) ?? "Generation failed";
-  if (error instanceof CloudTtsBillingUncertain) return "Cloud TTS failed; the provider may have billed this request";
+  if (error instanceof CloudTtsBillingUncertain) return `${error.cancelled ? "Generation cancelled; " : ""}Cloud TTS failed; the provider may have billed this request`;
   if (error instanceof ChatGptTimeoutError) return "ChatGPT request timed out; remote work may still be running";
   if (error instanceof ChatGptCancelledError) return "ChatGPT request cancelled; remote work may still be running";
   if (error instanceof Error) {

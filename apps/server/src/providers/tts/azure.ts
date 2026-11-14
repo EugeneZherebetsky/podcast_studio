@@ -7,6 +7,7 @@ import {
   type Voice,
 } from "./interface.ts";
 import { TtsCache, TtsHttpError, type TtsCacheOptions } from "./cache.ts";
+import { ExternalWorkUncertain } from "../../safe-generation-error.ts";
 
 export interface AzureTtsOptions {
   subscriptionKey: string;
@@ -126,7 +127,10 @@ export class AzureTtsProvider implements TtsProvider {
   }
 
   async synthesize(request: SynthesizeRequest): Promise<SynthesizeResult> {
-    return this.cache.synthesizeWithCache("azure", request, async () => {
+    let guardError: unknown;
+    let guardFailed = false;
+    const guarded = { ...request, assertContinue: () => { try { request.assertContinue?.(); } catch (error) { guardFailed = true; guardError = error; throw error; } } };
+    return this.cache.synthesizeWithCache("azure", guarded, async () => {
       const ssml = buildAzureSsml(request);
       const url = `https://${this.region}.tts.speech.microsoft.com/cognitiveservices/v1`;
 
@@ -154,6 +158,7 @@ export class AzureTtsProvider implements TtsProvider {
         chars: countChars(request.text),
       };
     }).catch((error: unknown) => {
+      if (error instanceof ExternalWorkUncertain || (guardFailed && error === guardError)) throw error;
       if (error instanceof TtsHttpError && Number.isInteger(error.status) && error.status >= 100 && error.status <= 599) {
         throw new TtsHttpError(error.status, `Azure Speech TTS failed (${error.status})`);
       }
