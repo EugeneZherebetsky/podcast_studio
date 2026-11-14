@@ -14,6 +14,16 @@ and [builder description](https://www.gyan.dev/ffmpeg/builds/) explain the neede
 review. A verified binary, corresponding sources, notices and licensing review are
 required before shipping.
 
+On first launch, select separately obtained, trusted `ffmpeg.exe` and `ffprobe.exe`
+in the native file dialogs. Cancelling quits the prototype. The app only checks the
+file names and existence, not their authenticity or capabilities; the selected
+programs will run with your user privileges. Supply a build supporting `loudnorm`,
+AAC encoding and the `ipod` muxer. Its adjacent DLLs must remain in place. Locations
+are stored in the prototype's local user-data directory without credentials. If files
+are moved, selection is requested again. To change them, use the tray menu's **Select
+FFmpeg and ffprobe**, then quit and reopen. No `.env`, PATH setting, installation or
+automatic download is required. See [FFmpeg investigation](FFMPEG-BTBN-INVESTIGATION.md).
+
 First-run data import is not implemented: never blindly copy a live SQLite database or
 WAL. The installer is configured to retain user data on uninstall. No existing data is
 migrated, altered or deleted. Install and uninstall behavior is not yet verified.
