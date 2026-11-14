@@ -1,4 +1,5 @@
-import { safeGenerationError } from "../src/safe-generation-error.ts";
+import { inspect } from "node:util";
+import { CloudTtsBillingUncertain, safeGenerationError } from "../src/safe-generation-error.ts";
 import { ChatGptCancelledError, ChatGptTimeoutError } from "../src/providers/llm/chatgpt-inference.ts";
 import { ExternalWorkUncertain } from "../src/pipeline/runner.ts";
 import { publicJobError } from "../src/job-log.ts";
@@ -21,11 +22,23 @@ test.each([
   [new ChatGptCancelledError(), "ChatGPT request cancelled; remote work may still be running"],
   [new DOMException(secret, "TimeoutError"), "Generation timed out"],
   [new DOMException(secret, "AbortError"), "Generation cancelled"],
-])("preserves safe classification through the external work wrapper", (error, message) => {
-  for (const input of [error, new ExternalWorkUncertain(error)]) {
-    expect(safeGenerationError(input)).toBe(message);
-    expect(publicJobError(safeGenerationError(input))).toBe(message);
-  }
+  [new DOMException("network unavailable", "AbortError"), "Generation cancelled"],
+  [new CloudTtsBillingUncertain(), "Cloud TTS failed; the provider may have billed this request"],
+])("preserves classification and recovery through the external work wrapper", (error, message) => {
+  const wrapped = new ExternalWorkUncertain(error);
+  const expected = `${message}; external work may still be running; stop the server and follow manual recovery in SETUP.md`;
+  expect(safeGenerationError(error)).toBe(message);
+  expect(safeGenerationError(wrapped)).toBe(expected);
+  expect(publicJobError(expected)).toBe(expected);
+  expect(publicJobError(`${expected} ${secret}`)).toBe("Job failed.");
+});
+
+test("external work wrapper does not retain a serializable provider cause", () => {
+  const cause = Object.assign(new Error(secret), { usage: { provider: "fake", model: "fake-fast", inputTokens: 1, outputTokens: 2, costUsd: 0, extra: secret } });
+  const error = new ExternalWorkUncertain(cause);
+  expect(error.usage).toMatchObject({ provider: "fake", inputTokens: 1 });
+  expect(inspect(error, { depth: 10, showHidden: true })).not.toContain(secret);
+  expect(JSON.stringify(error, Object.getOwnPropertyNames(error))).not.toContain(secret);
 });
 
 test("unknown external errors disclose uncertainty without provider text", () => {

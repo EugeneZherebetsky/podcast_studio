@@ -41,7 +41,7 @@ export function createDesktopRunner(
   function cancelOwned(id: string): void {
     cancelJob(deps.db, id);
     if (id === activeId && activeCloud && get(id).currentStage === "tts") {
-      deps.db.update(jobs).set({ error: "Cloud TTS may have billed this request; stop the server and follow manual recovery in SETUP.md" }).where(eq(jobs.id, id)).run();
+      deps.db.update(jobs).set({ error: "Cloud TTS may have billed this request; external work may still be running; stop the server and follow manual recovery in SETUP.md" }).where(eq(jobs.id, id)).run();
     }
   }
   function pump(): void {
@@ -72,6 +72,10 @@ export function createDesktopRunner(
           }
         }
         const message = safeGenerationError(error);
+        if (error instanceof ExternalWorkUncertain) {
+          deps.db.update(jobs).set({ error: message, updatedAt: new Date().toISOString() })
+            .where(and(eq(jobs.id, id), eq(jobs.status, "cancelled"))).run();
+        }
         deps.db
           .update(jobs)
           .set({ status: "failed", error: message, updatedAt: new Date().toISOString() })

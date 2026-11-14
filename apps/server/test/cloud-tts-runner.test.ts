@@ -32,19 +32,26 @@ test.each(["fish", "elevenlabs"] as const)("saved %s settings generate through t
 
 test("uncertain cloud failure retains the desktop recovery guard", async () => {
   const f = fakeGeneration();
-  const fetcher = vi.fn(async () => new Response("provider error", { status: 503 }));
+  const secret = "synthetic-cloud-provider-secret";
+  const fetcher = vi.fn(async () => new Response(secret, { status: 503 }));
   vi.stubGlobal("fetch", fetcher);
   const config = parseConfig({ PROFILE: "local", FISH_AUDIO_API_KEY: "test-key" });
-  const runner = createDesktopRunner(f.deps, new EventEmitter(), config);
-  const app = buildApp({ db: f.db, config, runner });
+  const events = new EventEmitter();
+  const received: unknown[] = [];
+  events.on("event", (event) => received.push(event));
+  const runner = createDesktopRunner(f.deps, events, config);
+  const app = buildApp({ db: f.db, config, runner, events });
   try {
     await app.inject({ method: "PUT", url: "/api/settings", payload: { cloudTts: { provider: "fish", model: "s2.1-pro-free", voice: "voice-id", inputLimit: 5000 } } });
     const response = await app.inject({ method: "POST", url: "/api/jobs", payload: { title: "Bees", mode: "standard", lang: "en", minutes: 1, review: false } });
     const id = response.json().id as string;
     await vi.waitFor(async () => expect((await app.inject({ url: `/api/jobs/${id}` })).json().status).toBe("failed"), { timeout: 30000 });
     const job = (await app.inject({ url: `/api/jobs/${id}` })).json();
-    expect(job.error).toContain("may have billed");
-    expect(job.stages.find((stage: { stage: string }) => stage.stage === "tts").error).toContain("may have billed");
+    const warning = "Cloud TTS failed; the provider may have billed this request; external work may still be running; stop the server and follow manual recovery in SETUP.md";
+    expect(job.error).toBe(warning);
+    expect(job.stages.find((stage: { stage: string }) => stage.stage === "tts").error).toBe(warning);
+    expect(received).toContainEqual(expect.objectContaining({ type: "job-stage", stage: "tts", status: "failed", error: warning }));
+    expect(JSON.stringify(job) + JSON.stringify(received)).not.toContain(secret);
     expect(fetcher).toHaveBeenCalledTimes(1);
     await expect(runner.create({ title: "Again", brief: "", mode: "standard", lang: "en", minutes: 1 })).rejects.toThrow("External work may still be running");
   } finally { await app.close(); await runner.close(); vi.unstubAllGlobals(); f.close(); }
@@ -82,7 +89,13 @@ test("cancellation during cloud request exposes billing uncertainty and retains 
     const cancelled = (await app.inject({ method: "POST", url: `/api/jobs/${id}/cancel` })).json();
     expect(cancelled.status).toBe("cancelled");
     expect(cancelled.error).toContain("may have billed");
-    await vi.waitFor(async () => expect((await app.inject({ url: `/api/jobs/${id}` })).json().error).toContain("may have billed"));
+    expect(cancelled.error).toContain("external work may still be running");
+    await vi.waitFor(async () => {
+      const job = (await app.inject({ url: `/api/jobs/${id}` })).json();
+      expect(job.status).toBe("cancelled");
+      expect(job.stages.find((stage: { stage: string }) => stage.stage === "tts").error).toBe("Cloud TTS failed; the provider may have billed this request; external work may still be running; stop the server and follow manual recovery in SETUP.md");
+      expect(job.error).toContain("manual recovery");
+    });
     await vi.waitFor(async () => await expect(runner.create({ title: "Again", brief: "", mode: "standard", lang: "en", minutes: 1 })).rejects.toThrow("External work may still be running"));
     expect(fetcher).toHaveBeenCalledTimes(1);
   } finally { await app.close(); await runner.close(); vi.unstubAllGlobals(); f.close(); }
