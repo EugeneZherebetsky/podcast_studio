@@ -100,6 +100,8 @@ Why per-segment synthesis: it gives exact sentence timings from any TTS provider
 
 Tracked LLM calls record estimated cost (tokens × configured price) in the `usage` table. The runner writes the row as each LLM call completes, not when its stage ends, so calls made before a stage fails, is cancelled or is interrupted still count, as does a failed call the provider billed anyway (when the error carries its `usage`). The monthly budget and recorded totals exclude cloud TTS and unmetered ChatGPT subscription usage; they are not total cost. The runner refuses to start a job when the month's recorded total exceeds `MONTHLY_BUDGET_USD`. Prices live in `config.ts` and are editable: consult each provider's pricing page.
 
+If a failed call includes malformed usage, its cost cannot be trusted (even a valid cost is discarded when another field is malformed). An infinite-cost usage row marks it for manual reconciliation and blocks new jobs across months; it is not an actual charge. Inspect the provider's billing records and correct that row before restarting work. Missing usage on a failure remains untracked and is not proof of zero cost. Provider and model names outside the safety allowlists are recorded as `unknown`, so the original identity can be lost.
+
 For newly generated episodes, `generation.costUsd` is the sum of tracked LLM estimates for the job, excluding TTS and unmetered usage; it is not total cost. Older episode metadata may contain a hardcoded zero placeholder even when LLM costs were recorded. A zero therefore does not prove no charges were incurred.
 
 ## 4. Data contracts (`packages/shared`)

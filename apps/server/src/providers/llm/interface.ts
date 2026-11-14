@@ -32,16 +32,18 @@ export function safeUsageModel(value: string): string {
  */
 export function usageOfFailedCall(error: unknown): Usage | undefined {
   if (!(error instanceof Error) || !("usage" in error)) return undefined;
-  const usage = error.usage as Partial<Usage> | null | undefined;
-  if (
-    typeof usage?.provider !== "string" ||
-    typeof usage.model !== "string" ||
-    !Number.isFinite(usage.inputTokens) ||
-    !Number.isFinite(usage.outputTokens) ||
-    !Number.isFinite(usage.costUsd)
-  )
+  try {
+    const usage = error.usage as Partial<Usage> | null | undefined;
+    if (!usage) return undefined;
+    const { provider, model, inputTokens, outputTokens, costUsd } = usage;
+    if (typeof provider !== "string" || typeof model !== "string" ||
+        typeof inputTokens !== "number" || !Number.isFinite(inputTokens) || inputTokens < 0 ||
+        typeof outputTokens !== "number" || !Number.isFinite(outputTokens) || outputTokens < 0 ||
+        typeof costUsd !== "number" || !Number.isFinite(costUsd) || costUsd < 0) return undefined;
+    return { provider, model, inputTokens, outputTokens, costUsd };
+  } catch {
     return undefined;
-  return usage as Usage;
+  }
 }
 
 export interface GenerateObjectRequest<T> {

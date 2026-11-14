@@ -36,6 +36,8 @@ function rejectLink(file: string): void {
 
 export function checkBudget(db: Db, budgetUsd: number): void {
   if (!Number.isFinite(budgetUsd) || budgetUsd < 0) throw new Error("Invalid budget");
+  // An infinite row marks failed usage whose cost could not be trusted; it requires reconciliation.
+  if (db.select().from(usageTable).where(eq(usageTable.costUsd, Infinity)).get()) throw new Error("Invalid recorded spending");
   const total = monthTotalCostUsd(db);
   if (!Number.isFinite(total) || total < 0) throw new Error("Invalid recorded spending");
   if (total > budgetUsd) throw new Error("Monthly budget exceeded");
@@ -232,6 +234,10 @@ export function meterLlm(llm: LlmProvider, onUsage: (usage: Usage) => void): Llm
       } catch (error) {
         const usage = usageOfFailedCall(error);
         if (usage) onUsage(usage);
+        else if (error instanceof Error && "usage" in error) {
+          // Unknown billed cost must not become zero; the budget guard requires reconciliation.
+          onUsage({ provider: "unknown", model: "unknown", inputTokens: 0, outputTokens: 0, costUsd: Infinity });
+        }
         throw error;
       }
       if (result.usage) onUsage(result.usage);

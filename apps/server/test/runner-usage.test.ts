@@ -53,6 +53,41 @@ test("the meter reports answered calls and failed calls that were still billed",
   expect(seen.map((item) => item.costUsd)).toEqual([0.5, 0.25]);
 });
 
+test.each(["inputTokens", "outputTokens", "costUsd"] as const)("persists the first safe %s value from a failed provider", async (field) => {
+  const run = fakeGeneration();
+  const secret = "synthetic-usage-getter-secret";
+  const untrusted = { ...billed };
+  let reads = 0;
+  Object.defineProperty(untrusted, field, { get: () => ++reads === 1 ? 1 : { secret }, enumerable: true });
+  run.deps.providers.llm = { async generateObject() { throw Object.assign(new Error("failure"), { usage: untrusted }); } };
+  try {
+    const error = await generateJob(run.deps, run.jobId).catch((caught: unknown) => caught);
+    const rows = run.db.select().from(usage).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ costUsd: field === "costUsd" ? 1 : 0.5, units: field === "inputTokens" ? 13 : field === "outputTokens" ? 31 : 42 });
+    expect(JSON.stringify({ rows, error, job: run.job() })).not.toContain(secret);
+  } finally { run.close(); }
+});
+
+test.each([-1, Number.NaN, Number.POSITIVE_INFINITY])("invalid failed-call cost %s blocks later jobs without subtracting spend", async (costUsd) => {
+  const run = fakeGeneration();
+  run.deps.providers.llm = { async generateObject() { throw Object.assign(new Error("failure"), { usage: { ...billed, costUsd } }); } };
+  try {
+    await expect(generateJob(run.deps, run.jobId)).rejects.toThrow();
+    expect(() => createJob(run.db, run.job().options, 100)).toThrow(/invalid recorded spending/i);
+  } finally { run.close(); }
+});
+
+test.each(["inputTokens", "outputTokens", "costUsd"] as const)("invalid failed-call %s blocks accounting rather than recording zero", async (field) => {
+  const run = fakeGeneration();
+  run.deps.providers.llm = { async generateObject() { throw Object.assign(new Error("failure"), { usage: { ...billed, [field]: -1 } }); } };
+  try {
+    await expect(generateJob(run.deps, run.jobId)).rejects.toThrow();
+    expect(run.db.select().from(usage).all()).toMatchObject([{ costUsd: Infinity }]);
+    expect(() => createJob(run.db, run.job().options, 100)).toThrow(/invalid recorded spending/i);
+  } finally { run.close(); }
+});
+
 test.each(["provider", "model"] as const)("untrusted usage %s stays out of failed job records and events", async (field) => {
   const run = fakeGeneration();
   const secret = "synthetic-usage-key-987654321";

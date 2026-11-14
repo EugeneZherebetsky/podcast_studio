@@ -51,6 +51,16 @@ test.each(["provider", "model"] as const)("external wrapper hides untrusted usag
   expect(error.usage).toMatchObject({ inputTokens: 31, outputTokens: 12, costUsd: 0.5 });
 });
 
+test.each(["inputTokens", "outputTokens", "costUsd"] as const)("snapshots adversarial %s before wrapping", (field) => {
+  let reads = 0;
+  const usage = { provider: "fake", model: "fake-fast", inputTokens: 31, outputTokens: 12, costUsd: 0.5 };
+  Object.defineProperty(usage, field, { get: () => ++reads === 1 ? 1 : { secret }, enumerable: true });
+  const error = new ExternalWorkUncertain(Object.assign(new Error("failure"), { usage }));
+  expect(inspect(error, { depth: 10, showHidden: true, getters: true })).not.toContain(secret);
+  expect(error.usage?.[field]).toBe(1);
+  expect(reads).toBe(1);
+});
+
 test("unknown external errors disclose uncertainty without provider text", () => {
   const message = safeGenerationError(new ExternalWorkUncertain(new Error(secret)));
   expect(message).toBe("External work may still be running; stop the server and follow manual recovery in SETUP.md");
