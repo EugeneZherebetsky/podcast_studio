@@ -81,6 +81,8 @@ test("local server stalled after dispatch hits deadline and blocks queued jobs",
     const second = (await app.inject({ method: "POST", url: "/api/jobs", payload })).json().id as string;
     await vi.waitFor(async () => expect((await app.inject({ url: `/api/jobs/${second}` })).json().status).toBe("failed"), { timeout: 5000 });
     const job = (await app.inject({ url: `/api/jobs/${first}` })).json();
+    expect(job.error).toContain("timed out");
+    expect(job.error).not.toContain("cancelled");
     expect(job.error).toContain("may have billed");
     expect(job.error).toContain("manual recovery");
     expect(JSON.stringify(job)).not.toContain("synthetic-key");
