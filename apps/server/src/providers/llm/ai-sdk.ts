@@ -96,7 +96,6 @@ export class AiSdkLlmProvider implements LlmProvider {
     let inputTokens = 0;
     let outputTokens = 0;
     let lastProblem = "";
-    let lastError: unknown;
 
     const attempts = MAX_ATTEMPTS;
     const localSignal = this.boundedOllama
@@ -152,7 +151,11 @@ export class AiSdkLlmProvider implements LlmProvider {
         return { object, usage: this.usage(id, inputTokens, outputTokens) };
       } catch (error) {
         localSignal?.throwIfAborted();
-        if (this.boundedOllama && NoOutputGeneratedError.isInstance(error)) throw error;
+        if (this.boundedOllama && NoOutputGeneratedError.isInstance(error)) {
+          // The SDK exception may include provider data.
+          // eslint-disable-next-line preserve-caught-error
+          throw new Error("LLM did not produce an answer");
+        }
         if (NoObjectGeneratedError.isInstance(error)) {
           inputTokens += error.usage?.inputTokens ?? 0;
           outputTokens += error.usage?.outputTokens ?? 0;
@@ -161,17 +164,21 @@ export class AiSdkLlmProvider implements LlmProvider {
           lastProblem = "the model stopped without producing an answer";
         } else {
           // Network, auth, rate limit…: the SDK already retried what is retryable.
-          throw error;
+          if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
+            const safe = new Error(error.name === "AbortError" ? "LLM request cancelled" : "LLM request timed out");
+            safe.name = error.name;
+            throw safe;
+          }
+          // Do not retain the untrusted SDK exception as a cause.
+          // eslint-disable-next-line preserve-caught-error
+          throw new Error("LLM request failed");
         }
-        lastError = error;
       }
     }
 
     throw new LlmOutputError(
-      `LLM ${this.providerName}/${id} (slot "${request.slot}") did not return a valid object ` +
-        `after ${attempts} attempts:\n${lastProblem}`,
+      `LLM did not return a valid object after ${attempts} attempts`,
       this.usage(id, inputTokens, outputTokens),
-      { cause: lastError },
     );
   }
 

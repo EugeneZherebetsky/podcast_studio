@@ -42,50 +42,52 @@ export class BraveSearchProvider implements SearchProvider {
   }
 
   async search(query: string, options: SearchOptions): Promise<SearchHit[]> {
-    const url = new URL(`${this.baseUrl}/res/v1/web/search`);
-    url.searchParams.set("q", query);
-    // Brave API caps count at 20 per request
-    url.searchParams.set("count", String(Math.min(options.max, 20)));
+    let status: number | undefined;
+    try {
+      const url = new URL(`${this.baseUrl}/res/v1/web/search`);
+      url.searchParams.set("q", query);
+      // Brave API caps count at 20 per request
+      url.searchParams.set("count", String(Math.min(options.max, 20)));
 
-    const freshness = toBraveFreshness(options.freshnessDays);
-    if (freshness) {
-      url.searchParams.set("freshness", freshness);
-    }
-
-    const response = await this.fetchFn(url.toString(), {
-      method: "GET",
-      headers: {
-        "X-Subscription-Token": this.apiKey,
-        Accept: "application/json",
-      },
-    });
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      let detail = text;
-      try {
-        const json = JSON.parse(text) as BraveResponse;
-        if (json.message) {
-          detail = json.message;
-        } else if (json.error) {
-          detail = json.error;
-        }
-      } catch {
-        // Use raw response text
+      const freshness = toBraveFreshness(options.freshnessDays);
+      if (freshness) {
+        url.searchParams.set("freshness", freshness);
       }
-      throw new Error(`Brave search failed (${response.status} ${response.statusText}): ${detail}`);
+
+      const response = await this.fetchFn(url.toString(), {
+        method: "GET",
+        headers: {
+          "X-Subscription-Token": this.apiKey,
+          Accept: "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        status = Number.isInteger(response.status) && response.status >= 100 && response.status <= 599
+          ? response.status : undefined;
+        throw new Error("Brave search failed");
+      }
+
+      const data = (await response.json()) as BraveResponse;
+      const rawResults = data.web?.results ?? [];
+
+      const hits: SearchHit[] = rawResults.map((r) => ({
+        title: (r.title ?? "").trim(),
+        url: r.url,
+        snippet: (r.description ?? "").trim(),
+        publishedAt: formatPublishedDate(r.page_age),
+      }));
+
+      return deduplicateHits(hits).slice(0, options.max);
+    } catch (error) {
+      if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
+        const safe = new Error(error.name === "AbortError" ? "Search cancelled" : "Search timed out");
+        safe.name = error.name;
+        throw safe;
+      }
+      // Do not retain the untrusted exception as a cause.
+      // eslint-disable-next-line preserve-caught-error
+      throw new Error(status === undefined ? "Brave search failed" : `Brave search failed (${status})`);
     }
-
-    const data = (await response.json()) as BraveResponse;
-    const rawResults = data.web?.results ?? [];
-
-    const hits: SearchHit[] = rawResults.map((r) => ({
-      title: (r.title ?? "").trim(),
-      url: r.url,
-      snippet: (r.description ?? "").trim(),
-      publishedAt: formatPublishedDate(r.page_age),
-    }));
-
-    return deduplicateHits(hits).slice(0, options.max);
   }
 }
