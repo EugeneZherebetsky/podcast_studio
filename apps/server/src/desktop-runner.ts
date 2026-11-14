@@ -13,6 +13,7 @@ import { cancelJob, ExternalWorkUncertain, createJob, generateJob, type Generate
 import { openDesktopGuard } from "./desktop-guard.ts";
 import type { createScriptSelection } from "./chatgpt-selection.ts";
 import { safeModel } from "./job-log.ts";
+import { safeGenerationError } from "./safe-generation-error.ts";
 import { CloudTtsProvider } from "./providers/tts/cloud.ts";
 
 /** Owns only jobs created in this process; never scans persisted jobs for work. */
@@ -70,7 +71,7 @@ export function createDesktopRunner(
             }
           }
         }
-        const message = error instanceof Error ? error.message : String(error);
+        const message = safeGenerationError(error);
         deps.db
           .update(jobs)
           .set({ status: "failed", error: message, updatedAt: new Date().toISOString() })
