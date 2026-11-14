@@ -16,6 +16,15 @@ test('constructs a minimal loopback child environment with shutdown opt-in', () 
   assert.equal(env.SystemRoot, 'system');
 });
 
+test('passes only selected Piper settings to the next child', () => {
+  const piper = { PIPER_DIR: 'home', TTS_VOICE_NATIVE_HOST: 'en_US-voice', TTS_VOICE_HU_HOST: 'hu_HU-voice', API_KEY: 'ignored' };
+  const env = childEnvironment({}, 'resources', 'home', null, piper);
+  assert.equal(env.PIPER_DIR, piper.PIPER_DIR);
+  assert.equal(env.TTS_VOICE_NATIVE_HOST, piper.TTS_VOICE_NATIVE_HOST);
+  assert.equal(env.TTS_VOICE_HU_HOST, piper.TTS_VOICE_HU_HOST);
+  assert.equal(env.API_KEY, undefined);
+});
+
 test('readiness requires the exact child IPC message and a valid port', () => {
   assert.equal(validReady({ type: 'desktop-ready', port: 34567 }), true);
   for (const value of [null, {}, { type: 'desktop-ready', port: 0 }, { type: 'desktop-ready', port: '34567' }, { type: 'other', port: 34567 }]) assert.equal(validReady(value), false);

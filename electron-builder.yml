@@ -6,6 +6,7 @@ files:
   - apps/desktop/main.mjs
   - apps/desktop/supervisor.mjs
   - apps/desktop/ffmpeg-settings.mjs
+  - apps/desktop/local-settings.mjs
 extraMetadata:
   main: apps/desktop/main.mjs
 extraResources:
