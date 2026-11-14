@@ -1,5 +1,7 @@
 import { safeGenerationError } from "../src/safe-generation-error.ts";
-import { ChatGptTimeoutError } from "../src/providers/llm/chatgpt-inference.ts";
+import { ChatGptCancelledError, ChatGptTimeoutError } from "../src/providers/llm/chatgpt-inference.ts";
+import { ExternalWorkUncertain } from "../src/pipeline/runner.ts";
+import { publicJobError } from "../src/job-log.ts";
 import { describe, expect, test } from "vitest";
 import { MockLanguageModelV4 } from "ai/test";
 import { z } from "zod";
@@ -12,6 +14,25 @@ import { BraveSearchProvider } from "../src/providers/search/brave.ts";
 import { TavilySearchProvider } from "../src/providers/search/tavily.ts";
 
 const secret = "synthetic-credential-for-boundary-test";
+
+test.each([
+  [new ChatGptTimeoutError(), "ChatGPT request timed out; remote work may still be running"],
+  [new ChatGptCancelledError(), "ChatGPT request cancelled; remote work may still be running"],
+  [new DOMException(secret, "TimeoutError"), "Generation timed out"],
+  [new DOMException(secret, "AbortError"), "Generation cancelled"],
+])("preserves safe classification through the external work wrapper", (error, message) => {
+  for (const input of [error, new ExternalWorkUncertain(error)]) {
+    expect(safeGenerationError(input)).toBe(message);
+    expect(publicJobError(safeGenerationError(input))).toBe(message);
+  }
+});
+
+test("unknown external errors disclose uncertainty without provider text", () => {
+  const message = safeGenerationError(new ExternalWorkUncertain(new Error(secret)));
+  expect(message).toBe("External work may still be running; stop the server and follow manual recovery in SETUP.md");
+  expect(publicJobError(message)).toBe(message);
+  expect(message).not.toContain(secret);
+});
 
 test("generation fallback retains safe timeout, cancellation, and diagnostics", () => {
   expect(safeGenerationError(new ChatGptTimeoutError())).toBe("ChatGPT request timed out; remote work may still be running");
