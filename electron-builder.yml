@@ -6,6 +6,11 @@ files:
   - apps/desktop/main.mjs
   - apps/desktop/supervisor.mjs
   - apps/desktop/ffmpeg-settings.mjs
+  - apps/desktop/key-window.mjs
+  - apps/desktop/key-window.html
+  - apps/desktop/key-window.js
+  - apps/desktop/key-preload.cjs
+  - apps/desktop/write-only-store.mjs
 extraMetadata:
   main: apps/desktop/main.mjs
 extraResources:

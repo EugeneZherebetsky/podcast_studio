@@ -58,6 +58,16 @@ test("desktop child ignores the entire home .env, including blank key fallback",
   expect(config.OPENAI_API_KEY).toBeUndefined();
 });
 
+test("actual process environment in desktop mode does not fall back to home .env", () => {
+  writeEnv("OPENAI_API_KEY=file-synthetic-key\n");
+  vi.stubEnv("PODCAST_STUDIO_DESKTOP_IPC", "1");
+  vi.stubEnv("PROFILE", "local");
+  vi.stubEnv("OPENAI_API_KEY", "");
+  try {
+    expect(loadConfig({ rootDir: dir }).OPENAI_API_KEY).toBeUndefined();
+  } finally { vi.unstubAllEnvs(); }
+});
+
 test("local Ollama rejects cloud model names regardless of bounded output", () => {
   const fetchSpy = vi.spyOn(globalThis, "fetch");
   try {

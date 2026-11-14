@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'"><title>Key storage prototype</title><script defer src="key-window.js"></script></head>
+<body><h1>Provider key storage (inactive prototype)</h1><p>Use synthetic test values only. Saved keys are not used by this build, even after a restart. No restart occurs when keys change. When a future version supports activation, quit and reopen only after no job is active to avoid interruption.</p>
+<label for="name">Provider key</label> <select id="name"></select>
+<label for="value">New key</label> <input id="value" type="password" autocomplete="off" maxlength="8192">
+<button id="save" type="button">Save</button> <button id="clear" type="button">Clear stored key</button>
+<p id="status" role="status" aria-live="polite"></p><ul id="list"></ul></body></html>

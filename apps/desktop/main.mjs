@@ -1,9 +1,11 @@
-import { app, BrowserWindow, Menu, Tray, dialog, nativeImage, session, shell } from 'electron';
+import { app, BrowserWindow, Menu, Tray, dialog, nativeImage, safeStorage, session, shell } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir } from 'node:fs/promises';
 import { allowedExternal, loginItem, startServer } from './supervisor.mjs';
 import { readTools, saveTools } from './ffmpeg-settings.mjs';
+import { openKeyWindow } from './key-window.mjs';
+import { createStore } from './write-only-store.mjs';
 
 app.setName(app.isPackaged ? 'Podcast Studio Installer Prototype' : 'Podcast Studio Desktop');
 app.enableSandbox();
@@ -53,6 +55,12 @@ function external(url) {
 function menu() {
   return Menu.buildFromTemplate([
     { label: 'Open Podcast Studio', click: show },
+    { label: 'Provider keys (inactive prototype)…', click: async () => {
+      try {
+        const keyWindow = await openKeyWindow(createStore(path.join(home, 'provider-keys.bin'), safeStorage));
+        keyWindow.show();
+      } catch { dialog.showErrorBox('Provider keys', 'The key window could not be opened.'); }
+    } },
     { label: 'Select FFmpeg and ffprobe…', click: async () => {
       if (await selectTools()) await dialog.showMessageBox({ message: 'Tool locations saved. Quit and reopen Podcast Studio to use them.' });
     } },
