@@ -38,10 +38,14 @@ because ownership and remote side effects cannot be safely recovered automatical
 A future supervisor can spawn the server with `PODCAST_STUDIO_PARENT_STDIN=1` and a
 piped stdin. Closing that pipe requests shutdown, including on Windows; keep it open
 for the entire child lifetime. Without that exact opt-in, stdin EOF has no effect on
-repository runs. The server closes Fastify and its existing runner and ChatGPT session
-hooks, allowing up to eight seconds overall before a nonzero forced exit. If generation
-fails to drain within its existing two-second bound, it exits nonzero without clearing
-the guard. The supervisor should allow more than eight seconds plus scheduling margin
+repository runs. Closing Fastify starts generation cancellation and ChatGPT session shutdown
+before waiting for in-flight HTTP requests; the database remains open until those requests
+and the close hooks finish. Repeated shutdown requests share the same cleanup. The server
+allows up to eight seconds overall before a nonzero forced exit. If generation fails to
+drain within its existing two-second bound, it exits nonzero without clearing
+the guard. A stalled HTTP request can still exhaust the overall deadline; unfinished
+revocation or external work may continue remotely and must not be assumed complete. The
+supervisor should allow more than eight seconds plus scheduling margin
 before resorting to termination. Exit success is not proof remote work stopped: cancelled
 or failed provider work and ChatGPT revocation can remain uncertain. Preserve all data,
 consult SETUP.md for manual recovery, and never automatically resume or bypass the guard.

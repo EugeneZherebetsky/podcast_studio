@@ -11,11 +11,18 @@ export function registerChatGptManagement(app: FastifyInstance, session: Session
   let phase: "idle" | "starting" | "pending" | "failed" = "idle";
   let generation = 0;
   let closing = false;
-  app.addHook("onClose", async () => {
-    closing = true;
-    generation++;
-    await session.shutdown();
-  });
+  let shutdown: Promise<void> | undefined;
+  const beginShutdown = () => {
+    if (!shutdown) {
+      closing = true;
+      generation++;
+      shutdown = Promise.resolve().then(() => session.shutdown());
+      void shutdown.catch(() => {}); // onClose observes the error after HTTP drains
+    }
+    return shutdown;
+  };
+  app.addHook("preClose", (done) => { void beginShutdown(); done(); });
+  app.addHook("onClose", async () => { await beginShutdown(); });
   app.addHook("onRequest", async (request, reply) => {
     if (!request.url.split("?")[0]?.startsWith("/api/chatgpt/")) return;
     reply.header("cache-control", "no-store");

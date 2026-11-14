@@ -1,4 +1,25 @@
 import type { FastifyInstance } from "fastify";
+import type { Db } from "./db/index.ts";
+
+/** Start cancellation before HTTP drains, but keep SQLite open until onClose. */
+export function registerRunnerShutdown(app: FastifyInstance, db: Db, runner?: { close(): Promise<boolean> }): void {
+  let closing: Promise<boolean> | undefined;
+  const begin = () => {
+    if (!closing) {
+      closing = Promise.resolve().then(() => runner ? runner.close() : true);
+      void closing.catch(() => {}); // onClose observes failures after HTTP drains
+    }
+    return closing;
+  };
+  app.addHook("preClose", (done) => { void begin(); done(); });
+  app.addHook("onClose", async () => {
+    if (await begin()) db.$client.close();
+    else {
+      console.error("Generation did not drain; manual recovery may be required");
+      process.exitCode = 1;
+    }
+  });
+}
 
 /** Install after listen; stdin is a shutdown channel only when explicitly requested. */
 export function installShutdown(app: FastifyInstance): void {

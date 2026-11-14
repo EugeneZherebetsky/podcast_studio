@@ -10,7 +10,7 @@ import { EventEmitter } from "node:events";
 import { createProviders } from "./providers/index.ts";
 import { createDesktopRunner } from "./desktop-runner.ts";
 import { createScriptSelection } from "./chatgpt-selection.ts";
-import { installShutdown } from "./shutdown.ts";
+import { installShutdown, registerRunnerShutdown } from "./shutdown.ts";
 
 let config;
 try {
@@ -44,13 +44,7 @@ const app = buildApp({
   scriptSelection,
   webRoot: webRoot(),
 });
-app.addHook("onClose", async () => {
-  if (!runner || await runner.close()) db.$client.close();
-  else {
-    console.error("Generation did not drain; manual recovery may be required");
-    process.exitCode = 1;
-  }
-});
+registerRunnerShutdown(app, db, runner);
 await app.listen({ host: config.HOST, port: config.PORT });
 installShutdown(app);
 console.log(`${APP_NAME} server listening on http://${config.HOST}:${config.PORT}`);
