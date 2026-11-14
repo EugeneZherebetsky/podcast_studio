@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { mkdir } from 'node:fs/promises';
 import { allowedExternal, loginItem, startServer } from './supervisor.mjs';
 
-app.setName('Podcast Studio Desktop');
+app.setName(app.isPackaged ? 'Podcast Studio Installer Prototype' : 'Podcast Studio Desktop');
 app.enableSandbox();
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const resources = app.isPackaged ? process.resourcesPath : path.join(root, 'dist-desktop');

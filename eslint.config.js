@@ -6,7 +6,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default defineConfig(
-  globalIgnores(["**/node_modules/", "**/dist/", "**/build/", "dist-desktop/", "data/"]),
+  globalIgnores(["**/node_modules/", "**/dist/", "**/build/", "dist-desktop/", "dist-installer/", "data/"]),
   js.configs.recommended,
   tseslint.configs.recommended,
   {

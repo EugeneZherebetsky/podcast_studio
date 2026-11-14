@@ -1,0 +1,29 @@
+appId: org.podcaststudio.installerprototype
+productName: Podcast Studio Installer Prototype
+directories:
+  output: dist-installer
+files:
+  - apps/desktop/main.mjs
+  - apps/desktop/supervisor.mjs
+extraMetadata:
+  main: apps/desktop/main.mjs
+extraResources:
+  - from: dist-desktop
+    to: .
+    filter:
+      - '**/*'
+npmRebuild: false
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  signAndEditExecutable: false
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  runAfterFinish: false
+  createDesktopShortcut: false
+  createStartMenuShortcut: true
