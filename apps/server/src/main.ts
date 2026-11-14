@@ -40,7 +40,7 @@ const runner = desktopGuard
       db, providers: createProviders(config), dataDir: dataDirs.root,
       budgetUsd: config.MONTHLY_BUDGET_USD, voice: config.TTS_VOICE_NATIVE_HOST ?? "",
       profile: "local", llmName: config.OLLAMA_MODEL_MAIN, ttsName: "piper", nativeLang: config.NATIVE_LANG,
-    }, events, config, scriptSelection, desktopGuard)
+    }, events, config, scriptSelection, desktopGuard, desktopIpc && process.env.PODCAST_STUDIO_NATIVE_PIPER === "1")
   : undefined;
 
 const app = buildApp({

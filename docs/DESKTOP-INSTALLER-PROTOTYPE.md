@@ -33,6 +33,17 @@ settings dialog. A loopback proxy or a cloud-backed model alias can forward data
 use trusted services and disable Ollama cloud features separately as described in
 [SETUP.md](SETUP.md).
 
+If service settings are invalid, startup shows the exact settings file location and
+does not modify it. Back up that file, correct its JSON and values with a text editor,
+then quit and reopen. For reference, its three fields are `ollama`, `model`, and
+`searxng`, all strings. Query strings and fragments are not accepted in endpoint URLs.
+
+Use **Set up Piper voices** to select an existing Piper executable and English and
+Hungarian voice pairs. After reopening, the selected voices take precedence over web
+Piper voice settings; those saved web values are not overwritten. If cloud TTS is
+configured in web settings, it still takes precedence and can incur charges. Changes
+made in the native chooser never restart the running server.
+
 First-run data import is not implemented: never blindly copy a live SQLite database or
 WAL. The installer is configured to retain user data on uninstall. No existing data is
 migrated, altered or deleted. Install and uninstall behavior is not yet verified.
