@@ -5,7 +5,38 @@ import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { createStore } from './write-only-store.mjs';
+import { createStore, KEY_NAMES } from './write-only-store.mjs';
+
+test('oversized encrypted emoji update preserves the readable previous store', () => fixture(async (dir) => {
+  const file = path.join(dir, 'keys.bin');
+  const store = createStore(file, cryptoStorage(), { platform: 'win32' });
+  for (const name of KEY_NAMES.slice(0, -1)) await store.set(name, '😀'.repeat(4096));
+  const before = await readFile(file);
+  await assert.rejects(store.set(KEY_NAMES.at(-1), '😀'.repeat(4096)), /Unable to update/);
+  assert.deepEqual(await readFile(file), before);
+  const status = await store.list();
+  for (const name of KEY_NAMES.slice(0, -1)) assert.equal(status[name], true);
+  assert.equal(status[KEY_NAMES.at(-1)], false);
+}));
+
+test('encrypted size limit accepts exactly the limit and rejects one byte more', () => fixture(async (dir) => {
+  const file = path.join(dir, 'keys.bin');
+  let size = 131072;
+  const storage = {
+    isAsyncEncryptionAvailable: async () => true,
+    encryptStringAsync: async (plain) => { const blob = Buffer.alloc(size); blob.write(plain); return blob; },
+    decryptStringAsync: async (blob) => ({ result: blob.toString().replace(/\0+$/, '') }),
+  };
+  const store = createStore(file, storage, { platform: 'win32' });
+  await store.set('OPENAI_API_KEY', 'synthetic');
+  const before = await readFile(file);
+  assert.equal(before.length, size);
+  assert.equal((await store.list()).OPENAI_API_KEY, true);
+  size++;
+  await assert.rejects(store.set('BRAVE_API_KEY', 'synthetic'), /Unable to update/);
+  assert.deepEqual(await readFile(file), before);
+  assert.equal((await store.list()).BRAVE_API_KEY, false);
+}));
 
 function cryptoStorage() {
   const key = randomBytes(32);

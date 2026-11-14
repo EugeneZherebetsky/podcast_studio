@@ -7,6 +7,8 @@ export const KEY_NAMES = Object.freeze([
   'BRAVE_API_KEY', 'AZURE_SPEECH_KEY', 'ELEVENLABS_API_KEY', 'FISH_AUDIO_API_KEY',
 ]);
 
+const MAX_ENCRYPTED_BYTES = 131072;
+
 // A cooperative lock prevents lost updates across processes; a crash requires manual recovery.
 // Same-user adversarial filesystem races are not excluded: this is not enabled in the shell.
 export function createStore(file, safeStorage, options = {}) {
@@ -33,7 +35,7 @@ export function createStore(file, safeStorage, options = {}) {
     let blob;
     try {
       const stat = await lstat(file);
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 131072) throw new Error();
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_ENCRYPTED_BYTES) throw new Error();
       blob = await readFile(file);
     } catch (error) {
       if (error.code === 'ENOENT') return {};
@@ -52,7 +54,7 @@ export function createStore(file, safeStorage, options = {}) {
     let created = false;
     try {
       const encrypted = await safeStorage.encryptStringAsync(JSON.stringify(values));
-      if (!Buffer.isBuffer(encrypted) || !encrypted.length) throw new Error();
+      if (!Buffer.isBuffer(encrypted) || !encrypted.length || encrypted.length > MAX_ENCRYPTED_BYTES) throw new Error();
       handle = await openTemp(temp, 'wx', 0o600); created = true;
       await handle.writeFile(encrypted); await handle.sync(); await handle.close(); handle = null;
       await replace(temp, file);
