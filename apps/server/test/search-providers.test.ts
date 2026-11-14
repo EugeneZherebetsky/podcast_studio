@@ -102,7 +102,7 @@ describe("TavilySearchProvider", () => {
 
     const provider = new TavilySearchProvider({ apiKey: "bad-key", fetch: mockFetch });
     await expect(provider.search("q", { max: 5 })).rejects.toThrowError(
-      /Tavily search failed \(401 Unauthorized\): Invalid API key/,
+      /Tavily search failed \(401\)/,
     );
   });
 
@@ -201,7 +201,7 @@ describe("BraveSearchProvider", () => {
 
     const provider = new BraveSearchProvider({ apiKey: "key", fetch: mockFetch });
     await expect(provider.search("q", { max: 5 })).rejects.toThrowError(
-      /Brave search failed \(429 Too Many Requests\): Subscription limit reached/,
+      /Brave search failed \(429\)/,
     );
   });
 });

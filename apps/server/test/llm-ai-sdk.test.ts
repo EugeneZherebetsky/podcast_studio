@@ -154,20 +154,16 @@ describe("AiSdkLlmProvider.generateObject", () => {
     expect(main.doGenerateCalls).toHaveLength(2);
     expect(error).toBeInstanceOf(LlmOutputError);
     const outputError = error as LlmOutputError;
-    expect(outputError.message).toContain("anthropic/model-main");
-    expect(outputError.message).toContain('slot "main"');
     expect(outputError.message).toContain("2 attempts");
-    // formatZodError: the path of the offending field and what was wrong with it.
-    expect(outputError.message).toContain("population: Invalid input: expected number");
     // The failed calls were still billed.
     expect(outputError.usage).toMatchObject({ inputTokens: 200, outputTokens: 40 });
     expect(outputError.usage.costUsd).toBeCloseTo((200 * 3 + 40 * 15) / 1_000_000, 12);
   });
 
-  test("a non-JSON response is reported as such, with a short excerpt", async () => {
+  test("a non-JSON response is reported without its contents", async () => {
     const { provider } = setup({ main: ["I cannot do that.", "I cannot do that."] });
     await expect(provider.generateObject({ slot: "main", ...request })).rejects.toThrowError(
-      /not valid JSON.*I cannot do that\./s,
+      /did not return a valid object/,
     );
   });
 
@@ -205,7 +201,7 @@ describe("AiSdkLlmProvider.generateObject", () => {
       prices: "free",
     });
     await expect(provider.generateObject({ slot: "main", ...request })).rejects.toThrowError(
-      "connection refused",
+      "LLM request failed",
     );
     expect(calls).toBe(1);
   });
@@ -408,7 +404,7 @@ describe("bounded Ollama opt-in", () => {
         env: { OLLAMA_BOUNDED_OUTPUT: "1" },
       });
       await expect(provider.generateObject({ slot: "main", ...request })).rejects.toThrow(
-        /2 attempts[\s\S]*population/,
+        /2 attempts/,
       );
       expect(fetchMock).toHaveBeenCalledTimes(2);
       const retryBody = JSON.parse(fetchMock.mock.calls[1]![1]!.body as string);

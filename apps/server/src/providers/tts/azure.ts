@@ -142,10 +142,9 @@ export class AzureTtsProvider implements TtsProvider {
       });
 
       if (!response.ok) {
-        const text = await response.text().catch(() => "");
         throw new TtsHttpError(
           response.status,
-          `Azure Speech TTS failed (${response.status} ${response.statusText}): ${text}`,
+          `Azure Speech TTS failed (${response.status})`,
         );
       }
 
@@ -154,6 +153,16 @@ export class AzureTtsProvider implements TtsProvider {
         audio,
         chars: countChars(request.text),
       };
+    }).catch((error: unknown) => {
+      if (error instanceof TtsHttpError && Number.isInteger(error.status) && error.status >= 100 && error.status <= 599) {
+        throw new TtsHttpError(error.status, `Azure Speech TTS failed (${error.status})`);
+      }
+      if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
+        const safe = new Error(error.name === "AbortError" ? "TTS cancelled" : "TTS timed out");
+        safe.name = error.name;
+        throw safe;
+      }
+      throw new Error("Azure Speech TTS failed");
     });
   }
 }
