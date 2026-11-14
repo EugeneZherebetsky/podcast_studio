@@ -5,14 +5,26 @@ export class CloudTtsBillingUncertain extends Error {
   constructor() { super("Cloud TTS failed; the provider may have billed this request"); }
 }
 
+const recovery = "external work may still be running; stop the server and follow manual recovery in SETUP.md";
+const classifications = [
+  "Generation timed out",
+  "Generation cancelled",
+  "ChatGPT request timed out; remote work may still be running",
+  "ChatGPT request cancelled; remote work may still be running",
+  "Cloud TTS failed; the provider may have billed this request",
+];
+export const combinedRecoveryMessages: readonly string[] = Object.freeze(classifications.map((message) => `${message}; ${recovery}`));
 const wrappedMessages = new WeakMap<ExternalWorkUncertain, string>();
+const wrappedUsage = new WeakMap<ExternalWorkUncertain, Usage>();
 export class ExternalWorkUncertain extends Error {
-  readonly usage: Usage | undefined;
+  get usage(): Usage | undefined { return wrappedUsage.get(this); }
   constructor(error: unknown) {
-    super("External work uncertain", { cause: error });
-    this.usage = usageOfFailedCall(error);
+    super("External work uncertain");
+    const usage = usageOfFailedCall(error);
+    if (usage) wrappedUsage.set(this, { provider: usage.provider, model: usage.model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, costUsd: usage.costUsd });
     const message = safeGenerationError(error);
-    wrappedMessages.set(this, message === "Generation failed" ? "External work may still be running; stop the server and follow manual recovery in SETUP.md" : message);
+    const index = classifications.indexOf(message);
+    wrappedMessages.set(this, error instanceof ExternalWorkUncertain ? message : index < 0 ? `External work may still be running; stop the server and follow manual recovery in SETUP.md` : combinedRecoveryMessages[index]!);
   }
 }
 
@@ -38,9 +50,9 @@ export function safeGenerationError(error: unknown): string {
   if (error instanceof ChatGptTimeoutError) return "ChatGPT request timed out; remote work may still be running";
   if (error instanceof ChatGptCancelledError) return "ChatGPT request cancelled; remote work may still be running";
   if (error instanceof Error) {
-    if (SAFE_MESSAGES.has(error.message)) return error.message;
     if (error.name === "TimeoutError") return "Generation timed out";
     if (error.name === "AbortError") return "Generation cancelled";
+    if (SAFE_MESSAGES.has(error.message)) return error.message;
   }
   return "Generation failed";
 }
