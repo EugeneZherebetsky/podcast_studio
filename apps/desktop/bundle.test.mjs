@@ -22,6 +22,11 @@ test('bundled child binds its own loopback port and reports readiness over IPC',
     const response = await fetch(`http://127.0.0.1:${port}/`);
     assert.equal(response.status, 200);
     assert.match(await response.text(), /<html/i);
+    const second = startServer(resources, home, () => {});
+    try {
+      await assert.rejects(second.ready, /exited during startup/);
+      assert.equal((await fetch(`http://127.0.0.1:${port}/`)).status, 200);
+    } finally { await second.stop(); }
   } finally { await server.stop(); rogue.close(); }
   assert.equal(exitCode, 0);
 });

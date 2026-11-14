@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { Db } from "./db/index.ts";
 
 /** Start cancellation before HTTP drains, but keep SQLite open until onClose. */
-export function registerRunnerShutdown(app: FastifyInstance, db: Db, runner?: { stopGeneration(): Promise<boolean>; close(): Promise<boolean> }): void {
+export function registerRunnerShutdown(app: FastifyInstance, db: Db, runner?: { stopGeneration(): Promise<boolean>; close(): Promise<boolean> }, session?: { shutdown(): Promise<void> }): void {
   let closing: Promise<boolean> | undefined;
   const begin = () => {
     if (!closing) {
@@ -14,6 +14,7 @@ export function registerRunnerShutdown(app: FastifyInstance, db: Db, runner?: { 
   app.addHook("preClose", (done) => { void begin(); done(); });
   app.addHook("onClose", async () => {
     if (await begin()) {
+      await session?.shutdown();
       db.$client.close();
       await runner?.close();
     }

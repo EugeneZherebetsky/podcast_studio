@@ -9,6 +9,7 @@ import { createChatGptSession } from "./providers/llm/chatgpt-session.ts";
 import { EventEmitter } from "node:events";
 import { createProviders } from "./providers/index.ts";
 import { createDesktopRunner } from "./desktop-runner.ts";
+import { openDesktopGuard } from "./desktop-guard.ts";
 import { createScriptSelection } from "./chatgpt-selection.ts";
 import { installShutdown, registerRunnerShutdown } from "./shutdown.ts";
 
@@ -20,19 +21,26 @@ try {
   process.exit(1);
 }
 
+const desktopIpc = process.env.PODCAST_STUDIO_DESKTOP_IPC === "1" && typeof process.send === "function";
+if (desktopIpc && !(config.PROFILE === "local" && config.SEARCH_PROVIDER === "searxng" && config.TTS_PROVIDER === "piper")) {
+  throw new Error("Desktop server requires the local generation ownership guard");
+}
 const dataDirs = ensureDataDirs(config.DATA_DIR);
+const desktopGuard = config.PROFILE === "local" && config.SEARCH_PROVIDER === "searxng" && config.TTS_PROVIDER === "piper"
+  ? openDesktopGuard(dataDirs.root)
+  : undefined;
 const db = openDatabase(dataDirs.dbFile);
 const chatgptSession = ["127.0.0.1", "::1"].includes(config.HOST)
   ? await createChatGptSession(path.join(config.DATA_DIR, "chatgpt"))
   : undefined;
 const events = new EventEmitter();
 const scriptSelection = createScriptSelection(path.join(config.DATA_DIR, "chatgpt"), chatgptSession);
-const runner = config.PROFILE === "local" && config.SEARCH_PROVIDER === "searxng" && config.TTS_PROVIDER === "piper"
+const runner = desktopGuard
   ? createDesktopRunner({
       db, providers: createProviders(config), dataDir: dataDirs.root,
       budgetUsd: config.MONTHLY_BUDGET_USD, voice: config.TTS_VOICE_NATIVE_HOST ?? "",
       profile: "local", llmName: config.OLLAMA_MODEL_MAIN, ttsName: "piper", nativeLang: config.NATIVE_LANG,
-    }, events, config, scriptSelection)
+    }, events, config, scriptSelection, desktopGuard)
   : undefined;
 
 const app = buildApp({
@@ -44,8 +52,7 @@ const app = buildApp({
   scriptSelection,
   webRoot: webRoot(),
 });
-registerRunnerShutdown(app, db, runner);
-const desktopIpc = process.env.PODCAST_STUDIO_DESKTOP_IPC === "1" && typeof process.send === "function";
+registerRunnerShutdown(app, db, runner, chatgptSession);
 await app.listen({ host: config.HOST, port: desktopIpc ? 0 : config.PORT });
 installShutdown(app);
 const address = app.server.address();

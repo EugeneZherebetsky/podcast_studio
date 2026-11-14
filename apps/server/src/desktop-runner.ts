@@ -21,8 +21,8 @@ export function createDesktopRunner(
   events: EventEmitter,
   config?: AppConfig,
   selection?: ReturnType<typeof createScriptSelection>,
+  guard = openDesktopGuard(deps.dataDir),
 ): JobRunner & { stopGeneration(): Promise<boolean>; close(): Promise<boolean> } {
-  const guard = openDesktopGuard(deps.dataDir);
   const queue: { id: string; deps: GenerateDeps }[] = [];
   let active: Promise<void> | undefined;
   let activeId: string | undefined;

@@ -5,6 +5,9 @@ import { childEnvironment, validReady, allowedExternal, startServer, loginItem }
 test('constructs a minimal loopback child environment with shutdown opt-in', () => {
   const env = childEnvironment({ SystemRoot: 'system', PATH: 'path', API_KEY: 'do-not-copy' }, 'resources', 'home');
   assert.equal(env.HOST, '127.0.0.1');
+  assert.equal(env.PROFILE, 'local');
+  assert.equal(env.SEARCH_PROVIDER, 'searxng');
+  assert.equal(env.TTS_PROVIDER, 'piper');
   assert.equal(env.PODCAST_STUDIO_PARENT_STDIN, '1');
   assert.equal(env.PODCAST_STUDIO_DESKTOP_IPC, '1');
   assert.equal(env.API_KEY, undefined);

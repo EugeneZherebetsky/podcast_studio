@@ -5,7 +5,7 @@ import { isIP } from 'node:net';
 export function childEnvironment(parent, resources, home) {
   const env = {};
   for (const key of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (parent[key]) env[key] = parent[key];
-  return { ...env, HOST: '127.0.0.1', PODCAST_STUDIO_RESOURCES: resources,
+  return { ...env, HOST: '127.0.0.1', PROFILE: 'local', SEARCH_PROVIDER: 'searxng', TTS_PROVIDER: 'piper', PODCAST_STUDIO_RESOURCES: resources,
     PODCAST_STUDIO_HOME: home, DATA_DIR: path.join(home, 'data'),
     PODCAST_STUDIO_PARENT_STDIN: '1', PODCAST_STUDIO_DESKTOP_IPC: '1' };
 }
