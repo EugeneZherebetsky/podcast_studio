@@ -21,7 +21,7 @@ export function createDesktopRunner(
   events: EventEmitter,
   config?: AppConfig,
   selection?: ReturnType<typeof createScriptSelection>,
-): JobRunner & { close(): Promise<boolean> } {
+): JobRunner & { stopGeneration(): Promise<boolean>; close(): Promise<boolean> } {
   const guard = openDesktopGuard(deps.dataDir);
   const queue: { id: string; deps: GenerateDeps }[] = [];
   let active: Promise<void> | undefined;
@@ -161,7 +161,7 @@ export function createDesktopRunner(
       if (id === activeId) abort?.abort();
       return get(id);
     },
-    async close() {
+    async stopGeneration() {
       closing = true;
       for (const { id } of queue.splice(0)) {
         cancelJob(deps.db, id);
@@ -171,14 +171,14 @@ export function createDesktopRunner(
         cancelOwned(activeId);
         abort?.abort();
       }
-      if (!active) {
-        guard.close(!uncertain);
-        return true;
-      }
-      const drained = await Promise.race([
+      if (!active) return true;
+      return Promise.race([
         active.then(() => true),
         new Promise<false>((resolve) => setTimeout(() => resolve(false), 2000)),
       ]);
+    },
+    async close() {
+      const drained = await this.stopGeneration();
       if (drained) guard.close(!uncertain);
       return drained;
     },

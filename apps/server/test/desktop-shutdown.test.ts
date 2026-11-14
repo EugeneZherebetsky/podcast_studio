@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { request } from "node:http";
+import { createInterface } from "node:readline";
 import { createServer } from "node:net";
 import { expect, test } from "vitest";
 import { makeTempDir, removeTempDir } from "./temp-dir.ts";
@@ -72,6 +74,35 @@ test("a stuck close exits nonzero at the shutdown deadline", async () => {
     expect(result[0]).toBe(1);
   } finally {
     if (child.exitCode === null && child.signalCode === null) { child.kill(); await once(child, "exit"); }
+  }
+}, 15000);
+
+test("forced exit during HTTP drain retains the generation recovery marker", async () => {
+  const dir = makeTempDir();
+  const child = spawn(process.execPath, ["--import", "tsx", "test/fixtures/shutdown-http-child.ts", dir], {
+    cwd: process.cwd(), env: { ...process.env, PODCAST_STUDIO_PARENT_STDIN: "1" }, stdio: ["pipe", "pipe", "pipe"],
+  });
+  const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
+  let req: ReturnType<typeof request> | undefined;
+  try {
+    const ready = String((await lines.next()).value);
+    expect(ready).toMatch(/^READY \d+$/);
+    req = request(`http://127.0.0.1:${ready.split(" ")[1]}/stalled`);
+    req.on("error", () => {});
+    req.end();
+    expect((await lines.next()).value).toBe("STALLED");
+    const exit = once(child, "exit");
+    child.stdin.end();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(() => { const probe = openDesktopGuard(dir); probe.close(false); }).toThrow(/another/i);
+    const result = await Promise.race([exit, new Promise<never>((_, reject) => setTimeout(() => reject(new Error("shutdown deadline failed")), 11000))]);
+    expect(result[0]).toBe(1);
+    const guard = openDesktopGuard(dir);
+    try { expect(() => guard.begin()).toThrow(/manual recovery/i); } finally { guard.close(false); }
+  } finally {
+    req?.destroy();
+    if (child.exitCode === null && child.signalCode === null) { child.kill(); await once(child, "exit"); }
+    removeTempDir(dir);
   }
 }, 15000);
 
