@@ -8,8 +8,7 @@ import { createDesktopRunner } from "../src/desktop-runner.ts";
 import { createFakeProviders } from "../src/providers/index.ts";
 import { makeTempDir, removeTempDir } from "./temp-dir.ts";
 
-// Expected failure documents a real leak; remove .fails only when the security assertion passes.
-test.fails("provider usage metadata must not enter SQLite with a synthetic credential", async () => {
+test("provider usage metadata must not enter SQLite with a synthetic credential", async () => {
   const dir = makeTempDir();
   const db = openDatabase(path.join(dir, "app.db"));
   const events = new EventEmitter();
