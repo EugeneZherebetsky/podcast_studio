@@ -30,6 +30,7 @@ export class ExternalWorkUncertain extends Error {
 
 // Only fixed strings are safe to persist or broadcast for unknown exceptions.
 const SAFE_MESSAGES = new Set([
+  "Provider output blocked: possible credential exposure",
   "Cloud TTS input limit exceeded",
   "Invalid cloud TTS input limit",
   "Monthly budget exceeded",

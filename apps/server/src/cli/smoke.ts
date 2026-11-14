@@ -8,7 +8,6 @@ import {
   createSearchProvider,
   createTtsProvider,
   SearxngSearchProvider,
-  selectProviderNames,
 } from "../providers/index.ts";
 import { createAiSdkLlmProvider, findLlmApiKey } from "../providers/llm/ai-sdk.ts";
 
@@ -19,7 +18,6 @@ const TinySchema = z.object({
 
 async function runLlmSmoke(): Promise<void> {
   const config = loadConfig();
-  const names = selectProviderNames(config);
 
   console.log("=== LLM Provider Smoke Check ===");
 
@@ -27,31 +25,30 @@ async function runLlmSmoke(): Promise<void> {
   if (config.PROFILE === "cloud") {
     const key = findLlmApiKey(config, config.LLM_PROVIDER);
     if (!key) {
-      console.log(`[cloud: ${names.llm}] skipped: no API key set in .env`);
+      console.log(`[cloud: configured] skipped: no API key set in .env`);
     } else if (!config.LLM_MODEL_MAIN || !config.LLM_MODEL_FAST) {
       console.log(
-        `[cloud: ${names.llm}] skipped: LLM_MODEL_MAIN or LLM_MODEL_FAST not set in .env`,
+        `[cloud: configured] skipped: LLM_MODEL_MAIN or LLM_MODEL_FAST not set in .env`,
       );
     } else {
       try {
         console.log(
-          `[cloud: ${names.llm}] calling ${config.LLM_MODEL_FAST} (slot: fast)...`,
+          `[cloud: configured] calling fast slot...`,
         );
         const provider = createLlmProvider(config);
-        const result = await provider.generateObject({
+        await provider.generateObject({
           slot: "fast",
           system: "Be extremely concise. Return JSON matching the schema.",
           prompt: "Say hello in English.",
           schema: TinySchema,
         });
-        console.log(`[cloud: ${names.llm}] SUCCESS:`, result.object);
-        console.log(`[cloud: ${names.llm}] Usage:`, result.usage);
+        console.log(`[cloud: configured] SUCCESS`);
       } catch {
-        console.error(`[cloud: ${names.llm}] FAILED`);
+        console.error(`[cloud: configured] FAILED`);
       }
     }
   } else {
-    console.log(`[cloud] skipped: current profile is "${config.PROFILE}"`);
+    console.log(`[cloud] skipped: current profile is local`);
   }
 
   // 2. Ollama local provider check
@@ -65,16 +62,15 @@ async function runLlmSmoke(): Promise<void> {
     });
     const ollamaProvider = createAiSdkLlmProvider(localConfig, "ollama");
     console.log(
-      `[local: ollama] calling ${localConfig.OLLAMA_MODEL_FAST} at ${localConfig.OLLAMA_BASE_URL}...`,
+      `[local: ollama] calling fast slot...`,
     );
-    const result = await ollamaProvider.generateObject({
+    await ollamaProvider.generateObject({
       slot: "fast",
       system: "Be extremely concise. Return JSON matching the schema.",
       prompt: "Say hello.",
       schema: TinySchema,
     });
-    console.log("[local: ollama] SUCCESS:", result.object);
-    console.log("[local: ollama] Usage:", result.usage);
+    console.log("[local: ollama] SUCCESS");
   } catch {
     console.error("[local: ollama] FAILED");
   }
@@ -94,9 +90,6 @@ async function runSearchSmoke(): Promise<void> {
         const provider = createSearchProvider(config);
         const hits = await provider.search("podcast", { max: 3 });
         console.log(`[search: tavily] SUCCESS: returned ${hits.length} hit(s):`);
-        for (const hit of hits) {
-          console.log(`  - ${hit.title} (${hit.url})`);
-        }
       } catch {
         console.error("[search: tavily] FAILED");
       }
@@ -110,9 +103,6 @@ async function runSearchSmoke(): Promise<void> {
         const provider = createSearchProvider(config);
         const hits = await provider.search("podcast", { max: 3 });
         console.log(`[search: brave] SUCCESS: returned ${hits.length} hit(s):`);
-        for (const hit of hits) {
-          console.log(`  - ${hit.title} (${hit.url})`);
-        }
       } catch {
         console.error("[search: brave] FAILED");
       }
@@ -121,14 +111,11 @@ async function runSearchSmoke(): Promise<void> {
 
   // 2. SearXNG check (local profile or local container)
   const searxngUrl = config.SEARXNG_URL || "http://localhost:8888";
-  console.log(`\n[search: searxng] checking local SearXNG at ${searxngUrl}...`);
+  console.log("\n[search: searxng] checking local SearXNG...");
   try {
     const searxng = new SearxngSearchProvider({ baseUrl: searxngUrl });
     const hits = await searxng.search("podcast", { max: 3 });
     console.log(`[search: searxng] SUCCESS: returned ${hits.length} hit(s):`);
-    for (const hit of hits) {
-      console.log(`  - ${hit.title} (${hit.url})`);
-    }
   } catch {
     console.log("[search: searxng] unreachable/skipped");
   }
@@ -150,7 +137,7 @@ async function runTtsSmoke(): Promise<void> {
       return;
     }
   } else {
-    console.log(`[tts: ${providerName}] skipped: provider not supported in smoke check`);
+    console.log(`[tts] skipped: provider not supported in smoke check`);
     return;
   }
 
@@ -163,23 +150,23 @@ async function runTtsSmoke(): Promise<void> {
     const huVoice =
       providerName === "azure" ? config.TTS_VOICE_HU_HOST : "alloy";
 
-    console.log(`[tts: ${providerName}] synthesising English greeting using voice "${enVoice}"...`);
-    const enResult = await provider.synthesize({
+    console.log(`[tts: ${providerName}] synthesising English greeting...`);
+    await provider.synthesize({
       text: "Hello! Welcome to Podcast Studio.",
       lang: "en",
       voice: enVoice,
       rate: 1,
     });
-    console.log(`[tts: ${providerName}] SUCCESS (en): ${enResult.wavPath} (${enResult.chars} chars)`);
+    console.log(`[tts: ${providerName}] SUCCESS (en)`);
 
-    console.log(`[tts: ${providerName}] synthesising Hungarian greeting using voice "${huVoice}"...`);
-    const huResult = await provider.synthesize({
+    console.log(`[tts: ${providerName}] synthesising Hungarian greeting...`);
+    await provider.synthesize({
       text: "Szervusz! Üdvözöllek a Podcast Stúdióban.",
       lang: "hu",
       voice: huVoice,
       rate: 1,
     });
-    console.log(`[tts: ${providerName}] SUCCESS (hu): ${huResult.wavPath} (${huResult.chars} chars)`);
+    console.log(`[tts: ${providerName}] SUCCESS (hu)`);
   } catch {
     console.error(`[tts: ${providerName}] FAILED`);
   }
@@ -197,7 +184,7 @@ async function main(): Promise<void> {
   const only = values.only as string | undefined;
 
   if (only && only !== "llm" && only !== "search" && only !== "tts") {
-    console.log(`smoke --only ${only}: unknown target`);
+    console.log(`smoke: unknown target`);
     return;
   }
 

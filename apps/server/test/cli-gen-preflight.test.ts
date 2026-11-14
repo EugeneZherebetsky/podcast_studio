@@ -33,6 +33,16 @@ test("smoke output hides unexpected local provider exceptions", () => {
   } finally { removeTempDir(dir); }
 });
 
+test("smoke hides successful provider data and configured URLs", () => {
+  const result = spawnSync(process.execPath, ["--import", "tsx", "test/fixtures/cli-smoke-echo-provider.ts", "--only", "search"], {
+    cwd: process.cwd(), encoding: "utf8", timeout: 30000,
+    env: { ...process.env, PROFILE: "local", SEARCH_PROVIDER: "searxng", TTS_PROVIDER: "piper", SEARXNG_URL: "http://localhost:8888" },
+  });
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain("1 hit(s)");
+  expect(result.stdout + result.stderr).not.toContain("synthetic-smoke-canary");
+});
+
 test("server startup hides configuration filesystem exceptions", () => {
   const dir = makeTempDir();
   try {
