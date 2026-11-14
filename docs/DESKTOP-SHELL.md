@@ -9,8 +9,15 @@ Build with the prerequisites and commands in [DESKTOP-BUNDLE.md](DESKTOP-BUNDLE.
 then run `pnpm desktop:dev`. Electron 45's binary is downloaded on first use; its
 installer can also be run explicitly with `pnpm exec install-electron`. The shell
 uses a separate Electron user-data directory, not repository data. No credentials
-are copied from the parent environment. Configuring providers and safe key storage
-are not yet provided; do not put keys in the shell or expect paid features to work.
+are copied from the parent environment. Configuration for local service endpoints
+and safe key storage is not yet provided; do not put keys in the shell or expect
+paid features to work.
+The tray's Piper setup selects an existing trusted Piper `venv` executable and English
+and Hungarian ONNX voices in its `voices` directory, with matching `.onnx.json`
+files. No engine or voice is included; review their licenses. Settings take effect
+on the next launch; finish jobs before quitting. The picker checks file layout, not
+the integrity or functionality of the engine or models. This does not enable the
+still-blocked desktop generation runner.
 Run `pnpm desktop:test-bundle` after creating `dist-desktop` to exercise the actual
 bundled Node and server against an isolated data directory.
 

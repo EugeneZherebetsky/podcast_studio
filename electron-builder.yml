@@ -11,6 +11,7 @@ files:
   - apps/desktop/key-window.js
   - apps/desktop/key-preload.cjs
   - apps/desktop/write-only-store.mjs
+  - apps/desktop/local-settings.mjs
 extraMetadata:
   main: apps/desktop/main.mjs
 extraResources:

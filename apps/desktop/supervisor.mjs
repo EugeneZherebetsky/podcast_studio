@@ -2,12 +2,13 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { isIP } from 'node:net';
 
-export function childEnvironment(parent, resources, home, tools) {
+export function childEnvironment(parent, resources, home, tools, piper) {
   const env = {};
   for (const key of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (parent[key]) env[key] = parent[key];
   return { ...env, HOST: '127.0.0.1', PROFILE: 'local', SEARCH_PROVIDER: 'searxng', TTS_PROVIDER: 'piper', PODCAST_STUDIO_RESOURCES: resources,
     PODCAST_STUDIO_HOME: home, DATA_DIR: path.join(home, 'data'),
     ...(tools ? { FFMPEG_PATH: tools.ffmpeg, FFPROBE_PATH: tools.ffprobe } : {}),
+    ...(piper ? { PIPER_DIR: piper.PIPER_DIR, TTS_VOICE_NATIVE_HOST: piper.TTS_VOICE_NATIVE_HOST, TTS_VOICE_HU_HOST: piper.TTS_VOICE_HU_HOST } : {}),
     PODCAST_STUDIO_PARENT_STDIN: '1', PODCAST_STUDIO_DESKTOP_IPC: '1' };
 }
 export function validReady(message) {
@@ -34,7 +35,7 @@ export function loginItem(app, refresh) {
 export function startServer(resources, home, onExit, options = {}) {
   const executable = path.join(resources, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
   const child = (options.spawn ?? spawn)(executable, [path.join(resources, 'server', 'server.mjs')], {
-    env: childEnvironment(process.env, resources, home, options.tools), cwd: home,
+    env: childEnvironment(process.env, resources, home, options.tools, options.piper), cwd: home,
     stdio: ['pipe', 'ignore', 'ignore', 'ipc'], windowsHide: true,
   });
   let state = 'starting';

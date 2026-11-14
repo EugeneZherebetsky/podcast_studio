@@ -6,6 +6,7 @@ import { allowedExternal, loginItem, startServer } from './supervisor.mjs';
 import { readTools, saveTools } from './ffmpeg-settings.mjs';
 import { openKeyWindow } from './key-window.mjs';
 import { createStore } from './write-only-store.mjs';
+import { readPiper, savePiper } from './local-settings.mjs';
 
 app.setName(app.isPackaged ? 'Podcast Studio Installer Prototype' : 'Podcast Studio Desktop');
 app.enableSandbox();
@@ -18,6 +19,27 @@ let server;
 let quitting = false;
 let failed = false;
 let selectingTools = false;
+let selectingPiper = false;
+
+async function selectPiper() {
+  if (selectingPiper) return;
+  selectingPiper = true;
+  try {
+    const answer = await dialog.showMessageBox({ type: 'info', buttons: ['Choose files', 'Cancel'], defaultId: 1, cancelId: 1,
+      message: 'Connect an existing Piper installation',
+      detail: 'Piper and voices are not bundled. Select only a trusted Piper executable from the Piper home venv folder and two voice ONNX files from its voices folder. Each voice needs its matching .onnx.json file. Review the engine and voice licenses. Piper will run during generation. Changes apply after quitting and reopening; finish any jobs first.' });
+    if (answer.response !== 0) return;
+    const selected = {};
+    for (const [key, title] of [['executable', 'Select Piper in venv'], ['native', 'Select English voice ONNX'], ['hu', 'Select Hungarian voice ONNX']]) {
+      const result = await dialog.showOpenDialog({ title, properties: ['openFile'] });
+      if (result.canceled || result.filePaths.length !== 1) return;
+      selected[key] = result.filePaths[0];
+    }
+    await savePiper(home, selected);
+    await dialog.showMessageBox({ message: 'Piper settings saved.', detail: 'Finish any jobs, then quit and reopen Podcast Studio to use these settings.' });
+  } catch (err) { dialog.showErrorBox('Piper selection failed', String(err.message)); }
+  finally { selectingPiper = false; }
+}
 
 async function selectTools() {
   if (selectingTools) return null;
@@ -61,6 +83,7 @@ function menu() {
         keyWindow.show();
       } catch { dialog.showErrorBox('Provider keys', 'The key window could not be opened.'); }
     } },
+    { label: 'Set up Piper voices…', click: selectPiper },
     { label: 'Select FFmpeg and ffprobe…', click: async () => {
       if (await selectTools()) await dialog.showMessageBox({ message: 'Tool locations saved. Quit and reopen Podcast Studio to use them.' });
     } },
@@ -106,7 +129,8 @@ else {
     }
     const image = nativeImage.createFromBitmap(pixels, { width: 16, height: 16 });
     tray = new Tray(image); tray.setToolTip('Podcast Studio'); tray.setContextMenu(menu()); tray.on('click', show);
-    server = startServer(resources, home, () => error('The server stopped unexpectedly.'), { tools });
+    const piper = await readPiper(home);
+    server = startServer(resources, home, () => error('The server stopped unexpectedly.'), { tools, piper });
     const port = await server.ready;
     if (failed || quitting) return;
     const origin = `http://127.0.0.1:${port}`;
