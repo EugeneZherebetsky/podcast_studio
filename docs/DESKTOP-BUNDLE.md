@@ -52,7 +52,9 @@ consult SETUP.md for manual recovery, and never automatically resume or bypass t
 The Electron supervisor itself remains a later task.
 
 For offline verification only, the builder accepts `--test-output <absolute-file>`.
-It writes a new file in an existing directory outside `dist-desktop` with the main entry's provider factory
+It writes a new file in an existing directory outside `dist-desktop` and all copied
+production input trees, including their resolved links and runtime packages. Test-mode builds
+can run on supported Node versions; production bundles still require Node 22. The main entry's provider factory is
 replaced at build time by `apps/server/test/desktop-bundle-fakes.ts`. It does not alter
 the production bundle and no environment switch can enable the fakes. Run that test
 bundle with a copied resource tree, isolated configuration/data directories and network
