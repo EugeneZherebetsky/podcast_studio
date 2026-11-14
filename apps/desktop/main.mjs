@@ -49,7 +49,7 @@ else {
     event.preventDefault(); quitting = true;
     if (window && !window.isDestroyed()) window.destroy();
     void (server ? server.stop() : Promise.resolve(true)).then((clean) => {
-      if (!clean) dialog.showErrorBox('Podcast Studio', 'The server did not shut down cleanly. Manual recovery may be required; see the setup guidance.');
+      if (!clean) dialog.showErrorBox('Podcast Studio', server?.terminationConfirmed() ? 'The server did not shut down cleanly. Manual recovery may be required; see the setup guidance.' : 'The server may still be running: termination could not be confirmed. Do not start another server; check the setup recovery guidance.');
     }).finally(() => app.quit());
   });
   app.whenReady().then(async () => {
@@ -84,5 +84,10 @@ else {
     });
     window.webContents.setWindowOpenHandler(({ url }) => { external(url); return { action: 'deny' }; });
     await window.loadURL(origin); show();
-  }).catch(() => error('The desktop server could not start.'));
+  }).catch(async () => {
+    if (server) await server.stop();
+    error(server && !server.terminationConfirmed()
+      ? 'The desktop server could not start, and termination could not be confirmed. It may still be running; do not start another server.'
+      : 'The desktop server could not start.');
+  });
 }

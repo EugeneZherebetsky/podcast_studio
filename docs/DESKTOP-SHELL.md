@@ -30,7 +30,13 @@ A second launch reopens the first window. Autostart is off unless explicitly ena
 in a packaged build; the toggle is disabled during development to avoid changing the
 host login configuration. A packaged build and its login toggle have not been verified.
 
-Quit closes child stdin and allows eleven seconds for shutdown before termination.
+Quit or failed startup closes child stdin and allows eleven seconds for shutdown,
+then requests termination and waits at most two more seconds for exit. If exit cannot
+be confirmed, the shell warns that the server may still be running; do not start
+another until it is independently stopped. A successful kill request is not proof
+of exit. No automatic restart is attempted: an abnormal exit may leave work or
+publication unresolved, so the planned retry policy is unsafe without stronger
+quiescence guarantees. See [Node's process termination documentation](https://nodejs.org/api/child_process.html#subprocesskillsignal).
 An abnormal shutdown may require the manual recovery described in SETUP.md. Neither
 a clean exit nor this shell proves remote work or revocation completed; never bypass
 the existing durable guard or automatically resume uncertain work. Windows shutdown

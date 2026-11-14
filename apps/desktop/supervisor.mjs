@@ -16,8 +16,9 @@ export function validReady(message) {
 export function allowedExternal(value) {
   try {
     const url = new URL(value);
+    const hostname = url.hostname.replace(/\.+$/, '');
     return url.protocol === 'https:' && !url.username && !url.password &&
-      url.hostname !== 'localhost' && !url.hostname.endsWith('.localhost') && !isIP(url.hostname.replace(/^\[|\]$/g, ''));
+      hostname !== 'localhost' && !hostname.endsWith('.localhost') && !isIP(hostname.replace(/^\[|\]$/g, ''));
   } catch { return false; }
 }
 export function loginItem(app, refresh) {
@@ -29,31 +30,59 @@ export function loginItem(app, refresh) {
       refresh();
     } };
 }
-export function startServer(resources, home, onExit) {
+export function startServer(resources, home, onExit, options = {}) {
   const executable = path.join(resources, 'node', process.platform === 'win32' ? 'node.exe' : 'node');
-  const child = spawn(executable, [path.join(resources, 'server', 'server.mjs')], {
+  const child = (options.spawn ?? spawn)(executable, [path.join(resources, 'server', 'server.mjs')], {
     env: childEnvironment(process.env, resources, home), cwd: home,
     stdio: ['pipe', 'ignore', 'ignore', 'ipc'], windowsHide: true,
   });
-  let settled = false;
-  const ready = new Promise((resolve, reject) => {
-    const timer = setTimeout(() => finish(new Error('Server startup timed out')), 15000);
-    function finish(error, port) {
-      if (settled) return;
-      settled = true; clearTimeout(timer);
-      if (error) reject(error); else resolve(port);
-    }
-    child.on('message', (message) => { if (validReady(message)) finish(null, message.port); });
-    child.once('error', () => finish(new Error('Server could not start')));
-    child.once('exit', (code) => { finish(new Error('Server exited during startup')); onExit(code); });
+  let state = 'starting';
+  let exited = false;
+  let spawnFailed = false;
+  let stopPromise;
+  let resolveExit;
+  const exit = new Promise((resolve) => { resolveExit = resolve; });
+  const wait = (ms) => new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), ms);
+    exit.then(() => { clearTimeout(timer); resolve(true); });
   });
-  async function stop() {
-    if (child.exitCode !== null || child.signalCode !== null) return child.exitCode === 0;
-    const exited = new Promise((resolve) => child.once('exit', resolve));
-    child.stdin.end();
-    const timeout = setTimeout(() => child.kill(), 11000);
-    await exited; clearTimeout(timeout);
-    return child.exitCode === 0;
+  let rejectReady;
+  let resolveReady;
+  const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
+  const timer = setTimeout(() => fail('Server startup timed out'), options.startupMs ?? 15000);
+  async function fail(message) {
+    if (state !== 'starting') return;
+    state = 'failed'; clearTimeout(timer);
+    const clean = await stop();
+    rejectReady(new Error(clean || exited || spawnFailed ? message : `${message}. Server termination could not be confirmed; it may still be running`));
   }
-  return { ready, stop };
+  child.on('message', (message) => {
+    if (state !== 'starting' || !validReady(message)) return;
+    state = 'ready'; clearTimeout(timer); resolveReady(message.port);
+  });
+  child.on('error', () => {
+    if (!child.pid) { spawnFailed = true; resolveExit(); }
+    void fail('Server could not start');
+  });
+  child.stdin?.on?.('error', () => {});
+  child.once('exit', (code) => {
+    exited = true; resolveExit();
+    if (state === 'starting') void fail('Server exited during startup');
+    else if (state === 'ready') { state = 'exited'; onExit(code); }
+  });
+  function stop() {
+    if (stopPromise) return stopPromise;
+    if (state === 'starting') { void fail('Server startup cancelled'); return stopPromise; }
+    if (state === 'ready') state = 'stopping';
+    stopPromise = (async () => {
+      if (exited || spawnFailed) return exited && child.exitCode === 0;
+      try { child.stdin?.end(); } catch { /* still attempt termination */ }
+      if (await wait(options.shutdownMs ?? 11000)) return exited && child.exitCode === 0;
+      try { child.kill(); } catch { /* report failure if exit is not observed */ }
+      if (!(await wait(options.postKillMs ?? 2000))) return false;
+      return exited && child.exitCode === 0;
+    })();
+    return stopPromise;
+  }
+  return { ready, stop, terminationConfirmed: () => exited || spawnFailed };
 }

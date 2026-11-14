@@ -14,8 +14,8 @@ test('bundled child binds its own loopback port and reports readiness over IPC',
   const rogue = net.createServer((socket) => socket.end('HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nrogue'));
   await new Promise((resolve, reject) => rogue.listen(0, '127.0.0.1', resolve).once('error', reject));
   const occupiedPort = rogue.address().port;
-  let exitCode;
-  const server = startServer(resources, home, (code) => { exitCode = code; });
+  const server = startServer(resources, home, () => {});
+  let clean;
   try {
     const port = await server.ready;
     assert.notEqual(port, occupiedPort);
@@ -27,6 +27,6 @@ test('bundled child binds its own loopback port and reports readiness over IPC',
       await assert.rejects(second.ready, /exited during startup/);
       assert.equal((await fetch(`http://127.0.0.1:${port}/`)).status, 200);
     } finally { await second.stop(); }
-  } finally { await server.stop(); rogue.close(); }
-  assert.equal(exitCode, 0);
+  } finally { clean = await server.stop(); rogue.close(); }
+  assert.equal(clean, true);
 });
