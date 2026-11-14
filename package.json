@@ -16,12 +16,14 @@
     "gen": "pnpm --filter server run gen",
     "usb:export": "pnpm --filter server run usb:export",
     "smoke": "pnpm --filter server run smoke",
+    "desktop:bundle": "node scripts/build-desktop.mjs",
     "autostart:install": "node scripts/autostart.mjs install",
     "autostart:remove": "node scripts/autostart.mjs remove"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@typescript/native": "npm:typescript@7.0.2",
+    "esbuild": "0.28.2",
     "eslint": "10.14.0",
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-react-hooks": "7.1.1",
