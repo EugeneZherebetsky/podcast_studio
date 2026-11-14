@@ -53,6 +53,43 @@ test("the meter reports answered calls and failed calls that were still billed",
   expect(seen.map((item) => item.costUsd)).toEqual([0.5, 0.25]);
 });
 
+test("wrapped failures without usage do not invent an accounting marker", async () => {
+  const run = fakeGeneration();
+  run.deps.providers.llm = { async generateObject() { throw new Error("connection lost"); } };
+  try {
+    await expect(generateJob(run.deps, run.jobId)).rejects.toMatchObject({ message: "External work uncertain" });
+    expect(run.db.select().from(usage).all()).toEqual([]);
+    expect(() => createJob(run.db, run.job().options, 100)).not.toThrow();
+  } finally { run.close(); }
+});
+
+test("an active job cannot dispatch again after another records malformed usage", async () => {
+  const run = fakeGeneration();
+  const second = createJob(run.db, run.job().options, 100);
+  const original = run.deps.providers.llm;
+  let release!: () => void;
+  let started!: () => void;
+  const entered = new Promise<void>((resolve) => { started = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let searches = 0;
+  const active = generateJob({ ...run.deps, providers: {
+    ...run.deps.providers,
+    llm: { async generateObject(request) { started(); await gate; const result = await original.generateObject(request); return { ...result, usage: billed }; } },
+    search: { async search(...args) { searches++; return run.deps.providers.search.search(...args); } },
+  } }, run.jobId).catch((error: unknown) => error);
+  try {
+    await entered;
+    const malicious = { ...billed, get costUsd(): number { throw new Error("untrusted"); } };
+    const other = { ...run.deps, providers: { ...run.deps.providers, llm: { async generateObject(): Promise<never> { throw Object.assign(new Error("failure"), { usage: malicious }); } } } };
+    await expect(generateJob(other, second.id)).rejects.toThrow();
+    expect(run.db.select().from(usage).all()).toMatchObject([{ costUsd: Infinity }]);
+    release();
+    expect(await active).toBeInstanceOf(Error);
+    expect(searches).toBe(0);
+    expect(run.db.select().from(usage).all().map((row) => row.costUsd)).toEqual([Infinity, billed.costUsd]);
+  } finally { release(); await active; run.close(); }
+});
+
 test.each(["inputTokens", "outputTokens", "costUsd"] as const)("persists the first safe %s value from a failed provider", async (field) => {
   const run = fakeGeneration();
   const secret = "synthetic-usage-getter-secret";

@@ -74,6 +74,31 @@ Unset or blank overrides keep repository defaults. Relative override paths are r
 
 Stop every server and generation CLI before upgrading; older versions do not honor the new lock, so mixed versions are unsafe. The lock file `desktop-generation-lock.sqlite` and state file `desktop-generation-state.sqlite` are in `DATA_DIR`; never delete the lock file while any server or CLI may be running. The state file records work that may not have stopped. A crash, failed external call, or shutdown that cannot drain work may block generation. Old queued or running jobs remain visible and unresolved; they are not resumed or automatically marked interrupted. To recover, stop all servers and CLIs, independently verify that their Piper and ffmpeg children, any Ollama requests and any cloud-provider requests have finished (a missing PID alone is not proof), check the provider for possible billing, and inspect any unfinished publication and job data. Once you have established that no old worker can write or publish, manually remove only `desktop-generation-state.sqlite` and its SQLite journal files, then restart. Do not delete job or episode data as part of recovery. If you cannot establish quiescence, leave the state file in place and do not restart generation.
 
+## Usage reconciliation
+
+A failed LLM call with malformed usage creates an infinite-cost marker and blocks generation; the marker is not an actual charge. Missing usage produces no marker but can still represent a charge. Proceed only after completing the quiescence checks in **Desktop generation recovery** above; stop every writer, including servers, CLIs, older installations and any other process using the same `DATA_DIR`. In-flight remote work may still incur charges. Do not remove the desktop recovery state merely to clear an accounting marker.
+
+With all writers stopped, make a restorable SQLite backup of `DATA_DIR/app.db` using SQLite's backup facility (for example, `sqlite3 "<DATA_DIR>/app.db" ".backup '<safe-backup-path>'"`), and keep the backup unmodified. Include other data and SQLite journal/WAL files in your normal backup; do not delete them. Open the original database with a trusted SQLite tool and identify **all** markers, including prior months:
+
+```sql
+SELECT id, ts, provider, kind, units, cost_usd, job_id
+FROM usage WHERE cost_usd > 1.7976931348623157e308 ORDER BY id;
+```
+
+Use the job ID, time, job records and provider account billing to match each marker to the actual request and establish its verified nonnegative USD charge. Identity may be `unknown` and an incomplete provider record may make this impossible. Never assume zero because usage is missing. If any amount cannot be verified, leave that marker intact and generation blocked; seek provider records or assistance. Keep a separate reconciliation audit with the evidence and original row values.
+
+For each independently verified marker, use a transaction in the SQLite tool, replacing the placeholders below with the verified finite amount and the specific numeric row ID. Do not run the example as-is:
+
+```sql
+BEGIN IMMEDIATE;
+UPDATE usage SET cost_usd = <verified_usd>
+WHERE id = <marker_id> AND cost_usd > 1.7976931348623157e308;
+SELECT changes(); -- Must be exactly 1; otherwise ROLLBACK, do not commit.
+-- After verifying the row: COMMIT; (or ROLLBACK; if anything is wrong)
+```
+
+Preserve the row, timestamp, job link, other usage, jobs and files. Re-run the marker query and inspect the corrected rows and monthly totals. Reconcile every remaining marker before restarting writers, and separately follow desktop recovery if its state requires it. Restarting does not prove remote work stopped; do not resume generation if quiescence is uncertain.
+
 ## Handing tasks to a coding agent
 
 From the repo root, start the agent (Claude Code, Codex, OpenCode or similar) and say:

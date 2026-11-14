@@ -102,7 +102,17 @@ export class AiSdkLlmProvider implements LlmProvider {
       ? AbortSignal.timeout(request.localTimeoutMs ?? 180_000)
       : undefined;
     for (let attempt = 1; attempt <= attempts; attempt++) {
-      if (attempt > 1) request.assertContinue?.();
+      if (attempt > 1) {
+        try { request.assertContinue?.(); }
+        catch (error) {
+          const usage = this.usage(id, inputTokens, outputTokens);
+          if (error instanceof Error && Object.isExtensible(error)) {
+            Object.defineProperty(error, "usage", { value: usage, configurable: true });
+            throw error;
+          }
+          throw new LlmOutputError("LLM retry stopped after a billed attempt", usage);
+        }
+      }
       const prompt =
         this.boundedOllama && attempt > 1
           ? request.prompt +

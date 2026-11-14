@@ -289,6 +289,7 @@ export async function generateJob(
       throw new CancelledAfterStage("Job cancelled between provider calls");
     if (owner?.status !== "running" || owner.ownerToken !== ownerToken)
       throw new Error("Job cancelled or ownership lost");
+    checkBudget(db, deps.budgetUsd);
   };
   // Every LLM call is written to `usage` as it completes; see `meterLlm`.
   let currentStage: StageName = "plan";
@@ -305,6 +306,7 @@ export async function generateJob(
     const started = Date.now();
     deps.onProgress?.({ ...base, status: "sent" });
     try {
+      assertOwner();
       const result = await run();
       deps.onProgress?.({ ...base, status: "completed", elapsedMs: Date.now() - started });
       return result;

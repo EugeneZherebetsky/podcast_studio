@@ -78,6 +78,13 @@ describe("AiSdkLlmProvider.generateObject", () => {
     expect(model.doGenerateCalls).toHaveLength(1);
   });
 
+  test("a blocked retry preserves the first billed attempt", async () => {
+    const { provider, main } = setup({ main: [WRONG_SHAPE, VALID] });
+    const error = await provider.generateObject({ slot: "main", ...request, assertContinue: () => { throw new Error("Invalid recorded spending"); } }).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ message: "Invalid recorded spending", usage: { inputTokens: 100, outputTokens: 20 } });
+    expect(main.doGenerateCalls).toHaveLength(1);
+  });
+
   test("cancellation stops the invalid-output retry", async () => {
     const { provider, main } = setup({ main: [WRONG_SHAPE, VALID] });
     await expect(provider.generateObject({ slot: "main", ...request, assertContinue: () => { throw new CancelledAfterStage("cancelled"); } })).rejects.toBeInstanceOf(CancelledAfterStage);

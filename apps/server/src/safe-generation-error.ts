@@ -17,11 +17,13 @@ export const combinedRecoveryMessages: readonly string[] = Object.freeze(classif
 const wrappedMessages = new WeakMap<ExternalWorkUncertain, string>();
 const wrappedUsage = new WeakMap<ExternalWorkUncertain, Usage>();
 export class ExternalWorkUncertain extends Error {
-  get usage(): Usage | undefined { return wrappedUsage.get(this); }
+  declare readonly usage?: Usage;
   constructor(error: unknown) {
     super("External work uncertain");
     const usage = usageOfFailedCall(error);
     if (usage) wrappedUsage.set(this, { provider: safeUsageProvider(usage.provider), model: safeUsageModel(usage.model), inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, costUsd: usage.costUsd });
+    if (error instanceof Error && "usage" in error)
+      Object.defineProperty(this, "usage", { get: () => wrappedUsage.get(this) });
     const message = safeGenerationError(error);
     const index = classifications.indexOf(message);
     wrappedMessages.set(this, error instanceof ExternalWorkUncertain ? message : index < 0 ? `External work may still be running; stop the server and follow manual recovery in SETUP.md` : combinedRecoveryMessages[index]!);
