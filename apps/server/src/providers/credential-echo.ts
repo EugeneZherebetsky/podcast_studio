@@ -5,7 +5,7 @@ export const CREDENTIAL_ECHO_WARNING = "Provider output blocked: possible creden
 
 /** Bounded matching only; it cannot identify arbitrary transformations or unseen credentials. */
 export function guardProviderResults(providers: Providers, config: AppConfig): Providers {
-  const secrets = [config.ANTHROPIC_API_KEY, config.OPENAI_API_KEY, config.TAVILY_API_KEY,
+  const secrets = [config.ANTHROPIC_API_KEY, config.OPENAI_API_KEY, process.env.GOOGLE_GENERATIVE_AI_API_KEY, config.TAVILY_API_KEY,
     config.BRAVE_API_KEY, config.AZURE_SPEECH_KEY, config.ELEVENLABS_API_KEY, config.FISH_AUDIO_API_KEY]
     .filter((value): value is string => Boolean(value));
   const patterns = secrets.flatMap((secret) => {
