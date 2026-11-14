@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 import { eq } from "drizzle-orm";
 import { openDatabase } from "../src/db/index.ts";
 import { episodes, jobs } from "../src/db/schema.ts";
-import { createJob, generateJob, markJobInterrupted, startJob } from "../src/pipeline/runner.ts";
+import { createJob, ExternalWorkUncertain, generateJob, markJobInterrupted, startJob } from "../src/pipeline/runner.ts";
 import { createFakeProviders } from "../src/providers/index.ts";
 import type { FakeLlmCall } from "../src/providers/llm/fake.ts";
 import { makeTempDir, removeTempDir } from "./temp-dir.ts";
@@ -181,7 +181,7 @@ test("failed stages leave canonical artifacts untouched and retain run artifacts
     writeFileSync(path.join(f.workDir, "plan.json"), "legacy plan");
     writeFileSync(path.join(f.workDir, "plan.inputs.sha256"), "legacy hash");
     f.llm.failIn = "notes";
-    await expect(generateJob(f.deps, f.jobId)).rejects.toThrow(/model offline/);
+    await expect(generateJob(f.deps, f.jobId)).rejects.toBeInstanceOf(ExternalWorkUncertain);
     expect(readFileSync(path.join(f.workDir, "plan.json"), "utf8")).toBe("legacy plan");
     expect(readFileSync(path.join(f.workDir, "plan.inputs.sha256"), "utf8")).toBe("legacy hash");
     expect(existsSync(path.join(f.workDir, "sources.json"))).toBe(false);

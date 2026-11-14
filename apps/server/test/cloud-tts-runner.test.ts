@@ -42,6 +42,9 @@ test("uncertain cloud failure retains the desktop recovery guard", async () => {
     const response = await app.inject({ method: "POST", url: "/api/jobs", payload: { title: "Bees", mode: "standard", lang: "en", minutes: 1, review: false } });
     const id = response.json().id as string;
     await vi.waitFor(async () => expect((await app.inject({ url: `/api/jobs/${id}` })).json().status).toBe("failed"), { timeout: 30000 });
+    const job = (await app.inject({ url: `/api/jobs/${id}` })).json();
+    expect(job.error).toContain("may have billed");
+    expect(job.stages.find((stage: { stage: string }) => stage.stage === "tts").error).toContain("may have billed");
     expect(fetcher).toHaveBeenCalledTimes(1);
     await expect(runner.create({ title: "Again", brief: "", mode: "standard", lang: "en", minutes: 1 })).rejects.toThrow("External work may still be running");
   } finally { await app.close(); await runner.close(); vi.unstubAllGlobals(); f.close(); }

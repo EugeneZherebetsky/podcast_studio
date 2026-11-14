@@ -1,5 +1,6 @@
 import { safeModel } from "../job-log.ts";
-import { safeGenerationError } from "../safe-generation-error.ts";
+import { ExternalWorkUncertain, safeGenerationError } from "../safe-generation-error.ts";
+export { ExternalWorkUncertain } from "../safe-generation-error.ts";
 import { randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync } from "node:fs";
 import path from "node:path";
@@ -17,13 +18,6 @@ import { LlmOutputError } from "../providers/llm/ai-sdk.ts";
 import { checkTtsInputLimit } from "../providers/tts/input-limit.ts";
 export { CancelledAfterStage } from "./cancellation.ts";
 
-export class ExternalWorkUncertain extends Error {
-  readonly usage: Usage | undefined;
-  constructor(error: unknown) {
-    super(error instanceof Error ? error.message : String(error), { cause: error });
-    this.usage = usageOfFailedCall(error);
-  }
-}
 async function externalCall<T>(run: () => Promise<T>): Promise<T> {
   try { return await run(); }
   catch (error) {

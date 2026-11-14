@@ -1,3 +1,4 @@
+import { CloudTtsBillingUncertain } from "../../safe-generation-error.ts";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
@@ -48,7 +49,7 @@ export class CloudTtsProvider implements TtsProvider {
       return { wavPath, chars: countChars(request.text) };
     } catch {
       // Provider responses and underlying errors may contain secrets or user text.
-      throw new Error("Cloud TTS failed; the provider may have billed this request");
+      throw new CloudTtsBillingUncertain();
     }
   }
 }
