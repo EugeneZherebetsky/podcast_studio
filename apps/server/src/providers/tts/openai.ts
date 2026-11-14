@@ -94,20 +94,7 @@ export class OpenAiTtsProvider implements TtsProvider {
       });
 
       if (!response.ok) {
-        const text = await response.text().catch(() => "");
-        let message = text;
-        try {
-          const json = JSON.parse(text) as { error?: { message?: string } };
-          if (json.error?.message) {
-            message = json.error.message;
-          }
-        } catch {
-          // Keep raw text
-        }
-        throw new TtsHttpError(
-          response.status,
-          `OpenAI TTS failed (${response.status} ${response.statusText}): ${message}`,
-        );
+        throw new TtsHttpError(response.status, `OpenAI TTS failed (${response.status})`);
       }
 
       const audio = Buffer.from(await response.arrayBuffer());

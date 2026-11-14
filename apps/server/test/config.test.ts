@@ -49,6 +49,15 @@ test("real environment variables win over .env", () => {
   expect(config.HOST).toBe("0.0.0.0");
 });
 
+test("desktop child ignores the entire home .env, including blank key fallback", () => {
+  writeEnv("HOST=0.0.0.0\nOPENAI_API_KEY=file-synthetic-key\n");
+  const config = loadConfig({ rootDir: dir, env: {
+    PODCAST_STUDIO_DESKTOP_IPC: "1", PROFILE: "local", OPENAI_API_KEY: "",
+  } });
+  expect(config.HOST).toBe("127.0.0.1");
+  expect(config.OPENAI_API_KEY).toBeUndefined();
+});
+
 test("local Ollama rejects cloud model names regardless of bounded output", () => {
   const fetchSpy = vi.spyOn(globalThis, "fetch");
   try {

@@ -15,15 +15,15 @@ export interface LoadConfigOptions {
 }
 
 /**
- * Loads `<rootDir>/.env` if present, overlays the real environment and parses the result
- * with the shared schema. Throws one readable error naming every invalid variable.
+ * Loads `<rootDir>/.env` if present, except for a supervised desktop child, then overlays
+ * the environment and parses the result with the shared schema. Throws a readable error.
  * `DATA_DIR` comes back as an absolute path. Nothing is written to `process.env`.
  */
 export function loadConfig(options: LoadConfigOptions = {}): AppConfig & { OLLAMA_BOUNDED_OUTPUT: boolean } {
   const env = options.env ?? process.env;
   const rootDir = path.resolve(options.rootDir ?? configRoot(env));
   const envFile = path.join(rootDir, ".env");
-  const hasEnvFile = existsSync(envFile);
+  const hasEnvFile = env.PODCAST_STUDIO_DESKTOP_IPC !== "1" && existsSync(envFile);
   const fromFile = hasEnvFile ? parseEnv(readFileSync(envFile, "utf8")) : {};
 
   const merged = { ...fromFile, ...definedOnly(env) };
