@@ -38,6 +38,7 @@ async function main(): Promise<void> {
   }
 }
 main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
+  const usage = "Usage: pnpm --filter server manual-draft prepare JOB_ID | pnpm --filter server manual-draft import JOB_ID PREPARATION_DIR RESPONSE_JSON";
+  console.error(error instanceof Error && error.message === usage ? usage : "Manual draft failed; check the input and permissions");
   process.exitCode = 1;
 });

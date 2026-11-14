@@ -16,8 +16,8 @@ import { installShutdown, registerRunnerShutdown } from "./shutdown.ts";
 let config;
 try {
   config = loadConfig();
-} catch (error) {
-  console.error(error instanceof Error ? error.message : error);
+} catch {
+  console.error("Server configuration could not be loaded; check configuration and permissions");
   process.exit(1);
 }
 

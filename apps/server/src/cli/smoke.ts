@@ -46,8 +46,8 @@ async function runLlmSmoke(): Promise<void> {
         });
         console.log(`[cloud: ${names.llm}] SUCCESS:`, result.object);
         console.log(`[cloud: ${names.llm}] Usage:`, result.usage);
-      } catch (err) {
-        console.error(`[cloud: ${names.llm}] FAILED:`, (err as Error).message);
+      } catch {
+        console.error(`[cloud: ${names.llm}] FAILED`);
       }
     }
   } else {
@@ -75,8 +75,8 @@ async function runLlmSmoke(): Promise<void> {
     });
     console.log("[local: ollama] SUCCESS:", result.object);
     console.log("[local: ollama] Usage:", result.usage);
-  } catch (err) {
-    console.error("[local: ollama] FAILED:", (err as Error).message);
+  } catch {
+    console.error("[local: ollama] FAILED");
   }
 }
 
@@ -97,8 +97,8 @@ async function runSearchSmoke(): Promise<void> {
         for (const hit of hits) {
           console.log(`  - ${hit.title} (${hit.url})`);
         }
-      } catch (err) {
-        console.error("[search: tavily] FAILED:", (err as Error).message);
+      } catch {
+        console.error("[search: tavily] FAILED");
       }
     }
   } else if (config.SEARCH_PROVIDER === "brave") {
@@ -113,8 +113,8 @@ async function runSearchSmoke(): Promise<void> {
         for (const hit of hits) {
           console.log(`  - ${hit.title} (${hit.url})`);
         }
-      } catch (err) {
-        console.error("[search: brave] FAILED:", (err as Error).message);
+      } catch {
+        console.error("[search: brave] FAILED");
       }
     }
   }
@@ -129,8 +129,8 @@ async function runSearchSmoke(): Promise<void> {
     for (const hit of hits) {
       console.log(`  - ${hit.title} (${hit.url})`);
     }
-  } catch (err) {
-    console.log("[search: searxng] unreachable/skipped:", (err as Error).message);
+  } catch {
+    console.log("[search: searxng] unreachable/skipped");
   }
 }
 
@@ -180,8 +180,8 @@ async function runTtsSmoke(): Promise<void> {
       rate: 1,
     });
     console.log(`[tts: ${providerName}] SUCCESS (hu): ${huResult.wavPath} (${huResult.chars} chars)`);
-  } catch (err) {
-    console.error(`[tts: ${providerName}] FAILED:`, (err as Error).message);
+  } catch {
+    console.error(`[tts: ${providerName}] FAILED`);
   }
 }
 
@@ -214,7 +214,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error("smoke command failed:", err);
+main().catch(() => {
+  console.error("smoke command failed");
   process.exit(1);
 });
