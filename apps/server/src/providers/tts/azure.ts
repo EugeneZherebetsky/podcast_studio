@@ -7,6 +7,7 @@ import {
   type Voice,
 } from "./interface.ts";
 import { TtsCache, TtsHttpError, type TtsCacheOptions } from "./cache.ts";
+import { paidRequest } from "./paid-request.ts";
 import { CloudTtsBillingUncertain, ExternalWorkUncertain } from "../../safe-generation-error.ts";
 
 export interface AzureTtsOptions {
@@ -14,6 +15,7 @@ export interface AzureTtsOptions {
   region?: string;
   fetch?: typeof fetch;
   signal?: AbortSignal;
+  timeoutMs?: number;
   cacheDir?: string;
   dataDir?: string;
   concurrencyLimit?: number;
@@ -128,53 +130,46 @@ export class AzureTtsProvider implements TtsProvider {
   }
 
   async synthesize(request: SynthesizeRequest): Promise<SynthesizeResult> {
-    let dispatched = false;
+    let settled = false;
     let guardError: unknown;
     let guardFailed = false;
-    const guarded = { ...request, assertContinue: () => { try { request.assertContinue?.(); } catch (error) { guardFailed = true; guardError = error; throw error; } } };
+    const guarded = { ...request, onPaidState: (state: "dispatched" | "settled") => { settled = state === "settled"; request.onPaidState?.(state); }, assertContinue: () => { try { request.assertContinue?.(); } catch (error) { guardFailed = true; guardError = error; throw error; } } };
     return this.cache.synthesizeWithCache("azure", guarded, async () => {
       const ssml = buildAzureSsml(request);
       const url = `https://${this.region}.tts.speech.microsoft.com/cognitiveservices/v1`;
 
-      dispatched = true;
-      const response = await this.fetchFn(url, {
-        method: "POST",
-        redirect: "error",
-        signal: this.options.signal,
-        headers: {
-          "Ocp-Apim-Subscription-Key": this.subscriptionKey,
-          "Content-Type": "application/ssml+xml",
-          "X-Microsoft-OutputFormat": "riff-24khz-16bit-mono-pcm",
-          "User-Agent": "podcast-studio",
-        },
-        body: ssml,
+      return paidRequest(guarded, this.options.signal, this.options.timeoutMs ?? 120000, async (signal, settled) => {
+        const response = await this.fetchFn(url, {
+          method: "POST",
+          redirect: "error",
+          signal,
+          headers: {
+            "Ocp-Apim-Subscription-Key": this.subscriptionKey,
+            "Content-Type": "application/ssml+xml",
+            "X-Microsoft-OutputFormat": "riff-24khz-16bit-mono-pcm",
+            "User-Agent": "podcast-studio",
+          },
+          body: ssml,
+        });
+
+        if (!response.ok) {
+          if (response.status >= 400 && response.status < 500) settled();
+          throw new TtsHttpError(
+            response.status,
+            `Azure Speech TTS failed (${response.status})`,
+          );
+        }
+
+        const audio = Buffer.from(await response.arrayBuffer());
+        settled();
+        return {
+          audio,
+          chars: countChars(request.text),
+        };
       });
-
-      if (!response.ok) {
-        throw new TtsHttpError(
-          response.status,
-          `Azure Speech TTS failed (${response.status})`,
-        );
-      }
-
-      const audio = Buffer.from(await response.arrayBuffer());
-      return {
-        audio,
-        chars: countChars(request.text),
-      };
     }).catch((error: unknown) => {
-      if (error instanceof ExternalWorkUncertain || (guardFailed && error === guardError)) throw error;
-      if (dispatched && !(error instanceof TtsHttpError && error.status >= 400 && error.status < 500)) {
-        throw new ExternalWorkUncertain(new CloudTtsBillingUncertain(error instanceof Error && error.name === "AbortError"));
-      }
-      if (error instanceof TtsHttpError && Number.isInteger(error.status) && error.status >= 100 && error.status <= 599) {
-        throw new TtsHttpError(error.status, `Azure Speech TTS failed (${error.status})`);
-      }
-      if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
-        const safe = new Error(error.name === "AbortError" ? "TTS cancelled" : "TTS timed out");
-        safe.name = error.name;
-        throw safe;
-      }
+      if ((guardFailed && error === guardError) || error instanceof CloudTtsBillingUncertain || error instanceof ExternalWorkUncertain) throw error;
+      if (settled) throw new CloudTtsBillingUncertain();
       throw new Error("Azure Speech TTS failed");
     });
   }

@@ -248,7 +248,7 @@ test("OpenAI TTS does not expose an upstream error body or status text", async (
     }),
   });
   await expect(provider.synthesize({ text: "hello", lang: "en", voice: "alloy", rate: 1 }))
-    .rejects.toThrow(/^OpenAI TTS failed \(400\)$/);
+    .rejects.toThrow(/^Cloud TTS failed; the provider may have billed this request$/);
 });
 
 describe("Audio caching", () => {
@@ -408,7 +408,7 @@ describe("Concurrency limit and retry", () => {
         voice: "en-US-JennyNeural",
         rate: 1.0,
       }),
-    ).rejects.toThrowError(/401/);
+    ).rejects.toThrowError(/provider may have billed/);
 
     expect(attempts).toBe(1);
   });

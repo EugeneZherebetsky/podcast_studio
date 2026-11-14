@@ -19,6 +19,7 @@ export interface SynthesizeRequest {
   /** Speaking rate, 1 = the voice's normal speed (segments use 0.7–1.1). */
   rate: number;
   assertContinue?: () => void;
+  onPaidState?: (state: "dispatched" | "settled") => void;
 }
 
 export interface SynthesizeResult {

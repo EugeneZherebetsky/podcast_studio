@@ -15,8 +15,6 @@ import type { createScriptSelection } from "./chatgpt-selection.ts";
 import { safeModel } from "./job-log.ts";
 import { safeGenerationError } from "./safe-generation-error.ts";
 import { CloudTtsProvider } from "./providers/tts/cloud.ts";
-import { AzureTtsProvider } from "./providers/tts/azure.ts";
-import { OpenAiTtsProvider } from "./providers/tts/openai.ts";
 
 /** Owns only jobs created in this process; never scans persisted jobs for work. */
 export function createDesktopRunner(
@@ -30,7 +28,7 @@ export function createDesktopRunner(
   const queue: { id: string; deps: GenerateDeps }[] = [];
   let active: Promise<void> | undefined;
   let activeId: string | undefined;
-  let activeCloud = false;
+  let paidState: "none" | "dispatched" | "settled" = "none";
   let abort: AbortController | undefined;
   let closing = false;
   let uncertain = false;
@@ -43,8 +41,11 @@ export function createDesktopRunner(
   };
   function cancelOwned(id: string): void {
     cancelJob(deps.db, id);
-    if (id === activeId && activeCloud && get(id).currentStage === "tts") {
-      deps.db.update(jobs).set({ error: "Cloud TTS may have billed this request; external work may still be running; stop the server and follow manual recovery in SETUP.md" }).where(eq(jobs.id, id)).run();
+    if (id === activeId && paidState !== "none") {
+      const warning = paidState === "dispatched"
+        ? "Cloud TTS may have billed this request; external work may still be running; stop the server and follow manual recovery in SETUP.md"
+        : "Cloud TTS failed; the provider may have billed this request";
+      deps.db.update(jobs).set({ error: warning }).where(eq(jobs.id, id)).run();
     }
   }
   function pump(): void {
@@ -54,10 +55,9 @@ export function createDesktopRunner(
     const { id } = item;
     if (get(id).status !== "queued") return pump();
     activeId = id;
-    activeCloud = item.deps.providers.tts instanceof CloudTtsProvider || item.deps.providers.tts instanceof AzureTtsProvider || item.deps.providers.tts instanceof OpenAiTtsProvider;
     abort = new AbortController();
     events.emit("job-progress", id, { kind: "job", status: "started" });
-    active = generateJob({ ...item.deps, signal: abort.signal, onEvent: (event) => events.emit("event", event), onProgress: (progress) => events.emit("job-progress", id, progress) }, id)
+    active = generateJob({ ...item.deps, signal: abort.signal, onPaidTtsState: (state) => { paidState = state; }, onEvent: (event) => events.emit("event", event), onProgress: (progress) => events.emit("job-progress", id, progress) }, id)
       .then(() => { events.emit("job-progress", id, { kind: "job", status: "completed" }); })
       .catch((error: unknown) => {
         // A failed request may still be running in an external service.
@@ -89,7 +89,7 @@ export function createDesktopRunner(
       .finally(() => {
         active = undefined;
         activeId = undefined;
-        activeCloud = false;
+        paidState = "none";
         abort = undefined;
         pump();
       });

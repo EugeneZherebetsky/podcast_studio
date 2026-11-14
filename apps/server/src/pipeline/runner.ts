@@ -1,3 +1,6 @@
+import { CloudTtsProvider } from "../providers/tts/cloud.ts";
+import { AzureTtsProvider } from "../providers/tts/azure.ts";
+import { OpenAiTtsProvider } from "../providers/tts/openai.ts";
 import { safeModel } from "../job-log.ts";
 import { ExternalWorkUncertain, safeGenerationError } from "../safe-generation-error.ts";
 export { ExternalWorkUncertain } from "../safe-generation-error.ts";
@@ -260,6 +263,7 @@ export interface GenerateDeps {
   scriptGenerator?: import("./script.ts").ScriptDeps["scriptGenerator"];
   chatgptProvider?: ReturnType<ReturnType<typeof import("../chatgpt-selection.ts").createScriptSelection>["provider"]>;
   signal?: AbortSignal;
+  onPaidTtsState?: (state: "dispatched" | "settled") => void;
   onEvent?: (event: ServerEvent) => void;
   onProgress?: (progress: import("../job-log.ts").Progress) => void;
 }
@@ -478,7 +482,9 @@ export async function generateJob(
       const paths: string[] = [];
       for (const segment of reviewed.segments) {
         assertOwner();
-        paths.push((await externalCall(() => tts.synthesize({ text: segment.text, lang: segment.lang, voice: deps.voice, rate: segment.rate ?? 1, assertContinue: assertOwner }))).wavPath);
+        const synthesize = () => tts.synthesize({ text: segment.text, lang: segment.lang, voice: deps.voice, rate: segment.rate ?? 1, assertContinue: assertOwner, onPaidState: deps.onPaidTtsState });
+        const paid = tts instanceof CloudTtsProvider || tts instanceof AzureTtsProvider || tts instanceof OpenAiTtsProvider;
+        paths.push((await (paid ? synthesize() : externalCall(synthesize))).wavPath);
       }
       return uncached(paths);
     })

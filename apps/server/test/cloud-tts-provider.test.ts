@@ -6,6 +6,7 @@ import { expect, test, vi } from "vitest";
 import { FakeTtsProvider } from "../src/providers/tts/fake.ts";
 import { CloudTtsProvider } from "../src/providers/tts/cloud.ts";
 import { encodeWav, isMono24k16BitPcmWav } from "../src/providers/tts/wav.ts";
+import { safeGenerationError } from "../src/safe-generation-error.ts";
 
 test.each(["elevenlabs", "fish"] as const)("%s sends one safe request and writes validated WAV", async (provider) => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "cloud-tts-test-"));
@@ -37,7 +38,9 @@ test.each(["elevenlabs", "fish"] as const)("%s sends one safe request and writes
 test("provider failures are sanitized and are not retried", async () => {
   const fetcher = vi.fn(async () => new Response("test-key private script", { status: 503 }));
   const tts = new CloudTtsProvider({ provider: "fish", model: "s2.1-pro-free", apiKey: "test-key", fetcher }).forRun(os.tmpdir());
-  await expect(tts.synthesize({ text: "private script", lang: "en", voice: "voice-id", rate: 1 })).rejects.toThrow("Cloud TTS failed; the provider may have billed this request");
+  const error = await tts.synthesize({ text: "private script", lang: "en", voice: "voice-id", rate: 1 }).catch((caught: unknown) => caught);
+  expect(safeGenerationError(error)).toContain("Cloud TTS failed; the provider may have billed this request");
+  expect(safeGenerationError(error)).not.toContain("test-key");
   expect(fetcher).toHaveBeenCalledTimes(1);
 });
 
@@ -76,6 +79,7 @@ test("cancellation aborts an in-flight request without retrying", async () => {
   const tts = new CloudTtsProvider({ provider: "fish", model: "s2.1-pro-free", apiKey: "test-key", fetcher }).forRun(os.tmpdir(), controller.signal);
   const result = tts.synthesize({ text: "Hello", lang: "en", voice: "voice-id", rate: 1 });
   controller.abort();
-  await expect(result).rejects.toThrow("Cloud TTS failed");
+  const error = await result.catch((caught: unknown) => caught);
+  expect(safeGenerationError(error)).toContain("Cloud TTS failed");
   expect(fetcher).toHaveBeenCalledTimes(1);
 });

@@ -7,6 +7,7 @@ import {
   type Voice,
 } from "./interface.ts";
 import { TtsCache, TtsHttpError, type TtsCacheOptions } from "./cache.ts";
+import { paidRequest } from "./paid-request.ts";
 import { CloudTtsBillingUncertain, ExternalWorkUncertain } from "../../safe-generation-error.ts";
 
 export interface OpenAiTtsOptions {
@@ -15,6 +16,7 @@ export interface OpenAiTtsOptions {
   model?: string;
   fetch?: typeof fetch;
   signal?: AbortSignal;
+  timeoutMs?: number;
   cacheDir?: string;
   dataDir?: string;
   concurrencyLimit?: number;
@@ -77,53 +79,46 @@ export class OpenAiTtsProvider implements TtsProvider {
   }
 
   async synthesize(request: SynthesizeRequest): Promise<SynthesizeResult> {
-    let dispatched = false;
+    let settled = false;
     let guardError: unknown;
     let guardFailed = false;
-    const guarded = { ...request, assertContinue: () => { try { request.assertContinue?.(); } catch (error) { guardFailed = true; guardError = error; throw error; } } };
+    const guarded = { ...request, onPaidState: (state: "dispatched" | "settled") => { settled = state === "settled"; request.onPaidState?.(state); }, assertContinue: () => { try { request.assertContinue?.(); } catch (error) { guardFailed = true; guardError = error; throw error; } } };
     return this.cache.synthesizeWithCache("openai", guarded, async () => {
       const url = `${this.baseUrl}/audio/speech`;
-      dispatched = true;
-      const response = await this.fetchFn(url, {
-        method: "POST",
-        redirect: "error",
-        signal: this.options.signal,
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json",
-          "User-Agent": "podcast-studio",
-        },
-        body: JSON.stringify({
-          model: this.model,
-          input: request.text,
-          voice: request.voice,
-          speed: request.rate,
-          response_format: "wav",
-        }),
+      return paidRequest(guarded, this.options.signal, this.options.timeoutMs ?? 120000, async (signal, settled) => {
+        const response = await this.fetchFn(url, {
+          method: "POST",
+          redirect: "error",
+          signal,
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            "Content-Type": "application/json",
+            "User-Agent": "podcast-studio",
+          },
+          body: JSON.stringify({
+            model: this.model,
+            input: request.text,
+            voice: request.voice,
+            speed: request.rate,
+            response_format: "wav",
+          }),
+        });
+
+        if (!response.ok) {
+          if (response.status >= 400 && response.status < 500) settled();
+          throw new TtsHttpError(response.status, `OpenAI TTS failed (${response.status})`);
+        }
+
+        const audio = Buffer.from(await response.arrayBuffer());
+        settled();
+        return {
+          audio,
+          chars: countChars(request.text),
+        };
       });
-
-      if (!response.ok) {
-        throw new TtsHttpError(response.status, `OpenAI TTS failed (${response.status})`);
-      }
-
-      const audio = Buffer.from(await response.arrayBuffer());
-      return {
-        audio,
-        chars: countChars(request.text),
-      };
     }).catch((error: unknown) => {
-      if (error instanceof ExternalWorkUncertain || (guardFailed && error === guardError)) throw error;
-      if (dispatched && !(error instanceof TtsHttpError && error.status >= 400 && error.status < 500)) {
-        throw new ExternalWorkUncertain(new CloudTtsBillingUncertain(error instanceof Error && error.name === "AbortError"));
-      }
-      if (error instanceof TtsHttpError && Number.isInteger(error.status) && error.status >= 100 && error.status <= 599) {
-        throw new TtsHttpError(error.status, `OpenAI TTS failed (${error.status})`);
-      }
-      if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
-        const safe = new Error(error.name === "AbortError" ? "TTS cancelled" : "TTS timed out");
-        safe.name = error.name;
-        throw safe;
-      }
+      if ((guardFailed && error === guardError) || error instanceof CloudTtsBillingUncertain || error instanceof ExternalWorkUncertain) throw error;
+      if (settled) throw new CloudTtsBillingUncertain();
       throw new Error("OpenAI TTS failed");
     });
   }

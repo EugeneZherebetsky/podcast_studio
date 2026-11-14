@@ -79,3 +79,28 @@ test.each(["azure", "openai"] as const)("%s cancellation after dispatch aborts o
     expect(fetcher).toHaveBeenCalledTimes(1);
   } finally { await app.close(); await runner.close(); f.close(); }
 }, GENERATION_TIMEOUT_MS);
+
+
+test.each(["azure", "openai"] as const)("%s settled 400 warns about billing without blocking the runner", async (name) => {
+  const f = fakeGeneration();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const fetcher = vi.fn<typeof fetch>(async () => { await gate; return new Response("synthetic-secret", { status: 400 }); });
+  const opts = { dataDir: f.dir, fetch: fetcher };
+  const tts = name === "azure" ? new AzureTtsProvider({ ...opts, subscriptionKey: "test" }) : new OpenAiTtsProvider({ ...opts, apiKey: "test" });
+  const runner = createDesktopRunner({ ...f.deps, providers: { ...f.deps.providers, tts } }, new EventEmitter());
+  const app = buildApp({ db: f.db, runner });
+  try {
+    const id = (await app.inject({ method: "POST", url: "/api/jobs", payload })).json().id as string;
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1), { timeout: 30000 });
+    const second = (await app.inject({ method: "POST", url: "/api/jobs", payload })).json().id as string;
+    release();
+    await vi.waitFor(async () => expect((await app.inject({ url: `/api/jobs/${second}` })).json().status).toBe("failed"), { timeout: 30000 });
+    const job = (await app.inject({ url: `/api/jobs/${id}` })).json();
+    expect(job.error).toContain("may have billed");
+    expect(job.error).not.toContain("external work");
+    expect(JSON.stringify(job)).not.toContain("synthetic-secret");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect((await app.inject({ method: "POST", url: "/api/jobs", payload })).statusCode).toBe(201);
+  } finally { release(); await app.close(); await runner.close(); f.close(); }
+}, GENERATION_TIMEOUT_MS);

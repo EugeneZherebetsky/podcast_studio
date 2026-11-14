@@ -93,7 +93,7 @@ test("cancellation during cloud request exposes billing uncertainty and retains 
     await vi.waitFor(async () => {
       const job = (await app.inject({ url: `/api/jobs/${id}` })).json();
       expect(job.status).toBe("cancelled");
-      expect(job.stages.find((stage: { stage: string }) => stage.stage === "tts").error).toBe("Cloud TTS failed; the provider may have billed this request; external work may still be running; stop the server and follow manual recovery in SETUP.md");
+      expect(job.stages.find((stage: { stage: string }) => stage.stage === "tts").error).toBe("Generation cancelled; Cloud TTS failed; the provider may have billed this request; external work may still be running; stop the server and follow manual recovery in SETUP.md");
       expect(job.error).toContain("manual recovery");
     });
     await vi.waitFor(async () => await expect(runner.create({ title: "Again", brief: "", mode: "standard", lang: "en", minutes: 1 })).rejects.toThrow("External work may still be running"));
