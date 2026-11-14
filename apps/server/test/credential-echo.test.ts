@@ -8,6 +8,17 @@ import { makeTempDir, removeTempDir } from "./temp-dir.ts";
 import { readdirSync } from "node:fs";
 
 const canary = "synthetic+/credential-canary-834";
+
+test("blocks a configured Google credential in a search result", async () => {
+  const dir = makeTempDir();
+  vi.stubEnv("GOOGLE_GENERATIVE_AI_API_KEY", canary);
+  try {
+    const providers = createFakeProviders({ wavDir: dir });
+    vi.spyOn(providers.search, "search").mockResolvedValue([{ title: canary, url: "https://example.com/", snippet: "normal" }] as never);
+    const guarded = guardProviderResults(providers, parseConfig({ PROFILE: "local" }));
+    await expect(guarded.search.search("test", { max: 1 })).rejects.toThrow("Provider output blocked: possible credential exposure");
+  } finally { vi.unstubAllEnvs(); removeTempDir(dir); }
+});
 test.each([canary, encodeURIComponent(canary), Buffer.from(canary).toString("base64")])("rejects a known credential in a successful search result", async (echo) => {
   vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ results: [{ title: echo, url: "https://example.com/", content: "normal" }] }), { status: 200 }));
   try {
