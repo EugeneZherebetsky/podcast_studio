@@ -12,9 +12,11 @@ pnpm desktop:bundle
 external runtime packages including the native SQLite binary, and a copy of the Node
 executable used for the build. The builder opens SQLite with that Node before finishing;
 keep this executable and its native addon together. Build separately per OS/architecture.
-The output directory is generated and ignored by Git. The builder overlays an existing
-output directory; use a fresh output directory for a release to avoid retaining obsolete
-files. Do not put user data there.
+The output directory is generated and ignored by Git. The builder requires that
+`dist-desktop/` does not exist, even if empty; it never overlays or deletes old output.
+Before rebuilding, preserve or move the old directory to a safe location. A failed build
+may leave a partial directory: preserve or move it too before retrying. Do not put user
+data in the output directory.
 
 Run the executable in `node/` with `server/server.mjs`. Set `PODCAST_STUDIO_RESOURCES`
 to the absolute `dist-desktop` path, `PODCAST_STUDIO_HOME` to an application-owned
@@ -46,7 +48,7 @@ consult SETUP.md for manual recovery, and never automatically resume or bypass t
 The Electron supervisor itself remains a later task.
 
 For offline verification only, the builder accepts `--test-output <absolute-file>`.
-It writes a separate bundle outside `dist-desktop` with the main entry's provider factory
+It writes a new file in an existing directory outside `dist-desktop` with the main entry's provider factory
 replaced at build time by `apps/server/test/desktop-bundle-fakes.ts`. It does not alter
 the production bundle and no environment switch can enable the fakes. Run that test
 bundle with a copied resource tree, isolated configuration/data directories and network
@@ -54,8 +56,10 @@ access blocked; never distribute it. Generation still needs ffmpeg and ffprobe. 
 build, run `python scripts/verify-desktop-bundle.py` with Python 3 and those binaries on
 PATH (or set `FFMPEG_PATH` and `FFPROBE_PATH`). The verifier copies the bundle into a
 new temporary directory, starts production and separately injected test bundles under
-the copied Node, checks UI assets, migrations, health semantics and a completed fake
-job with an episode and audio. It retains its isolated fixtures and prints their path.
+copied Node with separate resource trees, checks UI assets, migrations, health semantics,
+and a completed fake job. It validates episode metadata with the existing EpisodeSchema,
+checks audio byte count and SHA-256, and compares its ffprobe duration to metadata (within
+one second). It retains its isolated fixtures and prints their path.
 The JavaScript network guard is a test safeguard, not an OS-level firewall.
 
 Implementation references: [esbuild API](https://esbuild.github.io/api/#bundle),

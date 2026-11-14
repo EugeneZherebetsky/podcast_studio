@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { cp, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { cp, mkdir, open, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const out = path.join(root, "dist-desktop");
 const server = path.join(out, "server");
-await mkdir(server, { recursive: true });
 if (process.versions.node.split(".")[0] !== "22")
   throw new Error("Build with the project's Node 22 runtime");
 const testOutput =
@@ -16,8 +15,27 @@ const testOutput =
     : undefined;
 if (process.argv.length > 2 && (!testOutput || process.argv.length !== 4))
   throw new Error("Usage: node scripts/build-desktop.mjs [--test-output <isolated-file>]");
-if (testOutput && !path.relative(out, testOutput).startsWith(".."))
-  throw new Error("Test bundles must be outside dist-desktop");
+if (testOutput) {
+  const destination = path.join(await realpath(path.dirname(testOutput)), path.basename(testOutput));
+  const production = await realpath(out).catch((error) => {
+    if (error.code === "ENOENT") return path.join(root, "dist-desktop");
+    throw error;
+  });
+  const relative = path.relative(production, destination);
+  if (!relative || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative)))
+    throw new Error("Test bundles must be outside dist-desktop");
+  const placeholder = await open(destination, "wx");
+  await placeholder.close();
+} else {
+  try {
+    await mkdir(out);
+  } catch (error) {
+    if (error.code === "EEXIST")
+      throw new Error(`Desktop bundle destination already exists: ${out}. Preserve or move it, then build again.`, { cause: error });
+    throw error;
+  }
+  await mkdir(server);
+}
 const injectFakes = testOutput
   ? [
       {

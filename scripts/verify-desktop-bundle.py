@@ -1,4 +1,5 @@
 """Offline D2 verification. Run from the repository root after building the bundle."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -17,7 +18,9 @@ root = Path(__file__).resolve().parent.parent
 bundle = root / "dist-desktop"
 base = Path(tempfile.mkdtemp(prefix="podcast-d2-"))
 resources = base / "resources"
+fake_resources = base / "fake-resources"
 shutil.copytree(bundle, resources)
+shutil.copytree(bundle, fake_resources)
 offline = base / "offline.mjs"
 shutil.copyfile(root / "apps/server/test/desktop-offline.mjs", offline)
 node = resources / "node" / ("node.exe" if os.name == "nt" else "node")
@@ -25,10 +28,11 @@ ffmpeg = os.environ.get("FFMPEG_PATH") or shutil.which("ffmpeg")
 ffprobe = os.environ.get("FFPROBE_PATH") or shutil.which("ffprobe")
 if not ffmpeg or not ffprobe:
     raise RuntimeError("Set FFMPEG_PATH and FFPROBE_PATH to executable files")
-subprocess.run([str(node), str(root / "scripts/build-desktop.mjs"), "--test-output", str(resources / "server/fake-test.mjs")], cwd=root, check=True)
+subprocess.run([str(node), str(root / "scripts/build-desktop.mjs"), "--test-output", str(fake_resources / "server/fake-test.mjs")], cwd=root, check=True)
 
 def run_server(fake):
     label = "fake" if fake else "production"
+    server_resources = fake_resources if fake else resources
     home, cwd, data = (base / (label + suffix) for suffix in ("-home", "-cwd", "-data"))
     home.mkdir()
     cwd.mkdir()
@@ -36,13 +40,13 @@ def run_server(fake):
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     env = {"PATH": os.defpath, "HOST": "127.0.0.1", "PORT": str(port),
-           "PODCAST_STUDIO_HOME": str(home), "PODCAST_STUDIO_RESOURCES": str(resources),
+           "PODCAST_STUDIO_HOME": str(home), "PODCAST_STUDIO_RESOURCES": str(server_resources),
            "DATA_DIR": str(data), "PROFILE": "local", "TTS_VOICE_NATIVE_HOST": "fake",
            "FFMPEG_PATH": str(Path(str(ffmpeg)).resolve()), "FFPROBE_PATH": str(Path(str(ffprobe)).resolve())}
     if os.name == "nt":
         env["SystemRoot"] = os.environ["SystemRoot"]
     command = [str(node), "--import", offline.as_uri(),
-               str(resources / "server" / ("fake-test.mjs" if fake else "server.mjs"))]
+               str(server_resources / "server" / ("fake-test.mjs" if fake else "server.mjs"))]
     process = subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     origin = f"http://127.0.0.1:{port}"
     def request(route, payload=None):
@@ -88,9 +92,19 @@ def run_server(fake):
             assert job["status"] == "succeeded", job
             assert {stage["stage"] for stage in job["stages"]} == {"plan", "search", "extract", "notes", "script", "review", "tts", "assemble", "publish"}
             assert all(stage["status"] == "done" for stage in job["stages"])
-            assert list((data / "episodes").glob("*/episode.json"))
-            assert list((data / "episodes").glob("*/audio.m4a"))
-            print(f"fake: job {job_id} succeeded, {len(job['stages'])} stages done, episode and audio published")
+            episodes = list((data / "episodes").glob("*/episode.json"))
+            assert len(episodes) == 1
+            metadata = json.loads(episodes[0].read_text(encoding="utf8"))
+            audio = episodes[0].parent / "audio.m4a"
+            # The USB endpoint validates the on-disk metadata with EpisodeSchema and the audio hash.
+            status, checked = request("/api/episodes/" + metadata["id"] + "/usb/episode.json")
+            assert status == 200 and json.loads(checked) == metadata
+            audio_bytes = audio.read_bytes()
+            assert len(audio_bytes) == metadata["audio"]["bytes"]
+            assert hashlib.sha256(audio_bytes).hexdigest() == metadata["audio"]["sha256"]
+            duration = float(subprocess.check_output([str(ffprobe), "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(audio)], text=True))
+            assert duration > 0 and abs(duration * 1000 - metadata["durationMs"]) < 1000
+            print(f"fake: job {job_id} succeeded, {len(job['stages'])} stages done; schema, audio hash and duration verified")
     finally:
         if process.poll() is None:
             process.terminate()
