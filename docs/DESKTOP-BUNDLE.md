@@ -30,7 +30,20 @@ as a failed startup; verify the listener, UI and database without changing that 
 The desktop generation guard remains unchanged. It uses a SQLite lock and a durable
 dirty marker; after an unclean generation, new generation is blocked until the manual
 recovery described in SETUP.md. The runner does not automatically resume or scan old
-jobs. A clean shutdown channel and supervisor are later tasks, not part of this bundle.
+jobs. The original D3 interrupted-job auto-resume gate is **not met**: resume is disabled
+because ownership and remote side effects cannot be safely recovered automatically.
+
+A future supervisor can spawn the server with `PODCAST_STUDIO_PARENT_STDIN=1` and a
+piped stdin. Closing that pipe requests shutdown, including on Windows; keep it open
+for the entire child lifetime. Without that exact opt-in, stdin EOF has no effect on
+repository runs. The server closes Fastify and its existing runner and ChatGPT session
+hooks, allowing up to eight seconds overall before a nonzero forced exit. If generation
+fails to drain within its existing two-second bound, it exits nonzero without clearing
+the guard. The supervisor should allow more than eight seconds plus scheduling margin
+before resorting to termination. Exit success is not proof remote work stopped: cancelled
+or failed provider work and ChatGPT revocation can remain uncertain. Preserve all data,
+consult SETUP.md for manual recovery, and never automatically resume or bypass the guard.
+The Electron supervisor itself remains a later task.
 
 For offline verification only, the builder accepts `--test-output <absolute-file>`.
 It writes a separate bundle outside `dist-desktop` with the main entry's provider factory
