@@ -38,43 +38,68 @@ export class SearxngSearchProvider implements SearchProvider {
   }
 
   async search(query: string, options: SearchOptions): Promise<SearchHit[]> {
-    const url = new URL(`${this.baseUrl}/search`);
-    url.searchParams.set("q", query);
-    url.searchParams.set("format", "json");
-    url.searchParams.set("categories", "general");
+    let status: number | undefined;
+    let missingResults = false;
+    try {
+      const url = new URL(`${this.baseUrl}/search`);
+      url.searchParams.set("q", query);
+      url.searchParams.set("format", "json");
+      url.searchParams.set("categories", "general");
 
-    const timeRange = toSearxngTimeRange(options.freshnessDays);
-    if (timeRange) {
-      url.searchParams.set("time_range", timeRange);
-    }
+      const timeRange = toSearxngTimeRange(options.freshnessDays);
+      if (timeRange) {
+        url.searchParams.set("time_range", timeRange);
+      }
 
-    const response = await this.fetchFn(url.toString(), {
-      method: "GET",
-      redirect: "error",
-      headers: {
-        Accept: "application/json",
-      },
-    });
+      const response = await this.fetchFn(url.toString(), {
+        method: "GET",
+        redirect: "error",
+        headers: {
+          Accept: "application/json",
+        },
+      });
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
+      if (!response.ok) {
+        status =
+          Number.isInteger(response.status) && response.status >= 100 && response.status <= 599
+            ? response.status
+            : undefined;
+        throw new Error("SearXNG search failed");
+      }
+
+      const data = (await response.json()) as SearxngResponse;
+      if (!Array.isArray(data.results)) {
+        missingResults = true;
+        throw new Error("SearXNG search failed");
+      }
+
+      const hits: SearchHit[] = data.results.map((r) => ({
+        title: (r.title ?? "").trim(),
+        url: r.url,
+        snippet: (r.content ?? "").trim(),
+        publishedAt: formatPublishedDate(r.publishedDate ?? r.published_date),
+      }));
+
+      return deduplicateHits(hits).slice(0, options.max);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.name === "AbortError" || error.name === "TimeoutError")
+      ) {
+        const safe = new Error(
+          error.name === "AbortError" ? "Search cancelled" : "Search timed out",
+        );
+        safe.name = error.name;
+        throw safe;
+      }
+      // eslint-disable-next-line preserve-caught-error
       throw new Error(
-        `SearXNG search failed (${response.status} ${response.statusText}): ${text}`,
+        missingResults
+          ? "SearXNG search failed: response missing results array"
+          : status === undefined
+            ? "SearXNG search failed"
+            : `SearXNG search failed (${status})`,
       );
     }
-
-    const data = (await response.json()) as SearxngResponse;
-    if (!Array.isArray(data.results)) {
-      throw new Error("SearXNG search failed: response missing results array");
-    }
-
-    const hits: SearchHit[] = data.results.map((r) => ({
-      title: (r.title ?? "").trim(),
-      url: r.url,
-      snippet: (r.content ?? "").trim(),
-      publishedAt: formatPublishedDate(r.publishedDate ?? r.published_date),
-    }));
-
-    return deduplicateHits(hits).slice(0, options.max);
   }
 }

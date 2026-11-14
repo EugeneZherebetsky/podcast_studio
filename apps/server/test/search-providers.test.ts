@@ -276,7 +276,7 @@ describe("SearxngSearchProvider", () => {
       fetch: mockFetch,
     });
     await expect(provider.search("q", { max: 5 })).rejects.toThrowError(
-      /SearXNG search failed \(503 Service Unavailable\): Service Unavailable/,
+      /SearXNG search failed \(503\)/,
     );
   });
 

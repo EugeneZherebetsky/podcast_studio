@@ -62,6 +62,24 @@ test("ordinary server ignores stdin EOF without opt-in", async () => {
   }
 }, 15000);
 
+test("shutdown failures do not print untrusted exceptions", async () => {
+  const child = spawn(process.execPath, ["--import", "tsx", "test/fixtures/shutdown-secret-child.ts"], {
+    cwd: process.cwd(), env: { PATH: process.env.PATH, SYSTEMROOT: process.env.SYSTEMROOT, PODCAST_STUDIO_PARENT_STDIN: "1" }, stdio: ["pipe", "pipe", "pipe"],
+  });
+  let errors = "";
+  child.stderr.on("data", (data) => { errors += String(data); });
+  try {
+    await once(child.stdout, "data");
+    const exit = once(child, "exit");
+    child.stdin.end();
+    expect((await exit)[0]).toBe(1);
+    expect(errors).toContain("Server shutdown failed");
+    expect(errors).not.toContain("synthetic-shutdown-credential");
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) { child.kill(); await once(child, "exit"); }
+  }
+}, 15000);
+
 test("a stuck close exits nonzero at the shutdown deadline", async () => {
   const child = spawn(process.execPath, ["--import", "tsx", "test/fixtures/shutdown-stuck-child.ts"], {
     cwd: process.cwd(), env: { ...process.env, PODCAST_STUDIO_PARENT_STDIN: "1" }, stdio: ["pipe", "pipe", "pipe"],
