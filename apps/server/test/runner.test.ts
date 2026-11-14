@@ -122,6 +122,17 @@ test("records a failed stage and leaves the job resumable", async () => {
   expect(getJob(job.id).status).toBe("running");
 });
 
+test("does not persist untrusted stage exceptions", async () => {
+  const secret = "synthetic-key-with-%2F-encoded-fragment";
+  const job = createJob(db, options, 20);
+  startJob(db, job.id, 20);
+  await expect(runJobStage(db, job.id, "plan", async () => {
+    throw new Error(`upstream failure: ${secret}`);
+  })).rejects.toThrow();
+  expect(JSON.stringify(getJob(job.id))).not.toContain(secret);
+  expect(JSON.stringify(stage(job.id, "plan"))).not.toContain(secret);
+});
+
 test("publication rejects cancellation and does not report a visible episode as cancelled", async () => {
   const job = createJob(db, options, 20);
   startJob(db, job.id, 20);

@@ -1,4 +1,5 @@
 import { safeModel } from "../job-log.ts";
+import { safeGenerationError } from "../safe-generation-error.ts";
 import { randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync } from "node:fs";
 import path from "node:path";
@@ -203,7 +204,7 @@ export async function runJobStage<T>(
     if (cancelled) throw new CancelledAfterStage("Job cancelled during stage");
     return result;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = safeGenerationError(error);
     db.transaction((tx) => {
       const job = tx.select().from(jobs).where(eq(jobs.id, id)).get();
       if (!job || job.ownerToken !== ownerToken) return;
@@ -359,7 +360,7 @@ export async function generateJob(
       deps.onEvent?.({ type: "job-stage", jobId: id, stage: name, status: result.skipped ? "skipped" : "done" });
       return result;
     } catch (error) {
-      deps.onEvent?.({ type: "job-stage", jobId: id, stage: name, status: "failed", error: error instanceof Error ? error.message : String(error) });
+      deps.onEvent?.({ type: "job-stage", jobId: id, stage: name, status: "failed", error: safeGenerationError(error) });
       throw error;
     }
   };
@@ -404,7 +405,7 @@ export async function generateJob(
       mkdirSync(workDir, { recursive: true });
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = safeGenerationError(error);
     db.update(jobs)
       .set({ status: "failed", error: message, updatedAt: new Date().toISOString() })
       .where(and(eq(jobs.id, id), eq(jobs.status, "running"), eq(jobs.ownerToken, ownerToken)))
