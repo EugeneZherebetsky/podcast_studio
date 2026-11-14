@@ -24,6 +24,15 @@ are moved, selection is requested again. To change them, use the tray menu's **S
 FFmpeg and ffprobe**, then quit and reopen. No `.env`, PATH setting, installation or
 automatic download is required. See [FFmpeg investigation](FFMPEG-BTBN-INVESTIGATION.md).
 
+Use the tray menu **Configure local services** to set Ollama's OpenAI-compatible
+`/v1` URL, one model for both model slots, and the SearXNG URL. HTTP endpoints
+must use `localhost`, `127.0.0.1` or `[::1]` without credentials. Settings are
+stored separately from Piper and FFmpeg locations, and apply only after finishing
+jobs, quitting and reopening. No connection or installation is attempted by the
+settings dialog. A loopback proxy or a cloud-backed model alias can forward data;
+use trusted services and disable Ollama cloud features separately as described in
+[SETUP.md](SETUP.md).
+
 First-run data import is not implemented: never blindly copy a live SQLite database or
 WAL. The installer is configured to retain user data on uninstall. No existing data is
 migrated, altered or deleted. Install and uninstall behavior is not yet verified.

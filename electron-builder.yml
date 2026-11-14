@@ -12,6 +12,10 @@ files:
   - apps/desktop/key-preload.cjs
   - apps/desktop/write-only-store.mjs
   - apps/desktop/local-settings.mjs
+  - apps/desktop/services.html
+  - apps/desktop/services.css
+  - apps/desktop/services.js
+  - apps/desktop/services-preload.cjs
 extraMetadata:
   main: apps/desktop/main.mjs
 extraResources:

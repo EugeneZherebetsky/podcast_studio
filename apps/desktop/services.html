@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; form-action 'none'; base-uri 'none'"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Local services</title><link rel="stylesheet" href="services.css"></head>
+<body><main><h1>Local services</h1>
+<p>Use trusted services running on this computer. A local proxy or an Ollama model alias can still send data elsewhere; disable Ollama cloud features separately. No services are installed or contacted here.</p>
+<form id="settings"><label>Ollama API URL (include /v1)<input name="ollama" required maxlength="2048"></label>
+<label>Ollama model (used for both main and fast)<input name="model" required maxlength="256"></label>
+<label>SearXNG URL<input name="searxng" required maxlength="2048"></label>
+<p>Changes take effect after you finish active jobs, quit, and reopen the app.</p><p id="status" role="alert"></p><button type="submit">Save</button> <button type="button" id="cancel">Cancel</button></form></main><script src="services.js"></script></body></html>
