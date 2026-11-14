@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "pnpm --parallel --filter server --filter web run dev",
-    "test": "pnpm -r run test && node --test scripts/build-desktop.test.mjs apps/desktop/supervisor.test.mjs",
+    "test": "pnpm -r run test && node --test scripts/build-desktop.test.mjs apps/desktop/supervisor.test.mjs apps/desktop/ffmpeg-settings.test.mjs",
     "lint": "eslint . && pnpm -r run typecheck",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

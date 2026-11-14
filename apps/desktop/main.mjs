@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir } from 'node:fs/promises';
 import { allowedExternal, loginItem, startServer } from './supervisor.mjs';
+import { readTools, saveTools } from './ffmpeg-settings.mjs';
 
 app.setName(app.isPackaged ? 'Podcast Studio Installer Prototype' : 'Podcast Studio Desktop');
 app.enableSandbox();
@@ -14,6 +15,29 @@ let tray;
 let server;
 let quitting = false;
 let failed = false;
+let selectingTools = false;
+
+async function selectTools() {
+  if (selectingTools) return null;
+  selectingTools = true;
+  try {
+    const answer = await dialog.showMessageBox({ type: 'info', buttons: ['Choose files', 'Cancel'], defaultId: 1, cancelId: 1,
+      message: 'FFmpeg is not included in this prototype.',
+      detail: 'Choose trusted ffmpeg and ffprobe executable files you obtained separately. The app will run them during audio generation. Required: loudnorm, AAC encoding and the ipod muxer. File selection alone does not verify compatibility.' });
+    if (answer.response !== 0) return null;
+    const tools = {};
+    for (const name of ['ffmpeg', 'ffprobe']) {
+      const result = await dialog.showOpenDialog({ title: `Select ${name}${process.platform === 'win32' ? '.exe' : ''}`, properties: ['openFile'] });
+      if (result.canceled || result.filePaths.length !== 1) return null;
+      tools[name] = result.filePaths[0];
+    }
+    await saveTools(home, tools);
+    return tools;
+  } catch (err) {
+    dialog.showErrorBox('FFmpeg selection failed', String(err.message));
+    return null;
+  } finally { selectingTools = false; }
+}
 
 function show() {
   if (!window || window.isDestroyed()) return;
@@ -29,6 +53,9 @@ function external(url) {
 function menu() {
   return Menu.buildFromTemplate([
     { label: 'Open Podcast Studio', click: show },
+    { label: 'Select FFmpeg and ffprobe…', click: async () => {
+      if (await selectTools()) await dialog.showMessageBox({ message: 'Tool locations saved. Quit and reopen Podcast Studio to use them.' });
+    } },
     loginItem(app, () => tray.setContextMenu(menu())),
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() },
@@ -54,6 +81,11 @@ else {
   });
   app.whenReady().then(async () => {
     await mkdir(home, { recursive: true });
+    let tools = await readTools(home);
+    if (!tools) {
+      tools = await selectTools();
+      if (!tools) { app.quit(); return; }
+    }
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     session.defaultSession.setPermissionCheckHandler(() => false);
     const pixels = Buffer.alloc(16 * 16 * 4);
@@ -66,7 +98,7 @@ else {
     }
     const image = nativeImage.createFromBitmap(pixels, { width: 16, height: 16 });
     tray = new Tray(image); tray.setToolTip('Podcast Studio'); tray.setContextMenu(menu()); tray.on('click', show);
-    server = startServer(resources, home, () => error('The server stopped unexpectedly.'));
+    server = startServer(resources, home, () => error('The server stopped unexpectedly.'), { tools });
     const port = await server.ready;
     if (failed || quitting) return;
     const origin = `http://127.0.0.1:${port}`;
