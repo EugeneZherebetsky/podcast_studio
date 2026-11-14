@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "pnpm --parallel --filter server --filter web run dev",
-    "test": "pnpm -r run test && node --test scripts/build-desktop.test.mjs",
+    "test": "pnpm -r run test && node --test scripts/build-desktop.test.mjs apps/desktop/supervisor.test.mjs",
     "lint": "eslint . && pnpm -r run typecheck",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -17,12 +17,15 @@
     "usb:export": "pnpm --filter server run usb:export",
     "smoke": "pnpm --filter server run smoke",
     "desktop:bundle": "node scripts/build-desktop.mjs",
+    "desktop:dev": "electron apps/desktop/main.mjs",
+    "desktop:test-bundle": "node --test apps/desktop/bundle.test.mjs",
     "autostart:install": "node scripts/autostart.mjs install",
     "autostart:remove": "node scripts/autostart.mjs remove"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@typescript/native": "npm:typescript@7.0.2",
+    "electron": "45.3.2",
     "esbuild": "0.28.2",
     "eslint": "10.14.0",
     "eslint-config-prettier": "10.1.8",

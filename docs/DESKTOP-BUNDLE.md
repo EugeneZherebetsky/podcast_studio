@@ -53,7 +53,7 @@ supervisor should allow more than eight seconds plus scheduling margin
 before resorting to termination. Exit success is not proof remote work stopped: cancelled
 or failed provider work and ChatGPT revocation can remain uncertain. Preserve all data,
 consult SETUP.md for manual recovery, and never automatically resume or bypass the guard.
-The Electron supervisor itself remains a later task.
+The development Electron supervisor uses this opt-in channel; see DESKTOP-SHELL.md.
 
 For offline verification only, the builder accepts `--test-output <absolute-file>`.
 It writes a new file in an existing directory outside `dist-desktop` and all copied

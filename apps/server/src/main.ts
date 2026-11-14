@@ -45,6 +45,11 @@ const app = buildApp({
   webRoot: webRoot(),
 });
 registerRunnerShutdown(app, db, runner);
-await app.listen({ host: config.HOST, port: config.PORT });
+const desktopIpc = process.env.PODCAST_STUDIO_DESKTOP_IPC === "1" && typeof process.send === "function";
+await app.listen({ host: config.HOST, port: desktopIpc ? 0 : config.PORT });
 installShutdown(app);
-console.log(`${APP_NAME} server listening on http://${config.HOST}:${config.PORT}`);
+const address = app.server.address();
+if (desktopIpc && address && typeof address !== "string") {
+  process.send?.({ type: "desktop-ready", port: address.port });
+}
+console.log(`${APP_NAME} server listening on http://${config.HOST}:${address && typeof address !== "string" ? address.port : config.PORT}`);
