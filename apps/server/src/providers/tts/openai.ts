@@ -7,13 +7,14 @@ import {
   type Voice,
 } from "./interface.ts";
 import { TtsCache, TtsHttpError, type TtsCacheOptions } from "./cache.ts";
-import { ExternalWorkUncertain } from "../../safe-generation-error.ts";
+import { CloudTtsBillingUncertain, ExternalWorkUncertain } from "../../safe-generation-error.ts";
 
 export interface OpenAiTtsOptions {
   apiKey: string;
   baseUrl?: string;
   model?: string;
   fetch?: typeof fetch;
+  signal?: AbortSignal;
   cacheDir?: string;
   dataDir?: string;
   concurrencyLimit?: number;
@@ -64,8 +65,8 @@ export class OpenAiTtsProvider implements TtsProvider {
     this.cache = new TtsCache(cacheOpts);
   }
 
-  forRun(dir: string): TtsProvider {
-    return new OpenAiTtsProvider({ ...this.options, cacheDir: dir });
+  forRun(dir: string, signal?: AbortSignal): TtsProvider {
+    return new OpenAiTtsProvider({ ...this.options, cacheDir: dir, signal });
   }
 
   async voices(lang: Lang): Promise<Voice[]> {
@@ -76,13 +77,17 @@ export class OpenAiTtsProvider implements TtsProvider {
   }
 
   async synthesize(request: SynthesizeRequest): Promise<SynthesizeResult> {
+    let dispatched = false;
     let guardError: unknown;
     let guardFailed = false;
     const guarded = { ...request, assertContinue: () => { try { request.assertContinue?.(); } catch (error) { guardFailed = true; guardError = error; throw error; } } };
     return this.cache.synthesizeWithCache("openai", guarded, async () => {
       const url = `${this.baseUrl}/audio/speech`;
+      dispatched = true;
       const response = await this.fetchFn(url, {
         method: "POST",
+        redirect: "error",
+        signal: this.options.signal,
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
           "Content-Type": "application/json",
@@ -108,6 +113,9 @@ export class OpenAiTtsProvider implements TtsProvider {
       };
     }).catch((error: unknown) => {
       if (error instanceof ExternalWorkUncertain || (guardFailed && error === guardError)) throw error;
+      if (dispatched && !(error instanceof TtsHttpError && error.status >= 400 && error.status < 500)) {
+        throw new ExternalWorkUncertain(new CloudTtsBillingUncertain(error instanceof Error && error.name === "AbortError"));
+      }
       if (error instanceof TtsHttpError && Number.isInteger(error.status) && error.status >= 100 && error.status <= 599) {
         throw new TtsHttpError(error.status, `OpenAI TTS failed (${error.status})`);
       }

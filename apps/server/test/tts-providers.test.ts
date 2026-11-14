@@ -13,6 +13,7 @@ import { fakeGeneration } from "./generation-fakes.ts";
 import { checkBudget, CancelledAfterStage } from "../src/pipeline/runner.ts";
 import { recordLlmUsage } from "../src/usage.ts";
 import { safeGenerationError } from "../src/safe-generation-error.ts";
+import { TtsCache, TtsHttpError } from "../src/providers/tts/cache.ts";
 
 let tempDir: string;
 
@@ -314,11 +315,10 @@ describe("Concurrency limit and retry", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
   test.each(["azure", "openai"])("%s retains cancellation and billing uncertainty after a failed request", async (name) => {
-    let cancelled = false;
-    const fetcher = vi.fn<typeof fetch>(async () => new Response(null, { status: 503 }));
-    const opts = { dataDir: tempDir, fetch: fetcher, sleep: async () => { cancelled = true; } };
+    const fetcher = vi.fn<typeof fetch>(async () => { throw new DOMException("cancelled", "AbortError"); });
+    const opts = { dataDir: tempDir, fetch: fetcher };
     const provider = name === "azure" ? new AzureTtsProvider({ ...opts, subscriptionKey: "test" }) : new OpenAiTtsProvider({ ...opts, apiKey: "test" });
-    const error = await provider.synthesize({ text: "cancel retry", lang: "en", voice: "alloy", rate: 1, assertContinue: () => { if (cancelled) throw new CancelledAfterStage("cancelled"); } }).catch((caught: unknown) => caught);
+    const error = await provider.synthesize({ text: "cancel retry", lang: "en", voice: "alloy", rate: 1 }).catch((caught: unknown) => caught);
     expect(safeGenerationError(error)).toContain("Generation cancelled; Cloud TTS failed; the provider may have billed");
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
@@ -374,18 +374,13 @@ describe("Concurrency limit and retry", () => {
       return new Response(valid24kWav(), { status: 200 });
     });
 
-    const provider = new OpenAiTtsProvider({
-      apiKey: "oai-secret-456",
-      dataDir: tempDir,
-      fetch: mockFetch,
-      initialBackoffMs: 1, // Fast for testing
-    });
-
-    const result = await provider.synthesize({
-      text: "Retry test",
-      lang: "en",
-      voice: "alloy",
-      rate: 1.0,
+    const cache = new TtsCache({ dataDir: tempDir, initialBackoffMs: 1 });
+    const result = await cache.synthesizeWithCache("local-test", {
+      text: "Retry test", lang: "en", voice: "alloy", rate: 1.0,
+    }, async () => {
+      const response = await mockFetch("https://invalid.example");
+      if (!response.ok) throw new TtsHttpError(response.status, "transient");
+      return { audio: Buffer.from(await response.arrayBuffer()) };
     });
 
     expect(attempts).toBe(3);

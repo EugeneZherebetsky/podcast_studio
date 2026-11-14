@@ -15,6 +15,8 @@ import type { createScriptSelection } from "./chatgpt-selection.ts";
 import { safeModel } from "./job-log.ts";
 import { safeGenerationError } from "./safe-generation-error.ts";
 import { CloudTtsProvider } from "./providers/tts/cloud.ts";
+import { AzureTtsProvider } from "./providers/tts/azure.ts";
+import { OpenAiTtsProvider } from "./providers/tts/openai.ts";
 
 /** Owns only jobs created in this process; never scans persisted jobs for work. */
 export function createDesktopRunner(
@@ -52,7 +54,7 @@ export function createDesktopRunner(
     const { id } = item;
     if (get(id).status !== "queued") return pump();
     activeId = id;
-    activeCloud = item.deps.providers.tts instanceof CloudTtsProvider;
+    activeCloud = item.deps.providers.tts instanceof CloudTtsProvider || item.deps.providers.tts instanceof AzureTtsProvider || item.deps.providers.tts instanceof OpenAiTtsProvider;
     abort = new AbortController();
     events.emit("job-progress", id, { kind: "job", status: "started" });
     active = generateJob({ ...item.deps, signal: abort.signal, onEvent: (event) => events.emit("event", event), onProgress: (progress) => events.emit("job-progress", id, progress) }, id)

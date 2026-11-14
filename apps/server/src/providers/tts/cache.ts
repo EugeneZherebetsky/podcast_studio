@@ -287,7 +287,7 @@ export class TtsCache {
       const cachedSecond = this.getCached(provider, request);
       if (cachedSecond) return cachedSecond;
 
-      const result = await retryWithBackoff(synthesizer, { ...this.retryOptions, assertContinue: request.assertContinue, paid: provider === "azure" || provider === "openai" }).catch((error: unknown) => {
+      const result = await retryWithBackoff(synthesizer, { ...this.retryOptions, maxRetries: provider === "azure" || provider === "openai" ? 0 : this.retryOptions.maxRetries, assertContinue: request.assertContinue }).catch((error: unknown) => {
         if (error instanceof TtsRetryGuardError) throw error.original;
         throw error;
       });
