@@ -1,7 +1,7 @@
 // The one place that decides which implementation serves each provider slot. Pipeline
 // code receives a `Providers` object and never names a provider itself.
 import path from "node:path";
-import { REPO_ROOT } from "../config.ts";
+import { rootForConfig } from "../paths.ts";
 import { PiperTtsProvider } from "./tts/piper.ts";
 import type { AppConfig, LlmProviderName, SearchProviderName, TtsProviderName } from "shared";
 import { FakeExtractor, type FakeExtractorOptions } from "./extract/fake.ts";
@@ -154,7 +154,7 @@ export function createTtsProvider(config: AppConfig): TtsProvider {
       });
     }
     case "piper": {
-      const dir = path.resolve(REPO_ROOT, config.PIPER_DIR);
+      const dir = path.resolve(rootForConfig(config), config.PIPER_DIR);
       const executable = process.platform === "win32" ? "Scripts/piper.exe" : "bin/piper";
       return new PiperTtsProvider({
         executable: path.join(dir, "venv", executable),

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import type { Chapter, EpisodeSegment, ScriptSegment } from "shared";
 import { WAV_SAMPLE_RATE } from "../providers/tts/wav.ts";
+import { ffmpegPath } from "../paths.ts";
 
 interface AssembleInput {
   segments: ScriptSegment[];
@@ -88,7 +89,7 @@ export async function assembleAudio(
   const metadata = `;FFMETADATA1\n${chapters.map((c, i) => `[CHAPTER]\nTIMEBASE=1/1000\nSTART=${c.startMs}\nEND=${chapters[i + 1]?.startMs ?? durationMs}\ntitle=${escapeMetadata(c.title)}\n`).join("")}`;
   await new Promise<void>((resolve, reject) => {
     const child = spawn(
-      "ffmpeg",
+      ffmpegPath(),
       [
         "-hide_banner",
         "-loglevel",

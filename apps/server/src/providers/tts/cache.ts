@@ -20,6 +20,7 @@ import {
   type Voice,
 } from "./interface.ts";
 import { isMono24k16BitPcmWav } from "./wav.ts";
+import { ffmpegPath } from "../../paths.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -159,7 +160,7 @@ export async function ensureMono24k16BitPcmWav(
     const tempInput = path.join(outDir, `ffmpeg-in-${randomUUID()}.bin`);
     writeFileSync(tempInput, input);
     try {
-      await execFileAsync("ffmpeg", [
+      await execFileAsync(ffmpegPath(), [
         "-y",
         "-i",
         tempInput,
@@ -189,7 +190,7 @@ export async function ensureMono24k16BitPcmWav(
     return;
   }
 
-  await execFileAsync("ffmpeg", [
+  await execFileAsync(ffmpegPath(), [
     "-y",
     "-i",
     input,

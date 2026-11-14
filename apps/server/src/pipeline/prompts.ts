@@ -1,6 +1,8 @@
 // Prompt templates (ARCHITECTURE §3 "Prompt handling"): markdown files in ./prompts with
 // {{placeholders}}, one per stage or step. Each file has a "# System" and a "# User" part.
 import { readFileSync } from "node:fs";
+import path from "node:path";
+import { promptsDir } from "../paths.ts";
 
 export const PROMPT_NAMES = [
   "plan",
@@ -60,15 +62,15 @@ export function parsePromptTemplate(markdown: string, name = "prompt"): PromptTe
   return { system, user };
 }
 
-const cache = new Map<PromptName, PromptTemplate>();
+const cache = new Map<string, PromptTemplate>();
 
 /** Reads `./prompts/<name>.md`. Templates are small and fixed, so they are read once. */
 export function loadPrompt(name: PromptName): PromptTemplate {
-  let template = cache.get(name);
+  const file = path.join(promptsDir(), `${name}.md`);
+  let template = cache.get(file);
   if (!template) {
-    const file = new URL(`./prompts/${name}.md`, import.meta.url);
     template = parsePromptTemplate(readFileSync(file, "utf8"), name);
-    cache.set(name, template);
+    cache.set(file, template);
   }
   return template;
 }

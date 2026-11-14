@@ -1,4 +1,4 @@
-import { fileURLToPath } from "node:url";
+import { webRoot } from "./paths.ts";
 import { APP_NAME } from "shared";
 import { buildApp } from "./app.ts";
 import { loadConfig } from "./config.ts";
@@ -41,7 +41,7 @@ const app = buildApp({
   events,
   chatgptSession,
   scriptSelection,
-  webRoot: fileURLToPath(new URL("../../web/dist", import.meta.url)),
+  webRoot: webRoot(),
 });
 app.addHook("onClose", async () => {
   if (!runner || await runner.close()) db.$client.close();

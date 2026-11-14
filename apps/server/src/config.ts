@@ -1,11 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { parseEnv } from "node:util";
 import { parseConfig, type AppConfig } from "shared";
+import { CONFIG_ROOT, configRoot } from "./paths.ts";
 
 /** The repository root: where `.env` lives and what a relative DATA_DIR is resolved against. */
-export const REPO_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
+export { REPO_ROOT } from "./paths.ts";
 
 export interface LoadConfigOptions {
   /** Directory holding `.env`; relative DATA_DIR values are resolved against it. */
@@ -20,8 +20,8 @@ export interface LoadConfigOptions {
  * `DATA_DIR` comes back as an absolute path. Nothing is written to `process.env`.
  */
 export function loadConfig(options: LoadConfigOptions = {}): AppConfig & { OLLAMA_BOUNDED_OUTPUT: boolean } {
-  const rootDir = path.resolve(options.rootDir ?? REPO_ROOT);
   const env = options.env ?? process.env;
+  const rootDir = path.resolve(options.rootDir ?? configRoot(env));
   const envFile = path.join(rootDir, ".env");
   const hasEnvFile = existsSync(envFile);
   const fromFile = hasEnvFile ? parseEnv(readFileSync(envFile, "utf8")) : {};
@@ -40,7 +40,8 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig & { OLLAM
       },
     );
   }
-  return { ...config, DATA_DIR: path.resolve(rootDir, config.DATA_DIR), OLLAMA_BOUNDED_OUTPUT: merged.OLLAMA_BOUNDED_OUTPUT === "1" };
+  const result = { ...config, [CONFIG_ROOT]: rootDir, DATA_DIR: path.resolve(rootDir, config.DATA_DIR), OLLAMA_BOUNDED_OUTPUT: merged.OLLAMA_BOUNDED_OUTPUT === "1" };
+  return result;
 }
 
 /** An unset or blank variable must not hide a value from `.env`. */
