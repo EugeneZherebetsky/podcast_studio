@@ -3,7 +3,7 @@
 import { and, gte, lt, sum } from "drizzle-orm";
 import type { Db } from "./db/index.ts";
 import { usage as usageTable } from "./db/schema.ts";
-import type { Usage } from "./providers/llm/interface.ts";
+import { safeUsageProvider, type Usage } from "./providers/llm/interface.ts";
 
 export interface RecordUsageOptions {
   /** Job the call belongs to; omit for calls outside a job. */
@@ -17,7 +17,7 @@ export function recordLlmUsage(db: Db, usage: Usage, options: RecordUsageOptions
   db.insert(usageTable)
     .values({
       ts: (options.now ?? new Date()).toISOString(),
-      provider: usage.provider,
+      provider: safeUsageProvider(usage.provider),
       kind: "llm",
       units: usage.inputTokens + usage.outputTokens,
       costUsd: usage.costUsd,

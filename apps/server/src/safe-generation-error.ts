@@ -1,5 +1,5 @@
 import { ChatGptCancelledError, ChatGptTimeoutError } from "./providers/llm/chatgpt-inference.ts";
-import { usageOfFailedCall, type Usage } from "./providers/llm/interface.ts";
+import { safeUsageModel, safeUsageProvider, usageOfFailedCall, type Usage } from "./providers/llm/interface.ts";
 
 export class CloudTtsBillingUncertain extends Error {
   constructor() { super("Cloud TTS failed; the provider may have billed this request"); }
@@ -21,7 +21,7 @@ export class ExternalWorkUncertain extends Error {
   constructor(error: unknown) {
     super("External work uncertain");
     const usage = usageOfFailedCall(error);
-    if (usage) wrappedUsage.set(this, { provider: usage.provider, model: usage.model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, costUsd: usage.costUsd });
+    if (usage) wrappedUsage.set(this, { provider: safeUsageProvider(usage.provider), model: safeUsageModel(usage.model), inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, costUsd: usage.costUsd });
     const message = safeGenerationError(error);
     const index = classifications.indexOf(message);
     wrappedMessages.set(this, error instanceof ExternalWorkUncertain ? message : index < 0 ? `External work may still be running; stop the server and follow manual recovery in SETUP.md` : combinedRecoveryMessages[index]!);

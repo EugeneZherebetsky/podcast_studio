@@ -53,6 +53,29 @@ test("the meter reports answered calls and failed calls that were still billed",
   expect(seen.map((item) => item.costUsd)).toEqual([0.5, 0.25]);
 });
 
+test.each(["provider", "model"] as const)("untrusted usage %s stays out of failed job records and events", async (field) => {
+  const run = fakeGeneration();
+  const secret = "synthetic-usage-key-987654321";
+  const events: unknown[] = [];
+  const progress: unknown[] = [];
+  run.deps.onEvent = (event) => events.push(event);
+  run.deps.onProgress = (event) => progress.push(event);
+  run.deps.providers.llm = {
+    diagnostic: { provider: secret, models: { main: secret, fast: secret } },
+    async generateObject() {
+      throw Object.assign(new Error("failure"), { usage: { ...billed, [field]: secret } });
+    },
+  };
+  try {
+    const error = await generateJob(run.deps, run.jobId).catch((caught: unknown) => caught);
+    const rows = run.db.select().from(usage).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ units: 42, costUsd: 0.5 });
+    expect(monthTotalCostUsd(run.db)).toBe(0.5);
+    expect(JSON.stringify({ rows, job: run.job(), events, progress, error })).not.toContain(secret);
+  } finally { run.close(); }
+});
+
 test(
   "calls made before a stage fails are recorded and count towards the budget",
   async () => {

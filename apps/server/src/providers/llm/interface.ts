@@ -15,6 +15,17 @@ export interface Usage {
   costUsd: number;
 }
 
+const safeProviders = new Set(["ollama", "openai", "anthropic", "gemini", "chatgpt", "fake"]);
+const safeModels = new Set(["qwen:4b", "qwen3:4b", "gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-5", "gpt-5-mini", "gpt-5.1", "gpt-5.2", "fake-main", "fake-fast"]);
+
+export function safeUsageProvider(value: string): string {
+  return safeProviders.has(value) ? value : "unknown";
+}
+
+export function safeUsageModel(value: string): string {
+  return safeModels.has(value) ? value : "unknown";
+}
+
 /**
  * The usage a provider attached to the error of a failed call (as `error.usage`) because
  * the call was billed anyway, e.g. the model answered but never with a valid object.
