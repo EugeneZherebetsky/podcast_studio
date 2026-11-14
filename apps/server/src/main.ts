@@ -9,6 +9,7 @@ import { createChatGptSession } from "./providers/llm/chatgpt-session.ts";
 import { EventEmitter } from "node:events";
 import { createProviders } from "./providers/index.ts";
 import { createDesktopRunner } from "./desktop-runner.ts";
+import { openDesktopGuard } from "./desktop-guard.ts";
 import { createScriptSelection } from "./chatgpt-selection.ts";
 import { installShutdown, registerRunnerShutdown } from "./shutdown.ts";
 
@@ -21,18 +22,21 @@ try {
 }
 
 const dataDirs = ensureDataDirs(config.DATA_DIR);
+const desktopGuard = config.PROFILE === "local" && config.SEARCH_PROVIDER === "searxng" && config.TTS_PROVIDER === "piper"
+  ? openDesktopGuard(dataDirs.root)
+  : undefined;
 const db = openDatabase(dataDirs.dbFile);
 const chatgptSession = ["127.0.0.1", "::1"].includes(config.HOST)
   ? await createChatGptSession(path.join(config.DATA_DIR, "chatgpt"))
   : undefined;
 const events = new EventEmitter();
 const scriptSelection = createScriptSelection(path.join(config.DATA_DIR, "chatgpt"), chatgptSession);
-const runner = config.PROFILE === "local" && config.SEARCH_PROVIDER === "searxng" && config.TTS_PROVIDER === "piper"
+const runner = desktopGuard
   ? createDesktopRunner({
       db, providers: createProviders(config), dataDir: dataDirs.root,
       budgetUsd: config.MONTHLY_BUDGET_USD, voice: config.TTS_VOICE_NATIVE_HOST ?? "",
       profile: "local", llmName: config.OLLAMA_MODEL_MAIN, ttsName: "piper", nativeLang: config.NATIVE_LANG,
-    }, events, config, scriptSelection)
+    }, events, config, scriptSelection, desktopGuard)
   : undefined;
 
 const app = buildApp({
@@ -44,7 +48,7 @@ const app = buildApp({
   scriptSelection,
   webRoot: webRoot(),
 });
-registerRunnerShutdown(app, db, runner);
+registerRunnerShutdown(app, db, runner, chatgptSession);
 await app.listen({ host: config.HOST, port: config.PORT });
 installShutdown(app);
 console.log(`${APP_NAME} server listening on http://${config.HOST}:${config.PORT}`);
