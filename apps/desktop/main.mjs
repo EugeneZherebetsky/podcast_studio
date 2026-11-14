@@ -1,10 +1,10 @@
-import { app, BrowserWindow, Menu, Tray, dialog, nativeImage, session, shell } from 'electron';
+import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, session, shell } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir } from 'node:fs/promises';
 import { allowedExternal, loginItem, startServer } from './supervisor.mjs';
 import { readTools, saveTools } from './ffmpeg-settings.mjs';
-import { readPiper, savePiper } from './local-settings.mjs';
+import { readPiper, savePiper, readServices, saveServices } from './local-settings.mjs';
 
 app.setName(app.isPackaged ? 'Podcast Studio Installer Prototype' : 'Podcast Studio Desktop');
 app.enableSandbox();
@@ -18,6 +18,29 @@ let quitting = false;
 let failed = false;
 let selectingTools = false;
 let selectingPiper = false;
+let servicesWindow;
+
+function configureServices() {
+  if (servicesWindow && !servicesWindow.isDestroyed()) { servicesWindow.focus(); return; }
+  servicesWindow = new BrowserWindow({ width: 650, height: 620, title: 'Local services',
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, preload: path.join(root, 'apps/desktop/services-preload.cjs') } });
+  servicesWindow.webContents.on('will-navigate', (event) => event.preventDefault());
+  servicesWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  void servicesWindow.loadFile(path.join(root, 'apps/desktop/services.html'));
+}
+function isServicesSender(event) {
+  return servicesWindow && !servicesWindow.isDestroyed() && event.sender === servicesWindow.webContents && event.senderFrame === servicesWindow.webContents.mainFrame;
+}
+ipcMain.handle('local-services', async (event, action, value) => {
+  if (!isServicesSender(event)) throw new Error('Unauthorized');
+  if (action === 'read') return readServices(home);
+  if (action === 'save') {
+    try { await saveServices(home, value); return 'Saved. Finish any jobs, then quit and reopen Podcast Studio to apply.'; }
+    catch (err) { return err.message; }
+  }
+  throw new Error('Invalid action');
+});
+ipcMain.on('local-services-close', (event) => { if (isServicesSender(event)) servicesWindow.close(); });
 
 async function selectPiper() {
   if (selectingPiper) return;
@@ -75,6 +98,7 @@ function external(url) {
 function menu() {
   return Menu.buildFromTemplate([
     { label: 'Open Podcast Studio', click: show },
+    { label: 'Configure local services…', click: configureServices },
     { label: 'Set up Piper voices…', click: selectPiper },
     { label: 'Select FFmpeg and ffprobe…', click: async () => {
       if (await selectTools()) await dialog.showMessageBox({ message: 'Tool locations saved. Quit and reopen Podcast Studio to use them.' });
@@ -122,7 +146,8 @@ else {
     const image = nativeImage.createFromBitmap(pixels, { width: 16, height: 16 });
     tray = new Tray(image); tray.setToolTip('Podcast Studio'); tray.setContextMenu(menu()); tray.on('click', show);
     const piper = await readPiper(home);
-    server = startServer(resources, home, () => error('The server stopped unexpectedly.'), { tools, piper });
+    const services = await readServices(home);
+    server = startServer(resources, home, () => error('The server stopped unexpectedly.'), { tools, piper, services });
     const port = await server.ready;
     if (failed || quitting) return;
     const origin = `http://127.0.0.1:${port}`;

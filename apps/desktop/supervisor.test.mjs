@@ -25,6 +25,16 @@ test('passes only selected Piper settings to the next child', () => {
   assert.equal(env.API_KEY, undefined);
 });
 
+test('passes explicitly selected local services to both model slots', () => {
+  const services = { ollama: 'http://127.0.0.1:11434/v1', model: 'test:4b', searxng: 'http://[::1]:8888', API_KEY: 'ignored' };
+  const env = childEnvironment({}, 'resources', 'home', null, null, services);
+  assert.equal(env.OLLAMA_BASE_URL, services.ollama);
+  assert.equal(env.OLLAMA_MODEL_MAIN, services.model);
+  assert.equal(env.OLLAMA_MODEL_FAST, services.model);
+  assert.equal(env.SEARXNG_URL, services.searxng);
+  assert.equal(env.API_KEY, undefined);
+});
+
 test('readiness requires the exact child IPC message and a valid port', () => {
   assert.equal(validReady({ type: 'desktop-ready', port: 34567 }), true);
   for (const value of [null, {}, { type: 'desktop-ready', port: 0 }, { type: 'desktop-ready', port: '34567' }, { type: 'other', port: 34567 }]) assert.equal(validReady(value), false);

@@ -1,0 +1,1 @@
+body { font: 15px system-ui, sans-serif; margin: 24px; color: #1b1b1b; } main { max-width: 620px; } label { display: block; margin: 16px 0; font-weight: 600; } input { display: block; box-sizing: border-box; width: 100%; padding: 8px; margin-top: 4px; } button { padding: 8px 18px; } #status { color: #9b1c1c; }

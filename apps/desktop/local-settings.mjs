@@ -20,6 +20,33 @@ async function validate(value) {
   for (const file of files) if (!(await stat(file)).isFile()) throw new Error('Piper executable and both matching ONNX and ONNX.json files must exist.');
   return { PIPER_DIR: dir, TTS_VOICE_NATIVE_HOST: names[0], TTS_VOICE_HU_HOST: names[1] };
 }
+export const defaultServices = Object.freeze({ ollama: 'http://localhost:11434/v1', model: 'qwen3.5:4b', searxng: 'http://localhost:8888' });
+
+function validateServices(value) {
+  for (const key of ['ollama', 'searxng']) {
+    const text = value?.[key];
+    if (typeof text !== 'string' || text.length > 2048 || !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::[0-9]+)?(?:\/|$)/i.test(text)) throw new Error('Endpoints must be HTTP URLs on localhost, 127.0.0.1, or [::1], without credentials.');
+    let url;
+    try { url = new URL(text); } catch { throw new Error('Invalid local service URL.'); }
+    if (url.username || url.password || url.hash || url.search || /[\s\\]/.test(text)) throw new Error('Endpoints cannot contain credentials, query strings, fragments, whitespace, or backslashes.');
+  }
+  if (typeof value.model !== 'string' || value.model.length > 256 || !/^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)?(?::[a-z0-9][a-z0-9._-]*)?$/i.test(value.model) || /(?:^|[/:._-])cloud(?:$|[/:._-])/i.test(value.model)) throw new Error('Enter a valid local Ollama model name; cloud models are not allowed.');
+  return { ollama: value.ollama, model: value.model, searxng: value.searxng };
+}
+export async function readServices(home) {
+  try { return validateServices(JSON.parse(await readFile(path.join(home, 'service-settings.json'), 'utf8'))); }
+  catch (error) { if (error.code === 'ENOENT') return { ...defaultServices }; throw error; }
+}
+export async function saveServices(home, value) {
+  const valid = validateServices(value);
+  const target = path.join(home, 'service-settings.json');
+  const temporary = `${target}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, JSON.stringify(valid), { flag: 'wx', mode: 0o600 });
+    await rename(temporary, target);
+  } finally { await rm(temporary, { force: true }); }
+}
+
 export async function readPiper(home) {
   try { return await validate(JSON.parse(await readFile(path.join(home, 'piper-settings.json'), 'utf8'))); } catch { return null; }
 }
