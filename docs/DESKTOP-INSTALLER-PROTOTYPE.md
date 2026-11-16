@@ -1,7 +1,8 @@
-# D6 installer prototype — not a release
+# Windows installer candidate — not a release
 
-This isolated, unsigned NSIS prototype is not D6 acceptance. Its distinct app ID,
-product name and user-data name avoid colliding with existing desktop installations.
+This unsigned candidate is based on commit `5c888de`, with a separate candidate app ID,
+product and user-data name. Windows SmartScreen may warn about the unknown publisher.
+It is for first installation testing, not production distribution. No auto-update is included.
 It packages the D2 server bundle, Node and web assets. D5 provider keys are an
 explicit opt-in that is off by default (see [Desktop shell](DESKTOP-SHELL.md#provider-keys-opt-in));
 that path has not been run from this packaged prototype, so do not rely on it here. No auto-update is included.
@@ -15,8 +16,10 @@ and [builder description](https://www.gyan.dev/ffmpeg/builds/) explain the neede
 review. A verified binary, corresponding sources, notices and licensing review are
 required before shipping.
 
-On first launch, select separately obtained, trusted `ffmpeg.exe` and `ffprobe.exe`
-in the native file dialogs. Cancelling quits the prototype. The app only checks the
+The app starts without configured tools, but audio generation requires compatible tools.
+Use the tray menu **Select FFmpeg and ffprobe** to choose separately obtained, trusted
+`ffmpeg.exe` and `ffprobe.exe` in the native file dialogs. Without saved paths the server
+falls back to executables on PATH. The app only checks the
 file names and existence, not their authenticity or capabilities; the selected
 programs will run with your user privileges. Supply a build supporting `loudnorm`,
 AAC encoding and the `ipod` muxer. Its adjacent DLLs must remain in place. Locations

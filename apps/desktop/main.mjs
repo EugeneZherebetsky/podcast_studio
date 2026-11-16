@@ -9,7 +9,7 @@ import { createKeyReader, createStore } from './write-only-store.mjs';
 import { USABLE_KEY_NAMES, launchKeys, launchMessage, readActivation, saveActivation } from './key-activation.mjs';
 import { readPiper, savePiper, readServices, saveServices } from './local-settings.mjs';
 
-app.setName(app.isPackaged ? 'Podcast Studio Installer Prototype' : 'Podcast Studio Desktop');
+app.setName(app.isPackaged ? 'Podcast Studio Candidate 5c888de' : 'Podcast Studio Desktop');
 app.enableSandbox();
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const resources = app.isPackaged ? process.resourcesPath : path.join(root, 'dist-desktop');
@@ -143,11 +143,7 @@ else {
   });
   app.whenReady().then(async () => {
     await mkdir(home, { recursive: true });
-    let tools = await readTools(home);
-    if (!tools) {
-      tools = await selectTools();
-      if (!tools) { app.quit(); return; }
-    }
+    const tools = await readTools(home);
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     session.defaultSession.setPermissionCheckHandler(() => false);
     const pixels = Buffer.alloc(16 * 16 * 4);

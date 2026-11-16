@@ -1,5 +1,5 @@
-appId: org.podcaststudio.installerprototype
-productName: Podcast Studio Installer Prototype
+appId: org.podcaststudio.candidate5c888de
+productName: Podcast Studio Candidate 5c888de
 directories:
   output: dist-installer
 files:
@@ -19,6 +19,7 @@ files:
   - apps/desktop/services.js
   - apps/desktop/services-preload.cjs
 extraMetadata:
+  version: 0.0.1-candidate.5c888de
   main: apps/desktop/main.mjs
 extraResources:
   - from: dist-desktop
