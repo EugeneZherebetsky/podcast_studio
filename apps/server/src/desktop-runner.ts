@@ -133,6 +133,7 @@ export function createDesktopRunner(
       const key = cloud && config ? (cloud.provider === "fish" ? config.FISH_AUDIO_API_KEY : config.ELEVENLABS_API_KEY) : undefined;
       if (cloud && (!key?.trim() || !/^[A-Za-z0-9_-]{1,128}$/.test(voice)))
         throw new Error("Configure a valid cloud voice and provider key (.env, or Provider keys in the desktop app) before generating");
+      guard.assertResolved();
       let preflightError: unknown;
       let preflightFailed = false;
       if (searchPreflight) try { await searchPreflight(); } catch (error) { preflightFailed = true; preflightError = error; }
@@ -152,10 +153,12 @@ export function createDesktopRunner(
         nativeLang: saved?.nativeLang ?? deps.nativeLang,
       };
       guard.begin();
-      const job = createJob(deps.db, options, jobDeps.budgetUsd);
-      if (topic) {
-        deps.db.update(jobs).set({ topicId: topic.id }).where(eq(jobs.id, job.id)).run();
-      }
+      const job = deps.db.transaction((tx) => {
+        if (topic && !tx.select().from(topics).where(eq(topics.id, topic.id)).get()) throw new Error("Topic not found");
+        const created = createJob(deps.db, options, jobDeps.budgetUsd);
+        if (topic) tx.update(jobs).set({ topicId: topic.id }).where(eq(jobs.id, created.id)).run();
+        return created;
+      });
       queue.push({ id: job.id, deps: jobDeps });
       events.emit("job-progress", job.id, { kind: "job", status: "queued" });
       const diagnostic = (jobDeps.chatgptProvider?.create() ?? jobDeps.providers.llm).diagnostic;

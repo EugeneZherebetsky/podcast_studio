@@ -24,9 +24,13 @@ export function openDesktopGuard(root: string) {
   const unresolved = !!marker.prepare("SELECT 1 FROM state LIMIT 1").get();
   let dirty = false;
   let closed = false;
+  function assertResolved() {
+    if (unresolved) throw new Error("Unclean desktop generation is unresolved. Stop all servers and verify any Piper, ffmpeg and Ollama work has stopped; see SETUP.md for manual recovery.");
+  }
   return {
+    assertResolved,
     begin() {
-      if (unresolved) throw new Error("Unclean desktop generation is unresolved. Stop all servers and verify any Piper, ffmpeg and Ollama work has stopped; see SETUP.md for manual recovery.");
+      assertResolved();
       if (!dirty) {
         marker.prepare("INSERT INTO state (dirty) VALUES (1)").run();
         dirty = true;
