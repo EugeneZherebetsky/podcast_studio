@@ -41,7 +41,7 @@ The script is sent to that provider and billed separately; the input limit bound
 
 ### Network safety
 
-The server accepts only numeric loopback HOST values `127.0.0.1` and `::1`; change any existing `localhost` or non-loopback HOST setting to one of these. Do not expose it through a reverse proxy. Phone transfer is manual PC-to-Android USB only; pairing, wireless transfer and phone-to-PC sync are out of scope. Internet remains available for research, article retrieval and configured cloud providers.
+The server binds only numeric loopback HOST values `127.0.0.1` and `::1`. Legacy `localhost`, `0.0.0.0`, and `::` settings are constrained to `127.0.0.1` with a warning; other non-loopback values are rejected. Open Settings directly at the numeric address for ChatGPT same-origin management. Do not expose it through a reverse proxy. Phone transfer is manual PC-to-Android USB only; pairing, wireless transfer and phone-to-PC sync are out of scope. Internet remains available for research, article retrieval and configured cloud providers.
 
 ## Windows login autostart
 

@@ -23,6 +23,10 @@ try {
 }
 dropDesktopProviderKeys();
 
+if (["localhost", "0.0.0.0", "::"].includes(config.HOST)) {
+  console.warn("Legacy HOST was constrained to 127.0.0.1; LAN access is disabled");
+  config.HOST = "127.0.0.1";
+}
 if (!["127.0.0.1", "::1"].includes(config.HOST)) {
   console.error("Server requires a numeric loopback host (127.0.0.1 or ::1)");
   process.exit(1);
