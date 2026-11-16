@@ -11,6 +11,27 @@ vi.mock("../src/pipeline/runner.ts", async (importOriginal) => ({
 }));
 import { generateJob } from "../src/pipeline/runner.ts";
 
+test("topic edits during preflight determine immutable options and voice", async () => {
+  vi.mocked(generateJob).mockClear();
+  const f = fakeGeneration();
+  f.db.$client.exec("insert into topics (id, title, mode, lang, minutes) values ('topic', 'Old', 'standard', 'en', 1)");
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const config = parseConfig({ PROFILE: "local", TTS_VOICE_NATIVE_HOST: "english", TTS_VOICE_HU_HOST: "hungarian" });
+  const runner = createDesktopRunner(f.deps, new EventEmitter(), config, undefined, undefined, true, () => gate);
+  try {
+    const creating = runner.create({ topicId: "topic" });
+    f.db.$client.exec("update topics set title = 'New', lang = 'hu', minutes = 2 where id = 'topic'");
+    release();
+    const job = await creating;
+    expect(job.options).toMatchObject({ title: "New", lang: "hu", minutes: 2 });
+    f.db.$client.exec("update topics set title = 'Later', lang = 'en' where id = 'topic'");
+    await vi.waitFor(() => expect(generateJob).toHaveBeenCalled());
+    expect(vi.mocked(generateJob).mock.calls[0]![0].voice).toBe("hungarian");
+    expect(JSON.parse((f.db.$client.prepare("select options from jobs where id = ?").get(job.id) as { options: string }).options)).toMatchObject({ title: "New", lang: "hu", minutes: 2 });
+  } finally { release(); await runner.close(); f.close(); }
+});
+
 test.each([
   { lang: "en", selected: true, expected: "native-chosen" },
   { lang: "hu", selected: true, expected: "hu-chosen" },

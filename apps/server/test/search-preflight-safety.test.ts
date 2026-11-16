@@ -24,7 +24,41 @@ test("a topic deleted during preflight leaves no orphan job or stages", async ()
     expect(f.db.$client.prepare("select count(*) as n from jobs").get()).toEqual(beforeJobs);
     expect(f.db.$client.prepare("select count(*) as n from job_stages").get()).toEqual(beforeStages);
     expect(f.llm.stages).toEqual([]);
+    const marker = new Database(path.join(f.dir, "desktop-generation-state.sqlite"), { readonly: true });
+    try { expect(marker.prepare("select count(*) as n from state").get()).toEqual({ n: 0 }); }
+    finally { marker.close(); }
   } finally { finish(); await runner.close(); f.close(); }
+});
+
+test("a rejected creation cannot clear the marker of active work", async () => {
+  const f = fakeGeneration();
+  f.db.$client.exec("insert into topics (id, title, mode, lang, minutes) values ('topic', 'Bees', 'standard', 'en', 1)");
+  let releaseProvider!: () => void;
+  let providerStarted!: () => void;
+  let finishPreflight!: () => void;
+  const providerGate = new Promise<void>((resolve) => { releaseProvider = resolve; });
+  const started = new Promise<void>((resolve) => { providerStarted = resolve; });
+  const preflightGate = new Promise<void>((resolve) => { finishPreflight = resolve; });
+  const llm = f.deps.providers.llm;
+  f.deps.providers.llm = { async generateObject(request) { providerStarted(); await providerGate; return llm.generateObject(request); } };
+  let calls = 0;
+  const runner = createDesktopRunner(f.deps, new EventEmitter(), undefined, undefined, undefined, false, async () => {
+    if (++calls === 2) await preflightGate;
+  });
+  try {
+    const active = await runner.create({ title: "Active", brief: "", mode: "standard", lang: "en", minutes: 1 });
+    await started;
+    const creating = runner.create({ topicId: "topic" });
+    const rejected = expect(creating).rejects.toThrow("Topic not found");
+    f.db.$client.exec("delete from topics where id = 'topic'");
+    finishPreflight();
+    await rejected;
+    const marker = new Database(path.join(f.dir, "desktop-generation-state.sqlite"), { readonly: true });
+    try { expect(marker.prepare("select count(*) as n from state").get()).toEqual({ n: 1 }); }
+    finally { marker.close(); }
+    expect(runner.isBusy?.(active.id)).toBe(true);
+    await runner.cancel(active.id);
+  } finally { releaseProvider(); finishPreflight(); await runner.close(); f.close(); }
 });
 
 test("topic assignment failure rolls back the job and stages", async () => {
@@ -39,6 +73,9 @@ test("topic assignment failure rolls back the job and stages", async () => {
     expect(f.db.$client.prepare("select count(*) as n from jobs").get()).toEqual(beforeJobs);
     expect(f.db.$client.prepare("select count(*) as n from job_stages").get()).toEqual(beforeStages);
     expect(f.llm.stages).toEqual([]);
+    const marker = new Database(path.join(f.dir, "desktop-generation-state.sqlite"), { readonly: true });
+    try { expect(marker.prepare("select count(*) as n from state").get()).toEqual({ n: 0 }); }
+    finally { marker.close(); }
   } finally { await runner.close(); f.close(); }
 });
 

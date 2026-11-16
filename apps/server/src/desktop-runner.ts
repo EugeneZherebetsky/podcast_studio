@@ -100,39 +100,43 @@ export function createDesktopRunner(
     async create(request: CreateJobRequest) {
       if (closing) throw new Error("Runner is shutting down");
       if (uncertain) throw new Error("External work may still be running; stop the server and follow manual recovery in SETUP.md");
-      const topic =
-        "topicId" in request
-          ? deps.db.select().from(topics).where(eq(topics.id, request.topicId)).get()
-          : undefined;
-      if ("topicId" in request && !topic) throw new Error("Topic not found");
-      const options = JobOptionsSchema.parse(
-        topic ? { ...topic, level: topic.level ?? undefined } : request,
-      );
-      if (options.mode !== "standard") throw new Error("Only standard mode is supported");
-      const savedRow = deps.db
-        .select()
-        .from(settings)
-        .where(eq(settings.key, "api-settings"))
-        .get();
-      const saved = savedRow ? SettingsSchema.parse(savedRow.value) : undefined;
-      const cloud = saved?.cloudTts;
-      if (
-        config &&
-        (config.PROFILE !== "local" ||
-          config.SEARCH_PROVIDER !== "searxng" ||
-          config.TTS_PROVIDER !== "piper" ||
-          (saved && saved.profile !== "local"))
-      )
-        throw new Error("Generation requires local Ollama, SearXNG and Piper");
-      const voice = cloud?.voice ?? (config
-        ? options.lang.toLowerCase().startsWith("hu")
-          ? (nativePiperSelection ? config.TTS_VOICE_HU_HOST : (saved?.voices.huHost ?? config.TTS_VOICE_HU_HOST))
-          : (nativePiperSelection ? config.TTS_VOICE_NATIVE_HOST : (saved?.voices.nativeHost ?? config.TTS_VOICE_NATIVE_HOST))
-        : deps.voice);
-      if (!voice) throw new Error("Configure a local Piper voice before generating");
-      const key = cloud && config ? (cloud.provider === "fish" ? config.FISH_AUDIO_API_KEY : config.ELEVENLABS_API_KEY) : undefined;
-      if (cloud && (!key?.trim() || !/^[A-Za-z0-9_-]{1,128}$/.test(voice)))
-        throw new Error("Configure a valid cloud voice and provider key (.env, or Provider keys in the desktop app) before generating");
+      const resolveInputs = () => {
+        const topic =
+          "topicId" in request
+            ? deps.db.select().from(topics).where(eq(topics.id, request.topicId)).get()
+            : undefined;
+        if ("topicId" in request && !topic) throw new Error("Topic not found");
+        const options = JobOptionsSchema.parse(
+          topic ? { ...topic, level: topic.level ?? undefined } : request,
+        );
+        if (options.mode !== "standard") throw new Error("Only standard mode is supported");
+        const savedRow = deps.db
+          .select()
+          .from(settings)
+          .where(eq(settings.key, "api-settings"))
+          .get();
+        const saved = savedRow ? SettingsSchema.parse(savedRow.value) : undefined;
+        const cloud = saved?.cloudTts;
+        if (
+          config &&
+          (config.PROFILE !== "local" ||
+            config.SEARCH_PROVIDER !== "searxng" ||
+            config.TTS_PROVIDER !== "piper" ||
+            (saved && saved.profile !== "local"))
+        )
+          throw new Error("Generation requires local Ollama, SearXNG and Piper");
+        const voice = cloud?.voice ?? (config
+          ? options.lang.toLowerCase().startsWith("hu")
+            ? (nativePiperSelection ? config.TTS_VOICE_HU_HOST : (saved?.voices.huHost ?? config.TTS_VOICE_HU_HOST))
+            : (nativePiperSelection ? config.TTS_VOICE_NATIVE_HOST : (saved?.voices.nativeHost ?? config.TTS_VOICE_NATIVE_HOST))
+          : deps.voice);
+        if (!voice) throw new Error("Configure a local Piper voice before generating");
+        const key = cloud && config ? (cloud.provider === "fish" ? config.FISH_AUDIO_API_KEY : config.ELEVENLABS_API_KEY) : undefined;
+        if (cloud && (!key?.trim() || !/^[A-Za-z0-9_-]{1,128}$/.test(voice)))
+          throw new Error("Configure a valid cloud voice and provider key (.env, or Provider keys in the desktop app) before generating");
+        return { topic, options, saved, cloud, voice, key };
+      };
+      resolveInputs();
       guard.assertResolved();
       let preflightError: unknown;
       let preflightFailed = false;
@@ -140,24 +144,25 @@ export function createDesktopRunner(
       if (closing) throw new Error("Runner is shutting down");
       if (uncertain) throw new Error("External work may still be running; stop the server and follow manual recovery in SETUP.md");
       if (preflightFailed) throw preflightError;
-      const jobDeps = {
-        ...deps,
-        ...(selection ? selection.capture() : {}),
-        ...(cloud && key ? {
-          providers: { ...deps.providers, tts: new CloudTtsProvider({ provider: cloud.provider, model: cloud.model, apiKey: key }) },
-          ttsName: `${cloud.provider}:${cloud.model}`,
-          cloudTtsInputLimit: cloud.inputLimit,
-        } : {}),
-        voice,
-        budgetUsd: saved?.monthlyBudgetUsd ?? deps.budgetUsd,
-        nativeLang: saved?.nativeLang ?? deps.nativeLang,
-      };
-      guard.begin();
-      const job = deps.db.transaction((tx) => {
-        if (topic && !tx.select().from(topics).where(eq(topics.id, topic.id)).get()) throw new Error("Topic not found");
+      const { job, jobDeps, topic } = deps.db.transaction((tx) => {
+        const { topic, options, saved, cloud, voice, key } = resolveInputs();
+        const jobDeps = {
+          ...deps,
+          ...(selection ? selection.capture() : {}),
+          ...(cloud && key ? {
+            providers: { ...deps.providers, tts: new CloudTtsProvider({ provider: cloud.provider, model: cloud.model, apiKey: key }) },
+            ttsName: `${cloud.provider}:${cloud.model}`,
+            cloudTtsInputLimit: cloud.inputLimit,
+          } : {}),
+          voice,
+          budgetUsd: saved?.monthlyBudgetUsd ?? deps.budgetUsd,
+          nativeLang: saved?.nativeLang ?? deps.nativeLang,
+        };
         const created = createJob(deps.db, options, jobDeps.budgetUsd);
         if (topic) tx.update(jobs).set({ topicId: topic.id }).where(eq(jobs.id, created.id)).run();
-        return created;
+        // Commit the marker before the job transaction can commit or any work can start.
+        guard.begin();
+        return { job: created, jobDeps, topic };
       });
       queue.push({ id: job.id, deps: jobDeps });
       events.emit("job-progress", job.id, { kind: "job", status: "queued" });
