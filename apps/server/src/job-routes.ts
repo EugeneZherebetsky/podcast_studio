@@ -15,8 +15,10 @@ import type { Db } from "./db/index.ts";
 import { jobs, jobStages, settings, topics, usage } from "./db/schema.ts";
 import { createJobLog, publicJobError, safeModel } from "./job-log.ts";
 import { ScriptSchema } from "./pipeline/script.ts";
+import { SEARCH_UNREACHABLE } from "./search-preflight.ts";
 
 const jobControlMessages = new Set([
+  SEARCH_UNREACHABLE,
   "Runner is shutting down",
   "Unclean desktop generation is unresolved. Stop all servers and verify any Piper, ffmpeg and Ollama work has stopped; see SETUP.md for manual recovery.",
   "External work may still be running; stop the server and follow manual recovery in SETUP.md",

@@ -10,6 +10,7 @@ import { createChatGptSession } from "./providers/llm/chatgpt-session.ts";
 import { EventEmitter } from "node:events";
 import { createProviders } from "./providers/index.ts";
 import { createDesktopRunner } from "./desktop-runner.ts";
+import { preflightSearch } from "./search-preflight.ts";
 import { openDesktopGuard } from "./desktop-guard.ts";
 import { createScriptSelection } from "./chatgpt-selection.ts";
 import { installShutdown, registerRunnerShutdown } from "./shutdown.ts";
@@ -51,7 +52,7 @@ const runner = desktopGuard
       db, providers: createProviders(config), dataDir: dataDirs.root,
       budgetUsd: config.MONTHLY_BUDGET_USD, voice: config.TTS_VOICE_NATIVE_HOST ?? "",
       profile: "local", llmName: config.OLLAMA_MODEL_MAIN, ttsName: "piper", nativeLang: config.NATIVE_LANG,
-    }, events, config, scriptSelection, desktopGuard, desktopIpc && process.env.PODCAST_STUDIO_NATIVE_PIPER === "1")
+    }, events, config, scriptSelection, desktopGuard, desktopIpc && process.env.PODCAST_STUDIO_NATIVE_PIPER === "1", () => preflightSearch(config.SEARXNG_URL))
   : undefined;
 
 const app = buildApp({

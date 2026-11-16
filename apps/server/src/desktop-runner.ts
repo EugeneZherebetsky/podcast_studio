@@ -24,6 +24,7 @@ export function createDesktopRunner(
   selection?: ReturnType<typeof createScriptSelection>,
   guard = openDesktopGuard(deps.dataDir),
   nativePiperSelection = false,
+  searchPreflight?: () => Promise<void>,
 ): JobRunner & { stopGeneration(): Promise<boolean>; close(): Promise<boolean> } {
   const queue: { id: string; deps: GenerateDeps }[] = [];
   let active: Promise<void> | undefined;
@@ -132,6 +133,12 @@ export function createDesktopRunner(
       const key = cloud && config ? (cloud.provider === "fish" ? config.FISH_AUDIO_API_KEY : config.ELEVENLABS_API_KEY) : undefined;
       if (cloud && (!key?.trim() || !/^[A-Za-z0-9_-]{1,128}$/.test(voice)))
         throw new Error("Configure a valid cloud voice and provider key (.env, or Provider keys in the desktop app) before generating");
+      let preflightError: unknown;
+      let preflightFailed = false;
+      if (searchPreflight) try { await searchPreflight(); } catch (error) { preflightFailed = true; preflightError = error; }
+      if (closing) throw new Error("Runner is shutting down");
+      if (uncertain) throw new Error("External work may still be running; stop the server and follow manual recovery in SETUP.md");
+      if (preflightFailed) throw preflightError;
       const jobDeps = {
         ...deps,
         ...(selection ? selection.capture() : {}),
