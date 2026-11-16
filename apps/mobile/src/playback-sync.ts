@@ -11,7 +11,7 @@ export interface PlaybackQueue {
   acknowledge(sent: PlaybackPosition[]): void;
 }
 
-/** Transport is supplied only after a secure pairing implementation exists. */
+/** Legacy sync code is not connected to the app; phone progress stays local. */
 export async function syncPlayback(
   queue: PlaybackQueue,
   send: (body: SyncPlaybackRequest) => Promise<unknown>,

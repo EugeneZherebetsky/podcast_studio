@@ -1,6 +1,6 @@
 # Architecture
 
-This document includes target architecture as well as implemented components. For the currently available PC and Android workflows and their verification limits, see [README](../README.md) and [Setup](SETUP.md). In particular, the desktop runner is standard-mode only, mobile Wi-Fi transfer is not implemented, and a signed standalone release is not established.
+This document includes target architecture as well as implemented components. For the currently available PC and Android workflows and their verification limits, see [README](../README.md) and [Setup](SETUP.md). In particular, the desktop runner is standard-mode only, phone transfer is USB-only, and a signed standalone release is not established.
 
 ## 1. Overview
 
@@ -23,11 +23,10 @@ This document includes target architecture as well as implemented components. Fo
 │        data/cache/tts/        ├─ TtsProvider    → Azure | OpenAI | ElevenLabs | Piper
 │                               └─ ffmpeg / ffprobe                            │
 └───────────────▲──────────────────────────────────────────────────────────────┘
-                │ Planned: private authenticated home Wi-Fi download, PC → phone
-                │ Alternative: manual USB package copy and import
+                │ Manual USB package copy and import, PC → phone only
 ┌───────────────┴──────────── Android phone ───────────────────────────────────┐
 │  apps/mobile (Expo)                                                          │
-│   import/download ── library (local files + SQLite) ── background player    │
+│   USB import ────── library (local files + SQLite) ── background player    │
 │   learning: timed transcript, sentence drill, local vocabulary and FSRS    │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -191,7 +190,7 @@ Notes for implementers:
 
 ## 6. HTTP API (server, prefix `/api`)
 
-This table records existing and planned API surface, not authorization to expose it on the LAN. JSON bodies use shared schemas. Existing pairing and progress routes are historical implementation, not an approved phone sync design; retain code and data pending a separate decision. A future LAN transfer surface must be limited to authenticated episode listing/download, not the whole desktop API.
+This table records existing and planned desktop API surface, not authorization to expose it on the LAN. JSON bodies use shared schemas. Pairing and progress sync routes are no longer registered; legacy tables and shared schemas remain unchanged.
 
 | Method and path | Purpose |
 |---|---|
@@ -203,29 +202,25 @@ This table records existing and planned API surface, not authorization to expose
 | `GET /episodes?since=<iso>`, `GET /episodes/:id` | list, full `episode.json` |
 | `GET /episodes/:id/audio` | audio with HTTP Range support |
 | `DELETE /episodes/:id` | remove |
-| `POST /pair/start` (loopback only) → `{qr}` ; `POST /pair/complete` `{code, deviceName}` → `{token}` | device pairing |
-| `POST /sync/playback` | Existing legacy endpoint; not used for phone progress |
-| `POST /sync/vocab` | Existing legacy endpoint; not used for phone vocabulary |
 | `GET/PUT /settings` | profile, voices, native language, level, budget; never returns secrets |
 | `GET /settings/cloud-tts` | loopback-only, non-cacheable provider key-presence flags; no connection test. Settings opt in to ElevenLabs or Fish Audio for desktop speech; Piper remains the default. |
 | `GET /feed.xml?token=` | optional RSS feed of episodes for third-party podcast apps |
 
 ## 7. Mobile app
 
-- **Screens:** Library (downloaded and locally available), Player (controls + transcript), Review (vocabulary), Settings (device acceptance, storage, level), and explicit USB import.
+- **Screens:** Library (locally available), Player (controls + transcript), Review (vocabulary), Settings (storage, level), and explicit USB import.
 - **Storage:** expo-sqlite for episodes index, playback positions, vocabulary and FSRS cards; audio and `episode.json` under the app document directory.
-- **Transfer (planned):** an explicitly PC-accepted phone downloads finished packages only over authenticated, encrypted home Wi-Fi; no playback or vocabulary upload. Independently, the user copies a package over USB and selects it for import. Validate shared episode schema, safe paths, audio byte count and SHA-256; stage first and publish via a commit marker written only after the destination is verified, preserving existing library and progress on failure even if a directory move copies. Legacy imports are verified before listing. An import with an already listed episode ID is rejected; incomplete directories are retained and ignored. A digest alone does not authenticate a package. USB imports rely on the user trusting its source.
+- **Transfer (planned):** the user copies a finished package from PC to Android over USB and selects it for import; no wireless transfer or playback or vocabulary upload. Validate shared episode schema, safe paths, audio byte count and SHA-256; stage first and publish via a commit marker written only after the destination is verified, preserving existing library and progress on failure even if a directory move copies. Legacy imports are verified before listing. An import with an already listed episode ID is rejected; incomplete directories are retained and ignored. A digest alone does not authenticate a package. USB imports rely on the user trusting its source.
 - **Player:** expo-audio with `shouldPlayInBackground`, lock-screen controls via `setActiveForLockScreen` (required on Android for sustained background playback), `playbackRate` with pitch correction. A position ticker (≈100 ms) drives transcript highlighting by binary search over `segments[].startMs`. The T18 scaffold plays a bundled LibriVox episode package without transcript segments; transcript highlighting remains to be implemented.
-- **Connectivity (planned):** no functional phone pairing is claimed. Design local discovery, explicit PC-side acceptance, encrypted transport and server identity verification, authorization scope, expiry/revocation, and recovery before enabling LAN access. No public internet exposure or remote access. A trusted certificate/key or equivalent authenticated channel must be established without sending reusable credentials in plaintext.
 - **Build:** development build with `expo run:android` on a USB-connected phone (Expo Go is not sufficient for background audio). This debug development build needs a development server. Release signing and a standalone device-verified APK remain open; see the [mobile guide](../apps/mobile/README.md).
 
 ## 8. Desktop
 
-`apps/web` is served by the server at `http://localhost:4747` and has a web manifest so Edge/Chrome can install it as a windowed app. A scheduled task (`pnpm run autostart:install`) starts the server at login. Pages: New episode, Topics, Library + player with transcript, Jobs (live progress, retry), Settings (profile, voices with preview, future device acceptance, usage and cost).
+`apps/web` is served by the server at `http://localhost:4747` and has a web manifest so Edge/Chrome can install it as a windowed app. A scheduled task (`pnpm run autostart:install`) starts the server at login. Pages: New episode, Topics, Library + player with transcript, Jobs (live progress, retry), Settings (profile, voices with preview, USB transfer guidance, usage and cost).
 
 ## 9. Security and privacy
 
-- Current server defaults to loopback; a non-loopback default requires prior owner approval. Existing non-loopback auth and pairing code are not a completed safe phone transfer: the QR uses a loopback address, and plaintext HTTP exposes codes and tokens. A reverse proxy must not bypass the loopback trust boundary. The planned opt-in LAN-only transfer requires explicit PC-side acceptance per device, encrypted authenticated transport, scoped read-only authorization and revocation; test rejection of unauthorized devices and non-LAN/public access. No router port forwarding or public exposure. Exact mechanism remains open for review.
+- The server defaults to loopback and rejects non-loopback clients, including legacy device tokens. A reverse proxy must not bypass this boundary. Wireless transfer, pairing and device sync are out of scope. Outbound research, article retrieval and configured cloud provider calls remain permitted.
 - Secrets only in `.env` on the PC. `.env`, `data/`, `infra/piper/` are git-ignored.
 - Logs redact `Authorization` headers and anything matching configured key values.
 - What leaves the machine in the cloud profile: search queries, topic text, extracted page text, scripts (to the LLM), script text (to TTS). Phone vocabulary is not sent to the server or providers; any future explicit PC-side input must be separately approved.

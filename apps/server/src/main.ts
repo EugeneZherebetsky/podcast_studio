@@ -23,6 +23,11 @@ try {
 }
 dropDesktopProviderKeys();
 
+if (!["127.0.0.1", "::1"].includes(config.HOST)) {
+  console.error("Server requires a numeric loopback host (127.0.0.1 or ::1)");
+  process.exit(1);
+}
+
 const desktopIpc = process.env.PODCAST_STUDIO_DESKTOP_IPC === "1" && typeof process.send === "function";
 if (desktopIpc && !(config.PROFILE === "local" && config.SEARCH_PROVIDER === "searxng" && config.TTS_PROVIDER === "piper")) {
   throw new Error("Desktop server requires the local generation ownership guard");

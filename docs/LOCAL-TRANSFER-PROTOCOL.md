@@ -1,6 +1,8 @@
 # Local transfer protocol v1 — proposed security contract
 
-Status: **design only, independently reviewed with unresolved blockers, not implemented**. This specifies T17/T19; it does not authorize enabling a listener. USB import is independent. Owner approval covers an optional local-only listener, Android native module and expo-secure-store; changes to shared, SQLite or package schemas, or a non-loopback default, require separate approval. The management server remains loopback-only; never expose its legacy pairing, bearer API, sync routes or a proxy to it. No playback progress or vocabulary leaves the phone.
+> **Superseded historical design:** Wireless phone transfer, LAN listeners, pairing and dedicated device APIs are out of scope. This document is retained for history only and does not define current requirements or authorize implementation. Use PC-to-Android USB transfer; phone progress stays local.
+
+Status: **superseded historical proposal; wireless transfer is out of scope.**
 
 ## Trust and identity
 

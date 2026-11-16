@@ -56,7 +56,7 @@ export default function Library() {
         <Text accessibilityRole="header" style={{ fontSize: 24 }}>
           Library
         </Text>
-        <Text>Server pairing and sync are not available yet.</Text>
+        <Text>Transfer episodes from your PC over USB. Playback progress stays on this phone.</Text>
         <Text>USB import: select episode.json, then audio.m4a from a trusted copied package. Checksums detect corruption, not the source.</Text>
         <Button title="Import USB package" disabled={importing} onPress={importPackage} />
         {importMessage ? <Text accessibilityLiveRegion="polite">{importMessage}</Text> : null}

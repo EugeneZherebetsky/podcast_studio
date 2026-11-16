@@ -1,6 +1,6 @@
 # AGENTS.md — rules for coding agents working in this repo
 
-You are implementing **Podcast Studio**: a home-server app that researches a topic on the web, writes a podcast script, turns it into audio, and syncs episodes to an Android app that doubles as a Hungarian-learning player.
+You are implementing **Podcast Studio**: a home-server app that researches a topic on the web, writes a podcast script, turns it into audio, and exports episodes over USB to an Android app that doubles as a Hungarian-learning player.
 
 ## Read before you write code
 

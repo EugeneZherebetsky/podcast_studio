@@ -54,7 +54,7 @@ test("USB downloads return the exact verified package without accepting paths", 
     expect((await app.inject({ url: `/api/episodes/${id}/usb/audio.m4a`, remoteAddress: "192.0.2.1" })).statusCode).toBe(401);
     const token = "a".repeat(43);
     db.insert(devices).values({ id: "device", name: "test", tokenHash: createHash("sha256").update(token).digest("hex"), createdAt: "2026-01-01T00:00:00.000Z" }).run();
-    expect((await app.inject({ url: `/api/episodes/${id}/usb/audio.m4a`, remoteAddress: "192.0.2.1", headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(403);
+    expect((await app.inject({ url: `/api/episodes/${id}/usb/audio.m4a`, remoteAddress: "192.0.2.1", headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(401);
     db.update(episodes).set({ path: root }).run();
     expect((await app.inject({ url: `/api/episodes/${id}/usb/audio.m4a` })).statusCode).toBe(422);
     db.update(episodes).set({ path: dir }).run();

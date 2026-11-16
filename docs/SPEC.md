@@ -9,7 +9,7 @@ A single user wants to **listen instead of read**. They name a topic; the system
 1. *One-off:* "I type a topic and an optional brief, pick length and language, and get an episode in my library a few minutes later."
 2. *Recurring:* "I subscribe to a topic with a schedule (daily / weekdays / weekly). A fresh episode covering only what is new is waiting for me each time."
 3. *Trust:* "Every episode lists the sources it used. I can read the script."
-4. *Phone:* "I accept my phone on the PC, then download finished episodes over home Wi-Fi or manually copy and import an episode package over USB. I listen offline, in the background, with lock-screen controls."
+4. *Phone:* "I manually copy and import a finished episode package over USB. I listen offline, in the background, with lock-screen controls."
 5. *Hungarian – graded:* "I get the episode in simple Hungarian at my level. The transcript follows the audio; I tap a sentence for its translation and a word for its meaning and how it is built."
 6. *Hungarian – teacher:* "I get a bilingual episode: Hungarian sentence, then an explanation in my language, then the sentence again."
 7. *Hungarian – drill:* "I slow playback down, loop one sentence, auto-pause after each sentence."
@@ -32,12 +32,12 @@ A single user wants to **listen instead of read**. They name a topic; the system
 1. Explanations and translations are in **English** (`NATIVE_LANG=en`, configurable).
 2. "Desktop application" = the server plus a web UI at `http://localhost:4747`, installable as a windowed app from Edge/Chrome and started at login. A native Electron shell is a later, optional task (T27).
 3. Typical episode: 5–15 minutes. Longer is allowed but not optimised.
-4. Phone receives episodes on home Wi-Fi or by manual USB package copy/import. No remote access, cloud sync, or public internet exposure.
+4. Phone receives episodes only by manual PC-to-Android USB package copy/import. No wireless phone transfer, phone-to-PC sync, remote access, cloud sync, or public server exposure.
 5. Personal use only: no publishing, no app store release. The APK is installed over USB.
 
 ### Transfer and privacy requirements
 
-Wi-Fi transfer is PC-to-phone only, restricted to the home LAN, explicitly enabled and authorized by the user on the PC for each device, and uses authenticated private encrypted transport. Loopback remains the server default; any non-loopback default requires prior approval under AGENTS.md. Do not expose the service publicly. The exact discovery, pairing, encryption and revocation design needs review before implementation. A bare checksum detects corruption, not a malicious replacement: authenticate the transport and metadata as well.
+Wireless phone transfer, pairing and dedicated LAN device APIs are out of scope. The desktop management server remains loopback-only for clients, and legacy device credentials do not authorize remote requests. A bare checksum detects corruption, not malicious replacement.
 
 USB transfer is an explicit user-driven copy and phone import of the existing episode package (audio and episode JSON). Validate the existing shared schema, safe paths, audio size and SHA-256 before atomically making an import playable; reject incomplete, corrupted or unsupported packages without damaging existing episodes or local progress. USB copy does not authenticate its source; the user must trust and select the copied package. No cloud or internet is required for playback or learning from a downloaded package. PC generation may still use configured internet/cloud providers.
 
@@ -69,9 +69,9 @@ Tooling note (T01): `tsc` is TypeScript 7.0.2, installed under the alias `@types
 | `shared` | Zod schemas and types: episode package, API DTOs, config | — |
 | `providers` | LLM, search, fetch/extract, TTS interfaces with cloud, local and fake implementations | `shared` |
 | `pipeline` | Research → notes → script → speech → assembled episode; resumable job runner; scheduler | `providers`, `shared` |
-| `api` | HTTP API, auth/pairing, file serving, progress events | `pipeline`, `shared` |
+| `api` | Local HTTP API, file serving, progress events | `pipeline`, `shared` |
 | `web` | Desktop UI: topics, generation, library, player, settings | `api` |
-| `mobile-core` | Local device acceptance, one-way downloads, USB import, offline library, background player | `api`, `shared` |
+| `mobile-core` | USB import, offline library, background player | `api`, `shared` |
 | `learning` | Hungarian script modes (server) and transcript, drill, vocabulary, SRS (mobile) | `pipeline`, `mobile-core` |
 
 Build order: `shared` → `providers` → `pipeline` → `api` → `web`, `mobile-core` → `learning`.
@@ -82,7 +82,7 @@ Build order: `shared` → `providers` → `pipeline` → `api` → `web`, `mobil
 - **SC2** Every sentence-level segment in `episode.json` has `startMs`/`endMs` within ±80 ms of the real audio (checked by an automated test on a fixture).
 - **SC3** A subscribed topic produces an episode on schedule without user action, and does not repeat sources used by its earlier episodes.
 - **SC4** A failed stage (network error, invalid LLM output) can be retried from that stage without redoing or re-paying for completed stages.
-- **SC5** After explicit PC-side device acceptance, the phone can download a finished episode on home Wi-Fi; independently, a manually copied USB episode package can be imported. Both pass integrity checks and play in airplane mode with the screen off. Playback position survives app restart and stays on the phone.
+- **SC5** A manually copied USB episode package can be imported, passes integrity checks and plays in airplane mode with the screen off. Playback position survives app restart and stays on the phone.
 - **SC6** In a Hungarian graded episode: the current sentence is highlighted during playback; tapping a sentence shows its translation; tapping a word shows lemma, meaning and morpheme breakdown, all offline.
 - **SC7** Sentence drill works: auto-pause after each sentence, repeat current, previous/next, speed 0.5×–1.5× with pitch correction.
 - **SC8** A saved word appears in the review queue; review ratings reschedule it via FSRS; state survives app restart locally. Reinstall recovery is not promised.
@@ -92,7 +92,7 @@ Build order: `shared` → `providers` → `pipeline` → `api` → `web`, `mobil
 
 ## Out of scope
 
-iOS. Multiple users or accounts. Public hosting. Remote/cloud episode sync and automatic phone-to-PC progress or vocabulary transfer. App-store distribution. Voice cloning. Multi-host conversational banter with overlapping speech. Speech recognition or pronunciation scoring. Languages other than Hungarian for learning mode (the design keeps the target language as a config value, but only Hungarian is tested). Video.
+iOS. Multiple users or accounts. Public hosting. Wi-Fi/LAN phone transfer, pairing, dedicated device APIs, remote/cloud episode sync, and phone-to-PC progress or vocabulary transfer. App-store distribution. Voice cloning. Multi-host conversational banter with overlapping speech. Speech recognition or pronunciation scoring. Languages other than Hungarian for learning mode (the design keeps the target language as a config value, but only Hungarian is tested). Video.
 
 ## Boundaries
 

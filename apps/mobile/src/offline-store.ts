@@ -6,7 +6,7 @@ type Staging = {
   discard(): void;
 };
 
-// Transport must be provided by the future authenticated pairing implementation.
+// Legacy generic transport is not connected to phone transfer; USB is the supported path.
 export async function saveOfflineEpisode(input: unknown, io: Staging): Promise<Episode> {
   const episode = EpisodeSchema.parse(input);
   try {

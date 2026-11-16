@@ -41,7 +41,7 @@ The script is sent to that provider and billed separately; the input limit bound
 
 ### Network safety
 
-Keep the default numeric loopback binding for PC use. Android pairing, Wi-Fi downloads and sync are not implemented. Plain HTTP exposes pairing codes and device tokens on the network, and HTTPS through a reverse proxy is not supported until its authentication boundary is designed. Do not expose the server to the LAN or Internet for phone transfer; use the manual USB workflow instead.
+The server accepts only numeric loopback HOST values `127.0.0.1` and `::1`; change any existing `localhost` or non-loopback HOST setting to one of these. Do not expose it through a reverse proxy. Phone transfer is manual PC-to-Android USB only; pairing, wireless transfer and phone-to-PC sync are out of scope. Internet remains available for research, article retrieval and configured cloud providers.
 
 ## Windows login autostart
 

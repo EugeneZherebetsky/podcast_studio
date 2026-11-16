@@ -19,7 +19,7 @@ export async function importUsbEpisode(metadata: Pick<File, "json">, source: { c
   }
 }
 
-// The caller supplies a trusted transport; pairing/credential handling is not implemented yet.
+// USB import relies on the user choosing a trusted package.
 export async function storeOfflineEpisode(input: unknown, transfer: (destination: File) => Promise<void>) {
   const validated = EpisodeSchema.parse(input);
   const directory = root();

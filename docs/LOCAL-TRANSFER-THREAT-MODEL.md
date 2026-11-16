@@ -1,6 +1,8 @@
 # Local transfer threat model and implementation gates
 
-Status: design input only. No transfer transport, credential store, pairing or LAN listener is enabled by this document. T17 and T19 remain open; independent security review and device verification are required before use.
+> **Superseded historical design:** Wireless phone transfer, LAN listeners, pairing and dedicated device APIs are out of scope. This document is retained for history only and does not define current requirements or authorize implementation. Use PC-to-Android USB transfer; phone progress stays local.
+
+Status: **superseded historical proposal; wireless transfer is out of scope.**
 
 ## Assets and trust boundaries
 

@@ -1,14 +1,12 @@
 import { renderToString } from "react-dom/server";
 import { expect, test } from "vitest";
-import { PairingStatus, UsageTotal, VoicePicker } from "./SettingsExtras.tsx";
+import { TransferStatus, UsageTotal, VoicePicker } from "./SettingsExtras.tsx";
 
-test("pairing status explains why a phone QR is unavailable without exposing a code", () => {
-  const html = renderToString(<PairingStatus />);
-  expect(html).toContain("Phone pairing is not available yet");
-  expect(html).toContain("Localhost refers to the phone itself");
-  expect(html).toContain("Plain HTTP exposes pairing codes and device tokens");
-  expect(html).toContain("reverse proxy is not supported");
-  expect(html).not.toContain("podcast-studio://pair");
+test("transfer settings describe USB without advertising pairing", () => {
+  const html = renderToString(<TransferStatus />);
+  expect(html).toContain("over USB");
+  expect(html).toContain("progress stays on your phone");
+  expect(html).not.toContain("pairing");
 });
 
 test("usage displays the recorded UTC month total without rounding small costs to zero", () => {

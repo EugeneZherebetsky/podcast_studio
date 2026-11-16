@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { SettingsSchema, type Settings as SettingsValue } from "shared";
 import { api } from "./api.ts";
-import { PairingStatus, UsageTotal } from "./SettingsExtras.tsx";
+import { TransferStatus, UsageTotal } from "./SettingsExtras.tsx";
 import { ChatGptSettings } from "./ChatGptSettings.tsx";
 import { CloudTts, type CloudTtsStatus } from "./CloudTts.tsx";
 
@@ -60,7 +60,7 @@ export function Settings() {
         <p>Gemini consumer account sign-in is not connected to this app. <a href="https://gemini.google.com/" target="_blank" rel="noopener noreferrer">Open Gemini separately</a>.</p>
         <p>An experimental command-line manual draft workflow exists, but it requires prepared research and is not connected to review, audio, or publication. See docs/MANUAL-GEMINI.md in the project for its safety restrictions.</p>
       </section>
-      <PairingStatus />
+      <TransferStatus />
 
       {error && (
         <p role="alert" className="error">

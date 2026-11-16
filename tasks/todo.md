@@ -2,7 +2,7 @@
 
 Work top to bottom. One task per session. Each task is a self-contained prompt: read the listed doc sections, implement, make **Verify** pass, tick the box, commit as `Tnn: …`.
 
-Status note: T12–T19 have partial work in existing branches/commits; unchecked means acceptance is not complete. Preserve code, data and history. T17 and T19 below supersede their original sync scope; legacy sync implementations are not approval to use or delete them. Follow the revised dependency/order notes in `plan.md`.
+Status note: T12–T19 have partial work in existing branches/commits; unchecked means acceptance is not complete. Preserve code, data and history. T17 wireless work is cancelled; T19 is USB-only. Legacy device/progress tables and shared schemas remain in place, but pairing and sync routes are not registered. Follow the revised dependency/order notes in `plan.md`.
 
 Legend: **Read** = sections to load · **Accept** = what must be true · **Verify** = how to prove it.
 
@@ -101,23 +101,20 @@ PC generation integration remains blocked: `main.ts` does not supply a job runne
 
 ## M3 — Android app core
 
-- [ ] **T17 Local transfer security design and device acceptance**
-  - History: pairing/auth and playback/vocabulary sync endpoint foundations exist; safe phone pairing remains unavailable. Preserve them, but do not use sync endpoints for phone progress.
-  - Read: ARCHITECTURE §6–§9; SPEC transfer requirements; AGENTS.md boundaries.
-  - Do: design and obtain review for LAN-only discovery, explicit PC-side acceptance of each device, trusted encrypted transport and server identity, scoped episode-read authorization, expiry/revocation, and no public exposure. Keep loopback default; ask first for a different default or contract/schema/package changes. Implement only after necessary approvals.
-  - Accept/Verify: automated rejection tests for unauthorized/revoked devices and non-LAN access; verify no plaintext credentials, no broader API exposure, and no automatic progress transfer; device test explicit accept/reject and secure download.
+- **T17 Cancelled — wireless transfer security design**
+  - Wireless transfer, a LAN listener, pairing and dedicated device APIs are out of product scope. Historical design documents are retained as superseded records, not implementation tasks. No SQLite or shared schema changes are authorized.
 
 - [ ] **T18 Mobile scaffold and background player**
   - Read: ARCHITECTURE §7; docs/SETUP.md "Phone". Read current expo-audio docs first.
   - Do: `apps/mobile` with Expo SDK 58, expo-router, expo-dev-client; a Player screen that plays a bundled sample episode package with background playback, lock-screen controls, seek, speed.
   - Verify: `pnpm --filter mobile android` installs on the USB phone. Device checklist: plays 10 minutes with screen off; lock-screen pause/resume works; survives switching apps; position restored after force-stop.
 
-- [ ] **T19 One-way Wi-Fi downloads and USB package import**
-  - History: sample library, local playback checkpoints, package staging and integrity verification foundations exist; full transfer and device verification remain open.
-  - Depends: T17 approved secure transport for Wi-Fi; USB import can be developed independently, after T18 foundations.
-  - Do: download finished episodes only on home Wi-Fi after explicit PC device acceptance; separately allow manual USB package copy and phone selection/import. Validate existing shared schema, safe paths, audio size and SHA-256; stage and atomically publish, preserving library and local progress on failures. Resolve duplicate behavior in design. Do not upload progress. Ask first for package or schema changes.
+- [ ] **T19 USB package import**
+  - History: sample library, local playback checkpoints, package staging and integrity verification foundations exist; physical-device verification remains open.
+  - Depends: T18 foundations. No pairing, wireless transfer or phone-to-PC sync.
+  - Do: allow manual PC-to-Android USB package copy and phone selection/import. Validate existing shared schema, safe paths, audio size and SHA-256; stage and publish only after verification, preserving library and local progress on failures. Existing episode IDs are rejected. Ask first for package or schema changes.
   - Accept: SC5.
-  - Verify: tests for malformed, missing, corrupted, unsafe and duplicate packages, interrupted download/import and no progress upload; device checks for both Wi-Fi and USB paths, then airplane-mode playback and restart position.
+  - Verify: tests for malformed, missing, corrupted, unsafe and duplicate packages, interrupted import and no progress upload; physical USB device check, then airplane-mode playback and restart position.
 
 ## M4 — Hungarian learning
 
