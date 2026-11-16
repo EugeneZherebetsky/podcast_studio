@@ -76,6 +76,8 @@ export class AzureTtsProvider implements TtsProvider {
     }
     this.subscriptionKey = options.subscriptionKey;
     this.region = options.region ?? "westeurope";
+    // The region becomes the request host, so anything but a bare region name could send the key elsewhere.
+    if (!/^[a-z0-9]{1,40}$/.test(this.region)) throw new Error("Invalid Azure Speech region");
     this.fetchFn = options.fetch ?? globalThis.fetch;
     const cacheOpts: TtsCacheOptions = {
       cacheDir: options.cacheDir,

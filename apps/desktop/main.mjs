@@ -5,7 +5,8 @@ import { mkdir } from 'node:fs/promises';
 import { allowedExternal, loginItem, startServer } from './supervisor.mjs';
 import { readTools, saveTools } from './ffmpeg-settings.mjs';
 import { openKeyWindow } from './key-window.mjs';
-import { createStore } from './write-only-store.mjs';
+import { createKeyReader, createStore } from './write-only-store.mjs';
+import { USABLE_KEY_NAMES, launchKeys, launchMessage, readActivation, saveActivation } from './key-activation.mjs';
 import { readPiper, savePiper, readServices, saveServices } from './local-settings.mjs';
 
 app.setName(app.isPackaged ? 'Podcast Studio Installer Prototype' : 'Podcast Studio Desktop');
@@ -13,6 +14,8 @@ app.enableSandbox();
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const resources = app.isPackaged ? process.resourcesPath : path.join(root, 'dist-desktop');
 const home = app.getPath('userData');
+const keyFile = path.join(home, 'provider-keys.bin');
+let launched = { state: 'off', names: [] };
 let window;
 let tray;
 let server;
@@ -100,9 +103,13 @@ function external(url) {
 function menu() {
   return Menu.buildFromTemplate([
     { label: 'Open Podcast Studio', click: show },
-    { label: 'Provider keys (inactive prototype)…', click: async () => {
+    { label: 'Provider keys…', click: async () => {
       try {
-        const keyWindow = await openKeyWindow(createStore(path.join(home, 'provider-keys.bin'), safeStorage));
+        // The window gets presence/set/clear and the activation choice; never the reader.
+        const keyWindow = await openKeyWindow(createStore(keyFile, safeStorage), {
+          get: async () => ({ ...(await readActivation(home)), usable: USABLE_KEY_NAMES, launch: launched }),
+          set: (value) => saveActivation(home, value),
+        });
         keyWindow.show();
       } catch { dialog.showErrorBox('Provider keys', 'The key window could not be opened.'); }
     } },
@@ -157,7 +164,13 @@ else {
     let services;
     try { services = await readServices(home); }
     catch (err) { error(err.message); return; }
-    server = startServer(resources, home, () => error('The server stopped unexpectedly.'), { tools, piper, services });
+    // Stored keys are read here, once per launch, and only if the user opted in. Nothing
+    // later in this process reads them again, so key edits cannot affect the running server.
+    const { keys, ...status } = await launchKeys(home, createKeyReader(keyFile, safeStorage));
+    launched = status;
+    const notice = launchMessage(status.state);
+    if (notice) tray.setToolTip(`Podcast Studio. ${notice}`);
+    server = startServer(resources, home, () => error('The server stopped unexpectedly.'), { tools, piper, services, keys });
     const port = await server.ready;
     if (failed || quitting) return;
     const origin = `http://127.0.0.1:${port}`;

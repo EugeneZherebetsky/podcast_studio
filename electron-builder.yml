@@ -11,6 +11,8 @@ files:
   - apps/desktop/key-window.js
   - apps/desktop/key-preload.cjs
   - apps/desktop/write-only-store.mjs
+  - apps/desktop/key-activation.mjs
+  - apps/desktop/key-ipc.mjs
   - apps/desktop/local-settings.mjs
   - apps/desktop/services.html
   - apps/desktop/services.css

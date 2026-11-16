@@ -2,8 +2,9 @@
 
 This isolated, unsigned NSIS prototype is not D6 acceptance. Its distinct app ID,
 product name and user-data name avoid colliding with existing desktop installations.
-It packages the D2 server bundle, Node and web assets. D5 key management is disabled;
-cloud credentials and paid provider calls must not be used. No auto-update is included.
+It packages the D2 server bundle, Node and web assets. D5 provider keys are an
+explicit opt-in that is off by default (see [Desktop shell](DESKTOP-SHELL.md#provider-keys-opt-in));
+that path has not been run from this packaged prototype, so do not rely on it here. No auto-update is included.
 Start at login remains off unless explicitly enabled. Repository workflows are unchanged.
 
 **Blocker:** ffmpeg and ffprobe are not bundled. Gyan's Windows essentials build is

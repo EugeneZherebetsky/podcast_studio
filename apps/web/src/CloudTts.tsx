@@ -15,6 +15,7 @@ export function CloudTts({ status, value, onChange }: { status: CloudTtsStatus |
       <li>In the Podcast Studio server folder, create or edit the file named <code>.env</code> (not <code>.env.txt</code>). Add the line for your provider, replacing the placeholder with your key:</li>
     </ol>
     <pre><code>{"ELEVENLABS_API_KEY=your_api_key_here\nFISH_AUDIO_API_KEY=your_api_key_here"}</code></pre>
+    <p>In the desktop app there is no <code>.env</code>: open <strong>Provider keys</strong> from the tray menu instead, save the key, tick it, switch activation on, then finish any jobs and quit and reopen the app.</p>
     <p>Only add the provider you want to use. Keep the key private: do not paste it into chat or share the file.</p>
     <ol start={3}>
       <li>Restart the server, then return to this page. “Key present” means the key was loaded, not that it was verified with the provider.</li>

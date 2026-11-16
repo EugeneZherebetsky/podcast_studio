@@ -1,7 +1,13 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'"><title>Key storage prototype</title><script defer src="key-window.js"></script></head>
-<body><h1>Provider key storage (inactive prototype)</h1><p>Use synthetic test values only. Saved keys are not used by this build, even after a restart. No restart occurs when keys change. When a future version supports activation, quit and reopen only after no job is active to avoid interruption.</p>
+<html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'"><title>Provider keys</title><script defer src="key-window.js"></script></head>
+<body><h1>Provider keys</h1>
+<p>Keys are stored encrypted for your Windows account and are not used until you switch them on here. When activation is on, each ticked key is given to the local Podcast Studio server process the next time the app starts, so that the cloud speech provider you choose in Settings can be called. Activation does not choose a provider and does not change your saved Settings. This window can never show a stored key.</p>
+<p><strong>Changes apply only after you quit and reopen Podcast Studio.</strong> Saving, clearing or ticking a key never restarts or interrupts the running server. Finish any jobs before you quit.</p>
+<p>Limitation: other programs running under your Windows account can read this app's memory and the server process environment, so they can obtain an active key. Keys are sent only to the provider's own HTTPS address. Provider charges are billed by the provider and are not counted in the monthly budget.</p>
+<p><label><input id="enabled" type="checkbox"> Use the ticked keys at the next launch</label></p>
+<p id="launch"></p>
+<ul id="list"></ul>
 <label for="name">Provider key</label> <select id="name"></select>
 <label for="value">New key</label> <input id="value" type="password" autocomplete="off" maxlength="8192">
 <button id="save" type="button">Save</button> <button id="clear" type="button">Clear stored key</button>
-<p id="status" role="status" aria-live="polite"></p><ul id="list"></ul></body></html>
+<p id="status" role="status" aria-live="polite"></p></body></html>

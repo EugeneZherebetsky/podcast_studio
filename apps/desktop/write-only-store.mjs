@@ -10,8 +10,8 @@ export const KEY_NAMES = Object.freeze([
 const MAX_ENCRYPTED_BYTES = 131072;
 
 // A cooperative lock prevents lost updates across processes; a crash requires manual recovery.
-// Same-user adversarial filesystem races are not excluded; stored keys remain inactive.
-export function createStore(file, safeStorage, options = {}) {
+// Same-user adversarial filesystem races are not excluded.
+function storage(file, safeStorage, options) {
   const platform = options.platform ?? process.platform;
   const replace = options.rename ?? rename;
   const openTemp = options.open ?? open;
@@ -64,7 +64,13 @@ export function createStore(file, safeStorage, options = {}) {
     } catch { throw new Error('Unable to update secure storage'); }
     finally { if (handle) await handle.close().catch(() => {}); if (created) await unlink(temp).catch(() => {}); }
   }
-  function validateName(name) { if (!KEY_NAMES.includes(name)) throw new Error('Unknown key'); }
+  return { locked, load, save };
+}
+function validateName(name) { if (!KEY_NAMES.includes(name)) throw new Error('Unknown key'); }
+
+/** Presence, set and clear only: this is the object a window's IPC handlers may hold. */
+export function createStore(file, safeStorage, options = {}) {
+  const { locked, load, save } = storage(file, safeStorage, options);
   return Object.freeze({
     list: () => locked(async () => { const values = await load(); return Object.fromEntries(KEY_NAMES.map((name) => [name, Object.hasOwn(values, name)])); }),
     set: (name, value) => locked(async () => {
@@ -73,5 +79,21 @@ export function createStore(file, safeStorage, options = {}) {
       const values = await load(); values[name] = value; await save(values);
     }),
     clear: (name) => locked(async () => { validateName(name); const values = await load(); delete values[name]; await save(values); }),
+  });
+}
+
+/**
+ * Main process only, used once at launch. Never register this on IPC or hand it to a window.
+ * Returns the requested allowlisted names that are stored; nothing else leaves the store.
+ */
+export function createKeyReader(file, safeStorage, options = {}) {
+  const { locked, load } = storage(file, safeStorage, options);
+  return Object.freeze({
+    read: (names) => locked(async () => {
+      if (!Array.isArray(names)) throw new Error('Unknown key');
+      names.forEach(validateName);
+      const values = await load();
+      return Object.fromEntries(names.filter((name) => Object.hasOwn(values, name)).map((name) => [name, values[name]]));
+    }),
   });
 }

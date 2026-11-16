@@ -21,7 +21,7 @@ const jobControlMessages = new Set([
   "Unclean desktop generation is unresolved. Stop all servers and verify any Piper, ffmpeg and Ollama work has stopped; see SETUP.md for manual recovery.",
   "External work may still be running; stop the server and follow manual recovery in SETUP.md",
   "Topic not found", "Only standard mode is supported", "Generation requires local Ollama, SearXNG and Piper",
-  "Configure a local Piper voice before generating", "Configure a valid cloud voice and provider key in .env before generating",
+  "Configure a local Piper voice before generating", "Configure a valid cloud voice and provider key (.env, or Provider keys in the desktop app) before generating",
   "Monthly budget exceeded", "Invalid budget", "Invalid recorded spending",
   "Invalid script selection; select a provider again", "Selection incomplete; select a provider again",
   "ChatGPT is unavailable on this host; select a provider from a numeric loopback host",

@@ -131,7 +131,7 @@ export function createDesktopRunner(
       if (!voice) throw new Error("Configure a local Piper voice before generating");
       const key = cloud && config ? (cloud.provider === "fish" ? config.FISH_AUDIO_API_KEY : config.ELEVENLABS_API_KEY) : undefined;
       if (cloud && (!key?.trim() || !/^[A-Za-z0-9_-]{1,128}$/.test(voice)))
-        throw new Error("Configure a valid cloud voice and provider key in .env before generating");
+        throw new Error("Configure a valid cloud voice and provider key (.env, or Provider keys in the desktop app) before generating");
       const jobDeps = {
         ...deps,
         ...(selection ? selection.capture() : {}),

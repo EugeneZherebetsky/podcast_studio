@@ -2,6 +2,7 @@ import { webRoot } from "./paths.ts";
 import { APP_NAME } from "shared";
 import { buildApp } from "./app.ts";
 import { loadConfig } from "./config.ts";
+import { dropDesktopProviderKeys } from "./desktop-env.ts";
 import { ensureDataDirs } from "./data-dir.ts";
 import { openDatabase } from "./db/index.ts";
 import path from "node:path";
@@ -20,6 +21,7 @@ try {
   console.error("Server configuration could not be loaded; check configuration and permissions");
   process.exit(1);
 }
+dropDesktopProviderKeys();
 
 const desktopIpc = process.env.PODCAST_STUDIO_DESKTOP_IPC === "1" && typeof process.send === "function";
 if (desktopIpc && !(config.PROFILE === "local" && config.SEARCH_PROVIDER === "searxng" && config.TTS_PROVIDER === "piper")) {

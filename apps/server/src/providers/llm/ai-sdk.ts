@@ -362,21 +362,32 @@ export function createAiSdkLlmProvider(
   });
 }
 
+/**
+ * The providers' own HTTPS endpoints, as built into the pinned SDK packages. They are passed
+ * explicitly because the SDKs otherwise let an environment variable such as
+ * `ANTHROPIC_BASE_URL` or `OPENAI_BASE_URL` send the API key to another host.
+ */
+const LLM_ENDPOINTS: Readonly<Record<LlmProviderName, string>> = Object.freeze({
+  anthropic: "https://api.anthropic.com/v1",
+  openai: "https://api.openai.com/v1",
+  google: "https://generativelanguage.googleapis.com/v1beta",
+});
+
 function languageModelFactory(
   name: LlmProviderName,
   apiKey: string,
 ): (modelId: string) => LanguageModel {
   switch (name) {
     case "anthropic": {
-      const provider = createAnthropic({ apiKey });
+      const provider = createAnthropic({ apiKey, baseURL: LLM_ENDPOINTS.anthropic });
       return (modelId) => provider(modelId);
     }
     case "openai": {
-      const provider = createOpenAI({ apiKey });
+      const provider = createOpenAI({ apiKey, baseURL: LLM_ENDPOINTS.openai });
       return (modelId) => provider(modelId);
     }
     case "google": {
-      const provider = createGoogle({ apiKey });
+      const provider = createGoogle({ apiKey, baseURL: LLM_ENDPOINTS.google });
       return (modelId) => provider(modelId);
     }
   }
