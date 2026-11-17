@@ -10,6 +10,7 @@ import {
 import { jobs, topics, settings } from "./db/schema.ts";
 import type { JobRunner } from "./job-routes.ts";
 import { cancelJob, ExternalWorkUncertain, createJob, generateJob, type GenerateDeps } from "./pipeline/runner.ts";
+import { JobAlreadyFinished } from "./pipeline/cancellation.ts";
 import { openDesktopGuard } from "./desktop-guard.ts";
 import type { createScriptSelection } from "./chatgpt-selection.ts";
 import { safeModel } from "./job-log.ts";
@@ -47,6 +48,19 @@ export function createDesktopRunner(
         ? "Cloud TTS may have billed this request; external work may still be running; stop the server and follow manual recovery in SETUP.md"
         : "Cloud TTS failed; the provider may have billed this request";
       deps.db.update(jobs).set({ error: warning }).where(eq(jobs.id, id)).run();
+    }
+  }
+  /**
+   * Shutdown only: a job that ended on its own just before shutdown reached it has nothing
+   * left to cancel. Any other failure still propagates.
+   */
+  function cancelUnlessFinished(cancel: () => void): boolean {
+    try {
+      cancel();
+      return true;
+    } catch (error) {
+      if (error instanceof JobAlreadyFinished) return false;
+      throw error;
     }
   }
   function pump(): void {
@@ -187,11 +201,12 @@ export function createDesktopRunner(
     async stopGeneration() {
       closing = true;
       for (const { id } of queue.splice(0)) {
-        cancelJob(deps.db, id);
-        events.emit("job-progress", id, { kind: "job", status: "cancelled" });
+        if (cancelUnlessFinished(() => cancelJob(deps.db, id)))
+          events.emit("job-progress", id, { kind: "job", status: "cancelled" });
       }
       if (activeId && get(activeId).currentStage !== "publish") {
-        cancelOwned(activeId);
+        const id = activeId;
+        cancelUnlessFinished(() => cancelOwned(id));
         abort?.abort();
       }
       if (!active) return true;

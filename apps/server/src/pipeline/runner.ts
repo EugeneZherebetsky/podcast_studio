@@ -15,7 +15,7 @@ import { usageOfFailedCall, type LlmProvider, type Usage } from "../providers/ll
 import { monthTotalCostUsd, recordLlmUsage } from "../usage.ts";
 import type { StageResult } from "./artifacts.ts";
 import type { PublishStep } from "./publish.ts";
-import { CancelledAfterStage } from "./cancellation.ts";
+import { CancelledAfterStage, JobAlreadyFinished } from "./cancellation.ts";
 import { ChatGptOutputError, ScriptPreflightError, chatGptDeadline } from "../chatgpt-selection.ts";
 import { LlmOutputError } from "../providers/llm/ai-sdk.ts";
 import { checkTtsInputLimit } from "../providers/tts/input-limit.ts";
@@ -148,7 +148,7 @@ export function cancelJob(db: Db, id: string): void {
     const job = tx.select().from(jobs).where(eq(jobs.id, id)).get();
     if (!job) throw new Error("Job not found");
     if (job.status === "succeeded" || job.status === "failed")
-      throw new Error(`Cannot cancel ${job.status} job`);
+      throw new JobAlreadyFinished(job.status);
     if (job.status === "running" && job.currentStage === "publish")
       throw new Error("Cannot cancel job during publish");
     tx.update(jobs)
