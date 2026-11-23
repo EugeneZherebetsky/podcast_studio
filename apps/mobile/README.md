@@ -1,5 +1,7 @@
 # Mobile sample player (T18, work in progress)
 
+Handoff for agents: see [docs/ANDROID-HANDOFF.md](../../docs/ANDROID-HANDOFF.md) for the full source map, functionality and open acceptance checks.
+
 The bundled sample is the LibriVox recording of “The Mouth,” chapter 3 of *The Voice and Public Speaking* by John Poole Sandlands, read by Meliora Dockery. [Catalog and recording](https://librivox.org/the-voice-and-public-speaking-by-john-poole-sandlands/). LibriVox identifies its recordings as public domain in the United States; check local law where applicable. The original MP3 was converted to AAC for the bundled episode package. The metadata contains no transcript segments; its creation date is a fixture placeholder.
 
 The library displays the bundled sample's locally saved position. Playback checkpoints use the existing Expo SQLite key-value store; playback progress stays on the phone. Pairing, wireless transfer and phone-to-PC sync are out of scope. Storage or restore errors are shown without preventing sample playback, and a failed restore does not overwrite the saved checkpoint.
